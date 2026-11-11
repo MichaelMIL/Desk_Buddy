@@ -1,0 +1,41 @@
+<!doctype html>
+<!-- Gallery: one representative frame of each animation in a grid.
+     ?filter=<regex on names>&frame=<fraction 0..1>&cols=<n>&size=<px>  e.g. gallery.html?filter=^Face -->
+<meta charset="utf-8">
+<title>gallery</title>
+<style>
+  body { background: #15171a; color: #ccc; font: 12px -apple-system, Helvetica, sans-serif; margin: 12px; }
+  #grid { display: grid; gap: 14px; }
+  figure { margin: 0; text-align: center; }
+  canvas { border-radius: 50%; background: #000; image-rendering: pixelated; display: block; margin: 0 auto; box-shadow: 0 0 0 6px #0a0a0a, 0 0 0 8px #2b2b2b; }
+  figcaption { margin-top: 8px; }
+  iframe { position: absolute; left: -3000px; width: 1200px; height: 800px; }
+</style>
+<div id="grid"></div>
+<iframe id="f" src="../index.html"></iframe>
+<script>
+const q = new URLSearchParams(location.search);
+const filter = new RegExp(q.get('filter') || '.'), frac = +(q.get('frame') || 0.45), cols = +(q.get('cols') || 4), size = +(q.get('size') || 170);
+const grid = document.getElementById('grid');
+grid.style.gridTemplateColumns = `repeat(${cols}, ${size}px)`;
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+document.getElementById('f').onload = async () => {
+  const w = document.getElementById('f').contentWindow, d = document.getElementById('f').contentDocument;
+  for (let i = 0; i < 100 && !(w.SimApp && w.SimApp.registry.length); i++) await sleep(100);
+  for (const a of [...w.SimApp.registry]) {
+    if (!filter.test(a.name) || a.name === 'Template') continue;
+    await w.SimApp.select(a);
+    const total = a.frames, idx = Math.round(frac * (total - 1));
+    const scrub = d.getElementById('scrub');
+    scrub.value = idx; scrub.dispatchEvent(new Event('input'));
+    for (let i = 0; i < 60 && d.getElementById('hud-frame').textContent !== `${idx + 1} / ${total}`; i++) await sleep(25);
+    await sleep(40);
+    const c = document.createElement('canvas'); c.width = 240; c.height = 240; c.style.width = c.style.height = size + 'px';
+    c.getContext('2d').drawImage(d.getElementById('screen'), 0, 0);
+    const fig = document.createElement('figure'); fig.appendChild(c);
+    const cap = document.createElement('figcaption'); cap.textContent = a.name; fig.appendChild(cap);
+    grid.appendChild(fig);
+  }
+  document.body.dataset.done = '1';
+};
+</script>

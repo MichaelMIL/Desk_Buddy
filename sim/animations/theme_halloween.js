@@ -15,10 +15,13 @@ Sim.register({
     const glow = Sim.lerp565(Sim.hex('#ff7a00'), Sim.hex('#ffe066'), flick);
     const body = Sim.lerp565(Sim.hex('#c2500c'), Sim.hex('#f06a10'), 0.5 + 0.5 * flick);
     const ridge = Sim.lerp565(body, Sim.C.BLACK, 0.3);
-    // stem and body; the ridges are ellipses kept inside the body outline
+    // stem and body; the ridges follow the body outline (x = k * half-width at that row)
     g.fillRoundRect(112, 36, 16, 26, 5, Sim.hex('#3e7a2a'));
     g.fillEllipse(120, 132, 92, 76, body);
-    for (const [dx, rx] of [[-56, 30], [-28, 44], [0, 50], [28, 44], [56, 30]]) g.drawEllipse(120 + dx, 132, rx, 72, ridge);
+    for (let y = 132 - 74; y <= 132 + 74; y++) {
+      const w = 92 * Math.sqrt(1 - ((y - 132) / 76) ** 2);
+      for (const k of [-0.62, -0.31, 0.31, 0.62]) { const x = Math.round(120 + k * w); g.drawPixel(x, y, ridge); g.drawPixel(x + 1, y, ridge); }
+    }
     // eyes, nose, jagged mouth, lit from inside
     g.fillTriangle(70, 118, 102, 118, 86, 92, glow);
     g.fillTriangle(138, 118, 170, 118, 154, 92, glow);

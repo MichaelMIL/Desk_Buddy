@@ -146,23 +146,21 @@ lug_relief  = 0.24;        // back lug sits this much deeper (it sweeps the lowe
 beam_w = 6.4;  beam_len = 20;  beam_t = 0.8;   // spring beam under the peg
 beam_rec = 0.5;            // beam is set back from the inner face by this much
 beam_gap = 0.6;            // free space behind the beam (it prints as a bridge)
-// band to cup: each end of the band sits on top of its cup, and a flat tab under it
-// pushes down into a slot in the cup until a small hook on its tip clicks into a groove.
-// The band itself is the spring: it squeezes in by the hook's height while the hook
-// passes. Made for FDM: the tab is a plain 2D outline of the band, flush with its back
-// face (which lies on the bed), and the slot is open towards the head, so neither part
-// needs support or a bridge.
+// band to cup: each end of the band runs on down as a flat tab, the band's full width,
+// into a slot in the top of its cup. A small hook on the tip clicks into a groove at the
+// bottom of the slot and the tip rests on the slot floor. The band itself is the spring:
+// it squeezes in by the hook's height while the hook passes. Made for FDM: the whole
+// band, tabs included, is one 2D outline extruded through its width, and the slot is
+// open towards the head, so neither part needs support or a bridge.
 band_seat = 0.05;          // drawn gap between the band's end and the cup
 btab_x0   = seat_x + 0.6;  // inner face of the tab, from the head axis. The gap to the
                            // head lets the band squeeze in while the hook passes
 btab_t    = 1.9;           // tab thickness (about 4 perimeters)
-btab_w    = 6.0;           // tab width, along the band's width
 btab_zb   = cup_z + 5;     // tip of the tab (head frame)
 btab_hook = 0.45;          // how far the hook stands out: raise for a firmer click
 btab_clr  = 0.15;          // clearance around the tab in its slot
 btab_pre  = 0.1;           // the hook stays pressed on its catch by this much: no rattle
 btab_x1   = btab_x0 + btab_t;             // outer face of the tab
-btab_y0   = band_y + band_w/2 - btab_w;   // front face of the tab (body frame)
 hook_zl   = btab_zb + 1.2;                // top of the hook's lead-in ramp
 hook_zc   = hook_zl + 0.6;                // top of its flat; the catch above it is at
 hook_dz   = btab_hook*tan(30);            // 60 degrees to the push direction
@@ -349,18 +347,19 @@ module btab_2d() let(zt = cup_z + cup_d/2 + 0.4) polygon([
     [btab_x0, zt], [btab_x0, btab_zb + 0.4], [btab_x0 + 0.4, btab_zb], [btab_x1 - 0.1, btab_zb],
     [btab_x1 + btab_hook, hook_zl], [btab_x1 + btab_hook, hook_zc], [btab_x1, hook_zc + hook_dz], [btab_x1, zt]]);
 // the slot in the cup: the tab plus clearance, open towards the head, with the groove
-// for the hook at the bottom. Its catch sits btab_pre inside the hook's.
+// for the hook at the bottom. The tip stands on its floor; the slot's catch sits
+// btab_pre inside the hook's, so the band is pulled down onto the floor.
 module btab_slot_2d() let(c = btab_clr, h = btab_hook, k = hook_dz/btab_hook, zt = cup_z + cup_d/2 + 2) polygon([
-    [cup_in - 1, zt], [cup_in - 1, btab_zb - 2*c], [btab_x1 + h + c, btab_zb - 2*c],
+    [cup_in - 1, zt], [cup_in - 1, btab_zb], [btab_x1 + h + c, btab_zb],
     [btab_x1 + h + c, hook_zc - (c + btab_pre)*k], [btab_x1 + c, hook_zc + (h - btab_pre - c)*k], [btab_x1 + c, zt]]);
 
-// the plain band in 3D: ring with its ends cut to sit on the cups, and the two tabs
+// the plain band in 3D: ring with its ends cut to the cups' shape, and the two tabs
 module band_base() {
     difference() {
         band_ex() band_profile_2d();
         for (m = [0, 1]) mirror([m, 0, 0]) cup_top(band_seat);
     }
-    band_ex(band_w/2 - btab_w, btab_w) mir() btab_2d();
+    band_ex() mir() btab_2d();
 }
 
 module band_ex(y0 = -band_w/2, w = band_w) translate([0, 0, head_cz]) xz_extrude(band_y + y0, w) children();
@@ -472,7 +471,7 @@ module cup(side = 1) {
         translate([0, band_y, head_cz + cup_z]) rotate([0, 90*side, 0]) ear_cut(cup_x1);
         // slot for the band's tab: open at the top and towards the head
         translate([0, 0, head_cz]) mirror([side < 0 ? 1 : 0, 0, 0])
-            xz_extrude(btab_y0 - btab_clr, btab_w + 2*btab_clr) btab_slot_2d();
+            xz_extrude(band_y - band_w/2 - btab_clr, band_w + 2*btab_clr) btab_slot_2d();
     }
     translate([0, band_y, head_cz + cup_z]) rotate([0, 90*side, 0]) ear_lock();
 }
