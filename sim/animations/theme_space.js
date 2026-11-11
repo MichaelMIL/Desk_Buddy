@@ -82,3 +82,36 @@ Sim.register({
     }
   },
 });
+
+Sim.register({
+  name: 'Space: alien',
+  theme: 'space',
+  fps: 24,
+  duration: 4000,
+
+  frame(g, f) {
+    const F = Face, t = f.t / 1000, bg = Sim.hex('#050816');
+    g.clear(bg);
+    stars(g, t, 40, bg);
+    const green = Sim.hex('#6ee36e'), dark = Sim.hex('#2d8f3a');
+    const dy = Math.round(5 * Math.sin(t * 1.5));
+    // big green head, antennae with glowing tips
+    g.fillEllipse(120, 126 + dy, 78, 70, green);
+    g.fillEllipse(120, 150 + dy, 56, 46, Sim.lerp565(green, dark, 0.3));
+    for (const s of [-1, 1]) {
+      const ax = 120 + s * 30, tip = 44 + dy + Math.round(4 * Math.sin(t * 4 + s));
+      g.drawLine(ax, 70 + dy, ax + s * 12, tip, dark); g.drawLine(ax + 1, 70 + dy, ax + s * 12 + 1, tip, dark);
+      g.fillCircle(ax + s * 12, tip, 5, Sim.lerp565(Sim.C.YELLOW, Sim.C.WHITE, 0.5 + 0.5 * Math.sin(t * 8 + s)));
+    }
+    // three eyes blinking in turn
+    const eyes = [[84, 120], [120, 106], [156, 120]];
+    eyes.forEach(([x, y], i) => {
+      const b = F.kf(t, [[1 + i * 0.4, 1], [1.1 + i * 0.4, 0.05], [1.25 + i * 0.4, 1]]);
+      const ry = Math.max(2, Math.round(19 * b));
+      g.fillEllipse(x, y + dy, 15, ry, Sim.hex('#101018'));
+      if (b > 0.3) { g.fillCircle(x + Math.round(3 * Math.sin(t * 2)), y + dy, 7, Sim.hex('#58c8ff')); g.fillCircle(x + 3, y + dy - 4, 2, Sim.C.WHITE); }
+    });
+    const o = 4 + Math.round(6 * Math.abs(Math.sin(t * 3)));
+    g.fillEllipse(120, 156 + dy, 10, o, Sim.hex('#101018'));
+  },
+});

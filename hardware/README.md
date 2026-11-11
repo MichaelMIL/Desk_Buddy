@@ -71,7 +71,8 @@ unless their theme is selected; common animations (no prefix) always play.
 Themes are discovered from the stored names, so pushing an animation with a
 new prefix creates a new theme. Select it on the Settings page, with
 `theme <name>` / `theme none` on serial, or over MQTT (`theme/set`, a Home
-Assistant select). Shipped themes: `halloween`, `xmas`, `space`, `ocean`.
+Assistant select). Shipped themes: one per build variant (`dj`, `cat`, `bear`, `bunny`,
+`king`, `unicorn`) and seasonal ones (`halloween`, `xmas`, `space`, `ocean`).
 
 ## MQTT
 

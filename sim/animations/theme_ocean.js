@@ -90,3 +90,29 @@ Sim.register({
     g.drawArc(cx, cy + 4, 12, 9, 150, 210, Sim.hex('#30204a'));
   },
 });
+
+Sim.register({
+  name: 'Ocean: fish',
+  theme: 'ocean',
+  fps: 16,
+  duration: 5000,
+
+  frame(g, f) {
+    const t = f.t / 1000;
+    water(g, t);
+    bubbles(g, t, 6);
+    // a fish swims across and back
+    const dir = f.p < 0.5 ? 1 : -1, u = f.p < 0.5 ? f.p * 2 : (1 - f.p) * 2;
+    const x = Math.round(-40 + 320 * u), y = 120 + Math.round(16 * Math.sin(t * 2));
+    const body = Sim.hex('#ffa03c'), fin = Sim.hex('#ff6a1a');
+    const tail = Math.round(6 * Math.sin(t * 10));
+    g.fillTriangle(x - dir * 26, y, x - dir * 46, y - 16 + tail, x - dir * 46, y + 16 + tail, fin);
+    g.fillEllipse(x, y, 30, 18, body);
+    g.fillTriangle(x - dir * 4, y - 14, x + dir * 10, y - 26, x + dir * 14, y - 12, fin);
+    g.fillTriangle(x - dir * 4, y + 14, x + dir * 6, y + 24, x + dir * 14, y + 12, fin);
+    for (let i = 0; i < 3; i++) g.drawArc(x - dir * (4 + i * 8), y, 12, 10, dir > 0 ? 160 : 340, dir > 0 ? 200 : 380, fin);
+    g.fillCircle(x + dir * 14, y - 4, 6, Sim.C.WHITE);
+    g.fillCircle(x + dir * 15, y - 4, 3, Sim.hex('#101018'));
+    g.drawArc(x + dir * 20, y + 6, 6, 4, dir > 0 ? 90 : 180, dir > 0 ? 180 : 270, Sim.hex('#c84a10'));
+  },
+});

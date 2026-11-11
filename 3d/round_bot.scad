@@ -155,8 +155,9 @@ beam_gap = 0.6;            // free space behind the beam (it prints as a bridge)
 band_seat = 0.05;          // drawn gap between the band's end and the cup
 btab_x0   = seat_x + 0.6;  // inner face of the tab, from the head axis. The gap to the
                            // head lets the band squeeze in while the hook passes
-btab_t    = 1.9;           // tab thickness (about 4 perimeters)
-btab_zb   = cup_z + 5;     // tip of the tab (head frame)
+btab_t    = 2.5;           // tab thickness (about 5 perimeters)
+btab_zb   = cup_z + 4.4;   // tip of the tab (head frame); the slot floor keeps 0.85 mm
+                           // over the twist-lock's spring pocket below it
 btab_hook = 0.45;          // how far the hook stands out: raise for a firmer click
 btab_clr  = 0.15;          // clearance around the tab in its slot
 btab_pre  = 0.1;           // the hook stays pressed on its catch by this much: no rattle
@@ -325,7 +326,7 @@ module place_head() { translate([0, head_front_y, head_cz]) children(); }
 //  headphones (body frame)
 // ============================================================
 cup_in = seat_x + cup_gap;      // inner face of every side piece
-leg_xi   = seat_x + 0.4;                   // the band's ends stay clear of the seat bosses
+leg_xi   = btab_x0;                        // the band's ends stay clear of the seat bosses
 seat_top = cup_z + seat_d/2 + 0.3;         // ... below this height
 
 module band_ring_2d() difference() { circle(r = band_r_in + band_t); circle(r = band_r_in); }
@@ -342,10 +343,11 @@ module band_profile_2d() intersection() {
 // outside of the right-hand cup, grown by g: the band's end is cut to sit on it
 module cup_top(g) translate([cup_in - 0.02, band_y, head_cz + cup_z]) rotate([0, 90, 0]) cylinder(r = cup_d/2 + g, h = 10);
 
-// x-z outline of the right-hand tab (head frame): lead-in, hook, catch
-module btab_2d() let(zt = cup_z + cup_d/2 + 0.4) polygon([
+// x-z outline of the right-hand tab (head frame): lead-in, hook, catch. Near the top it
+// follows the band's outer curve, so nothing of it shows above the cup.
+module btab_2d() let(zt = cup_z + cup_d/2 + 0.4) intersection() { circle(r = R_b); polygon([
     [btab_x0, zt], [btab_x0, btab_zb + 0.4], [btab_x0 + 0.4, btab_zb], [btab_x1 - 0.1, btab_zb],
-    [btab_x1 + btab_hook, hook_zl], [btab_x1 + btab_hook, hook_zc], [btab_x1, hook_zc + hook_dz], [btab_x1, zt]]);
+    [btab_x1 + btab_hook, hook_zl], [btab_x1 + btab_hook, hook_zc], [btab_x1, hook_zc + hook_dz], [btab_x1, zt]]); }
 // the slot in the cup: the tab plus clearance, open towards the head, with the groove
 // for the hook at the bottom. The tip stands on its floor; the slot's catch sits
 // btab_pre inside the hook's, so the band is pulled down onto the floor.
@@ -462,11 +464,11 @@ module cup(side = 1) {
                 translate([0, 0, cup_in]) cylinder(d = cup_d, h = 5);
                 translate([0, 0, cup_x1 - 3]) cylinder(d = cup_d - 5, h = 3);
             }
-        // groove between pad and shell
+        // groove between pad and shell (shallow, and out past the band's slot)
         translate([0, band_y, head_cz + cup_z]) rotate([0, 90*side, 0])
-            translate([0, 0, cup_in + 3.2]) difference() {
+            translate([0, 0, cup_in + 3.7]) difference() {
                 cylinder(d = cup_d + 2, h = 0.8);
-                translate([0, 0, -1]) cylinder(d = cup_d - 1.6, h = 3);
+                translate([0, 0, -1]) cylinder(d = cup_d - 1.0, h = 3);
             }
         translate([0, band_y, head_cz + cup_z]) rotate([0, 90*side, 0]) ear_cut(cup_x1);
         // slot for the band's tab: open at the top and towards the head

@@ -12,7 +12,10 @@ with swappable accessories.
 
 <p align="center">
   <img src="docs/images/faces.png" alt="Faces" width="430">
-  <img src="docs/images/themes.png" alt="Themed animations" width="430">
+  <img src="docs/images/build_themes.png" alt="Animations for the build variants" width="430">
+</p>
+<p align="center">
+  <img src="docs/images/themes.png" alt="Seasonal themes" width="430">
 </p>
 
 ## What's in the box
@@ -61,9 +64,11 @@ and can push it straight to the board.
   availability, screen, brightness and theme topics. Home Assistant
   discovery exposes a Face select, a Theme select, a Screen switch and a
   Brightness number.
-- Themes: animations tagged with a theme (`halloween`, `xmas`, `space`,
-  `ocean` so far) only play while that theme is selected; the common faces
-  always do.
+- Themes: animations tagged with a theme only play while that theme is
+  selected; the common faces always do. There is a theme per build variant
+  (`dj`, `cat`, `bear`, `bunny`, `king`, `unicorn`) and seasonal ones
+  (`halloween`, `xmas`, `space`, `ocean`), three animations each for the
+  seasons and two per build.
 
 ## Hardware
 

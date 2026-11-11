@@ -62,3 +62,36 @@ Sim.register({
     spots.forEach(([x, y], k) => g.fillCircle(x, y, 5, cols[(k + (f.i >> 2)) % cols.length]));
   },
 });
+
+Sim.register({
+  name: 'Christmas: snowman',
+  theme: 'xmas',
+  fps: 20,
+  duration: 4000,
+
+  frame(g, f) {
+    const F = Face, t = f.t / 1000, bg = Sim.hex('#0b1a2e');
+    g.clear(bg);
+    for (let k = 0; k < 30; k++) {
+      const y = Math.round((xr(k + 1) * 240 + t * (20 + 25 * xr(k + 7))) % 250) - 5;
+      g.fillCircle(Math.round(xr(k + 3) * 240 + 5 * Math.sin(t + k)), y, 1, Sim.C.WHITE);
+    }
+    // snowman: head is the face, body below, scarf, carrot nose, twig arms
+    const dy = Math.round(3 * Math.sin(t * 2));
+    g.fillCircle(120, 215, 70, Sim.hex('#eef4ff'));
+    g.fillCircle(120, 118 + dy, 66, Sim.hex('#eef4ff'));
+    g.fillRoundRect(68, 162 + dy, 104, 14, 7, Sim.hex('#d8202a'));
+    g.fillRoundRect(140, 170 + dy, 16, 36, 6, Sim.hex('#d8202a'));
+    const blink = F.kf(t, [[2.0, 1], [2.12, 0.05], [2.3, 1]]);
+    for (const cx of [98, 142]) { g.fillCircle(cx, 104 + dy, 7, Sim.hex('#1a1a22')); if (blink < 0.3) g.fillRect(cx - 8, 97 + dy, 16, 14, Sim.hex('#eef4ff')); }
+    g.fillTriangle(120, 112 + dy, 120, 124 + dy, 150, 120 + dy, Sim.C.ORANGE);
+    for (let i = 0; i < 5; i++) g.fillCircle(100 + i * 10, 140 + dy + Math.abs(i - 2) * -2, 3, Sim.hex('#1a1a22'));
+    const wave = Math.round(8 * Math.sin(t * 3));
+    g.drawLine(60, 200, 20, 170 - wave, Sim.hex('#6b3e1f')); g.drawLine(60, 201, 20, 171 - wave, Sim.hex('#6b3e1f'));
+    g.drawLine(180, 200, 220, 175, Sim.hex('#6b3e1f')); g.drawLine(180, 201, 220, 176, Sim.hex('#6b3e1f'));
+    // top hat
+    g.fillRect(84, 54 + dy, 72, 8, Sim.hex('#1a1a22'));
+    g.fillRect(96, 20 + dy, 48, 36, Sim.hex('#1a1a22'));
+    g.fillRect(96, 46 + dy, 48, 6, Sim.hex('#d8202a'));
+  },
+});

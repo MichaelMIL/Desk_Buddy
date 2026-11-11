@@ -68,9 +68,11 @@ An animation with `theme: 'halloween'` (lower-case, letters/digits) is stored
 on the device as `halloween__<name>` and plays only while that theme is
 selected on the device's settings page (common animations, without a theme,
 play in every theme). Name themed animations `'Halloween: pumpkin'`: the
-theme prefix is dropped from the board name. Existing themes: `halloween`,
+theme prefix is dropped from the board name. Existing themes: the build variants `dj`,
+`cat`, `bear`, `bunny`, `king`, `unicorn` and the seasons `halloween`,
 `xmas`, `space`, `ocean` (see `theme_*.js`); a new theme name creates a new
-theme automatically.
+theme automatically. Build-variant animations keep the standard face and add
+the accessory (headphones, ears, crown, horn) plus a matching behaviour.
 
 ## Drawing API (`g`)
 

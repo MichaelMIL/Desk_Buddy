@@ -78,3 +78,32 @@ Sim.register({
     g.fillEllipse(gx + 50, gy - 2 - Math.round(5 * Math.sin(t * 3)), 12, 8, white);
   },
 });
+
+Sim.register({
+  name: 'Halloween: bat',
+  theme: 'halloween',
+  fps: 24,
+  duration: 3000,
+
+  frame(g, f) {
+    const t = f.t / 1000, bg = Sim.hex('#06041a');
+    g.clear(bg);
+    g.fillCircle(120, 110, 70, Sim.hex('#f2e9b0'));
+    g.fillCircle(132, 98, 10, Sim.hex('#e6dca0')); g.fillCircle(96, 124, 7, Sim.hex('#e6dca0'));
+    // the bat swoops in a figure eight; wings flap
+    const x = 120 + Math.round(70 * Math.sin(f.p * Math.PI * 2)), y = 110 + Math.round(30 * Math.sin(f.p * Math.PI * 4));
+    const flap = Math.sin(t * 18) * 18;
+    const black = Sim.hex('#2b2340');   // dark violet: reads against the night sky and the moon
+    for (const s of [-1, 1]) {
+      const wx = x + s * 16, tip = x + s * 60, ty = y - 8 + Math.round(flap);
+      g.fillTriangle(wx, y - 6, tip, ty, wx + s * 18, y + 14, black);
+      g.fillTriangle(wx + s * 18, y + 14, tip, ty, tip - s * 10, y + 22 + Math.round(flap / 2), black);
+      g.fillTriangle(wx + s * 4, y + 12, wx + s * 18, y + 14, wx + s * 10, y + 22, black);
+    }
+    g.fillEllipse(x, y, 18, 13, black);
+    g.fillTriangle(x - 10, y - 18, x - 2, y - 8, x - 17, y - 7, black);
+    g.fillTriangle(x + 10, y - 18, x + 2, y - 8, x + 17, y - 7, black);
+    g.fillCircle(x - 6, y - 2, 3, Sim.C.RED); g.fillCircle(x + 6, y - 2, 3, Sim.C.RED);
+    g.fillTriangle(x - 4, y + 7, x - 1, y + 7, x - 2, y + 11, Sim.C.WHITE); g.fillTriangle(x + 1, y + 7, x + 4, y + 7, x + 2, y + 11, Sim.C.WHITE);
+  },
+});
