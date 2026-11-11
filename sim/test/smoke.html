@@ -1,0 +1,32 @@
+<!doctype html>
+<!-- Browser smoke test: loads the simulator in an iframe, renders + exports
+     every animation, and reports in #result. Run via test/run_tests.sh or open
+     http://localhost:8765/test/smoke.html -->
+<meta charset="utf-8">
+<title>sim smoke test</title>
+<pre id="result">running…</pre>
+<iframe id="f" src="../index.html" width="1200" height="800"></iframe>
+<script>
+const out = [];
+const f = document.getElementById('f');
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+f.onload = async () => {
+  const w = f.contentWindow, d = f.contentDocument;
+  for (let i = 0; i < 50 && !d.querySelectorAll('#anim-list li').length; i++) await sleep(100);
+  const items = [...d.querySelectorAll('#anim-list li')];
+  out.push(`animations: ${items.length}`);
+  for (const li of items) {
+    li.click();
+    await sleep(300);
+    d.getElementById('btn-size').click();
+    for (let i = 0; i < 100 && !d.getElementById('hud-size').textContent; i++) await sleep(100);
+    const px = d.getElementById('screen').getContext('2d').getImageData(0, 0, 240, 240).data;
+    let lit = 0; for (let k = 0; k < px.length; k += 4) if (px[k] | px[k + 1] | px[k + 2]) lit++;
+    out.push(`${li.textContent}: frame ${d.getElementById('hud-frame').textContent}, export ${d.getElementById('hud-size').textContent}, lit pixels ${lit}`);
+  }
+  const errs = [...d.querySelectorAll('#log .err')].map(e => e.textContent);
+  out.push(`errors: ${errs.length}` + (errs.length ? '\n  ' + errs.join('\n  ') : ''));
+  out.push(errs.length ? 'SMOKE FAIL' : 'SMOKE OK');
+  document.getElementById('result').textContent = out.join('\n');
+};
+</script>

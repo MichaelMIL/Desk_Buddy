@@ -1,0 +1,353 @@
+#include "net.h"
+#include "app.h"
+#include "config.h"
+#include "mqtt.h"
+#include "store.h"
+#include "web_page.h"
+#include <WiFi.h>
+#include <WebServer.h>
+#include <DNSServer.h>
+#include <ESPmDNS.h>
+#include <ArduinoOTA.h>
+#include <Update.h>
+
+#ifndef FW_VERSION
+#define FW_VERSION "dev"
+#endif
+
+static WebServer server(80);
+static DNSServer dns;
+static bool apOn = false;
+static bool staWanted = false;
+static uint32_t staStartedAt = 0, lastStaRetry = 0;
+static bool mdnsUp = false;
+static bool otaUp = false;
+static String uploadErr;
+static bool uploadOk = false;
+static String apSsid;
+static const uint32_t STA_TIMEOUT_MS = 20000, STA_RETRY_MS = 60000;
+
+bool netConnected() { return WiFi.status() == WL_CONNECTED; }
+bool netApActive() { return apOn; }
+String netApSsid() { return apSsid; }
+String netIp() { return netConnected() ? WiFi.localIP().toString() : (apOn ? WiFi.softAPIP().toString() : String("")); }
+
+static String jsonStr(const String &s) {
+  String o = "\"";
+  for (char c : s) {
+    if (c == '"' || c == '\\') { o += '\\'; o += c; }
+    else if (c == '\n') o += "\\n";
+    else if ((uint8_t)c < 0x20) continue;
+    else o += c;
+  }
+  return o + "\"";
+}
+
+static String animationsJson() {
+  String a = "[";
+  app_lock();
+  for (size_t i = 0; i < app_anim_count(); i++) { if (i) a += ","; a += jsonStr(app_anim_name(i)); }
+  app_unlock();
+  return a + "]";
+}
+
+static void handleStatus() {
+  String s = "{";
+  s += "\"id\":" + jsonStr(deviceId());
+  s += ",\"current\":" + jsonStr(app_current());
+  s += ",\"animations\":" + animationsJson();
+  s += ",\"wifi\":{\"connected\":" + String(netConnected() ? "true" : "false");
+  s += ",\"ssid\":" + jsonStr(netConnected() ? WiFi.SSID() : cfg.ssid) + ",\"ip\":" + jsonStr(netIp()) + ",\"rssi\":" + String(WiFi.RSSI()) + "}";
+  s += ",\"ap\":" + (apOn ? jsonStr(apSsid) : String("null"));
+  s += ",\"mqtt\":" + jsonStr(mqttStatus());
+  s += ",\"screen\":" + String(app_screen_on() ? "true" : "false") + ",\"brightness\":" + String(app_brightness_get());
+  app_lock(); s += ",\"theme\":" + jsonStr(cfg.theme) + ",\"themes\":" + storeThemesJson(); app_unlock();
+  s += ",\"host\":" + jsonStr(hostName());
+  s += ",\"heap\":" + String(ESP.getFreeHeap()) + ",\"uptime\":" + String(millis() / 1000) + ",\"version\":\"" FW_VERSION "\"";
+  s += ",\"config\":{\"ssid\":" + jsonStr(cfg.ssid) + ",\"mqttHost\":" + jsonStr(cfg.mqttHost) + ",\"mqttPort\":" + String(cfg.mqttPort);
+  s += ",\"mqttUser\":" + jsonStr(cfg.mqttUser) + ",\"mqttPrefix\":" + jsonStr(cfg.mqttPrefix) + ",\"haDiscovery\":" + String(cfg.haDiscovery ? "true" : "false");
+  s += ",\"anim\":" + jsonStr(cfg.anim) + ",\"name\":" + jsonStr(cfg.name) + ",\"apPass\":" + jsonStr(cfg.apPass) + ",\"otaPass\":" + jsonStr(cfg.otaPass);
+  s += ",\"cycleList\":" + jsonStr(cfg.cycleList) + ",\"rotation\":" + String(cfg.rotation) + ",\"loops\":" + String(cfg.loops);
+  s += ",\"speed\":" + String(cfg.speed) + ",\"screenOn\":" + String(cfg.screenOn ? "true" : "false") + "}}";
+  server.send(200, "application/json", s);
+}
+
+static void handlePlay() {
+  String name = server.arg("name");
+  if (!app_play(name.c_str())) { server.send(404, "application/json", "{\"error\":\"unknown animation\"}"); return; }
+  server.send(200, "application/json", "{\"ok\":true,\"current\":" + jsonStr(app_current()) + "}");
+}
+
+static void handleScreen() {
+  bool on = server.arg("on") != "0" && server.arg("on") != "off" && server.arg("on") != "false";
+  app_screen(on);
+  server.send(200, "application/json", String("{\"ok\":true,\"on\":") + (app_screen_on() ? "true" : "false") + "}");
+}
+
+static void handleTheme() {
+  String t = server.arg("name");
+  for (char c : t) if (!(isalnum((unsigned char)c))) { server.send(400, "application/json", "{\"error\":\"theme names are letters and digits\"}"); return; }
+  app_set_theme(t.c_str());
+  server.send(200, "application/json", "{\"ok\":true,\"theme\":" + jsonStr(cfg.theme) + "}");
+}
+
+static void handleBrightness() {
+  int v = server.arg("value").toInt();
+  if (v < 10 || v > 100) { server.send(400, "application/json", "{\"error\":\"value must be 10..100\"}"); return; }
+  app_brightness(v);
+  cfg.brightness = v;
+  configSave();
+  server.send(200, "application/json", "{\"ok\":true,\"brightness\":" + String(v) + "}");
+}
+
+static void handleReset() {
+  configClear();
+  server.send(200, "application/json", "{\"ok\":true,\"rebooting\":true}");
+  delay(300);
+  ESP.restart();
+}
+
+static void handleScan() {
+  int n = WiFi.scanNetworks(false, false);
+  String s = "[";
+  for (int i = 0; i < n && i < 20; i++) {
+    if (i) s += ",";
+    s += "{\"ssid\":" + jsonStr(WiFi.SSID(i)) + ",\"rssi\":" + String(WiFi.RSSI(i)) + ",\"open\":" + String(WiFi.encryptionType(i) == WIFI_AUTH_OPEN ? "true" : "false") + "}";
+  }
+  WiFi.scanDelete();
+  server.send(200, "application/json", s + "]");
+}
+
+static void handleConfig() {
+  if (server.hasArg("ssid")) cfg.ssid = server.arg("ssid");
+  if (server.hasArg("pass") && server.arg("pass").length()) cfg.pass = server.arg("pass");
+  if (server.hasArg("mqttHost")) cfg.mqttHost = server.arg("mqttHost");
+  if (server.hasArg("mqttPort")) { int p = server.arg("mqttPort").toInt(); if (p > 0 && p < 65536) cfg.mqttPort = p; }
+  if (server.hasArg("mqttUser")) cfg.mqttUser = server.arg("mqttUser");
+  if (server.hasArg("mqttPass") && server.arg("mqttPass").length()) cfg.mqttPass = server.arg("mqttPass");
+  if (server.hasArg("mqttPrefix") && server.arg("mqttPrefix").length()) cfg.mqttPrefix = server.arg("mqttPrefix");
+  if (server.hasArg("haDiscovery")) cfg.haDiscovery = server.arg("haDiscovery") == "1";
+  if (server.hasArg("anim")) cfg.anim = server.arg("anim");
+  if (server.hasArg("name") && server.arg("name").length()) cfg.name = server.arg("name");
+  if (server.hasArg("apPassSet")) { String ap = server.arg("apPass"); if (ap.isEmpty() || ap.length() >= 8) cfg.apPass = ap; }
+  if (server.hasArg("otaPassSet")) cfg.otaPass = server.arg("otaPass");
+  if (server.hasArg("cycleList")) cfg.cycleList = server.arg("cycleList");
+  if (server.hasArg("theme")) cfg.theme = server.arg("theme");
+  if (server.hasArg("rotation")) cfg.rotation = server.arg("rotation").toInt() & 3;
+  if (server.hasArg("loops")) { int v = server.arg("loops").toInt(); if (v >= 1 && v <= 50) cfg.loops = v; }
+  if (server.hasArg("speed")) { int v = server.arg("speed").toInt(); if (v >= 25 && v <= 400) cfg.speed = v; }
+  cfg.screenOn = app_screen_on();
+  cfg.brightness = app_brightness_get();
+  configSave();
+  server.send(200, "application/json", "{\"ok\":true,\"rebooting\":true}");
+  delay(300);
+  ESP.restart();
+}
+
+static void handleReboot() {
+  server.send(200, "application/json", "{\"ok\":true}");
+  delay(300);
+  ESP.restart();
+}
+
+static void handleRoot() { server.send_P(200, "text/html", FACES_PAGE); }
+static void handleSettingsPage() { server.send_P(200, "text/html", SETTINGS_PAGE); }
+static void handleCss() { server.send_P(200, "text/css", WEB_CSS); }
+
+static bool otaAuthorized() {
+  if (cfg.otaPass.isEmpty()) return true;
+  return server.hasHeader("X-OTA-Password") ? server.header("X-OTA-Password") == cfg.otaPass : server.arg("password") == cfg.otaPass;
+}
+
+static void handleAnimList() {
+  app_lock();
+  String body = "{\"animations\":" + storeListJson() + ",\"free\":" + String(storeFreeBytes()) + ",\"total\":" + String(storeTotalBytes()) + "}";
+  app_unlock();
+  server.send(200, "application/json", body);
+}
+
+static String uploadName() { return server.hasHeader("X-Anim-Name") ? server.header("X-Anim-Name") : server.arg("name"); }
+
+static void uploadProgress(const char *label) {
+  static int lastPct = -1;
+  int total = server.clientContentLength();
+  int pct = total > 0 ? (int)((uint64_t)server.raw().totalSize * 100 / total) : -1;
+  if (pct != lastPct) {
+    if (pct / 25 != lastPct / 25) Serial.printf("%s: %d%%\n", label, pct);
+    lastPct = pct;
+    app_loading(label, pct);
+  }
+}
+
+// PUT /api/anim  header X-Anim-Name: <name>  body = DBA1 bytes (streamed by the raw handler below)
+static void handleAnimUploadRaw() {
+  HTTPRaw &raw = server.raw();
+  // note: query arguments are not parsed yet while the body streams in, so the
+  // name is applied in handleAnimUploadDone() after the transfer.
+  static String label;
+  if (raw.status == RAW_START) {
+    uploadOk = storeUploadBegin((size_t)server.clientContentLength(), uploadErr);
+    label = "loading " + uploadName();
+    if (uploadOk) app_loading(label.c_str(), 0);
+    else Serial.printf("store: refused upload: %s\n", uploadErr.c_str());
+  } else if (raw.status == RAW_WRITE) {
+    if (uploadOk && !storeUploadWrite(raw.buf, raw.currentSize)) { uploadOk = false; uploadErr = "write failed (file system full?)"; storeUploadAbort(); app_resume(); }
+    if (uploadOk) uploadProgress(label.c_str());
+    yield();
+  } else if (raw.status == RAW_END) {
+    storeUploadClose();
+    if (uploadOk) app_loading(label.c_str(), 100);
+  } else if (raw.status == RAW_ABORTED) {
+    storeUploadAbort(); uploadOk = false; uploadErr = "aborted";
+    app_resume();
+  }
+}
+
+static void handleAnimUploadDone() {
+  if (server.method() == HTTP_DELETE) {
+    String name = server.arg("name");
+    app_lock();
+    bool ok = storeDelete(name.c_str());
+    if (ok) app_animations_changed(name.c_str());
+    size_t freeKb = storeFreeBytes() / 1024;
+    app_unlock();
+    if (!ok) { server.send(404, "application/json", "{\"error\":\"not found or built-in\"}"); return; }
+    server.send(200, "application/json", "{\"ok\":true,\"free_kb\":" + String(freeKb) + "}");
+    return;
+  }
+  String name = uploadName();
+  app_lock();
+  if (uploadOk) uploadOk = storeUploadCommit(name, uploadErr);   // rescans the registry
+  if (uploadOk) app_animations_changed(name.c_str());            // leaves the loading screen, restarts playback
+  else app_resume();
+  String body = uploadOk ? "{\"ok\":true,\"name\":" + jsonStr(name) + ",\"free_kb\":" + String(storeFreeBytes() / 1024) + ",\"animations\":" + storeListJson() + "}" : "";
+  app_unlock();
+  if (!uploadOk) { server.send(uploadErr.startsWith("not enough space") ? 507 : 400, "application/json", "{\"error\":" + jsonStr(uploadErr) + "}"); return; }
+  Serial.printf("store: stored %s\n", name.c_str());
+  server.send(200, "application/json", body);
+}
+
+// PUT /api/update  body = firmware.bin
+static void handleUpdateRaw() {
+  HTTPRaw &raw = server.raw();
+  if (raw.status == RAW_START) {
+    uploadOk = otaAuthorized();
+    uploadErr = uploadOk ? "" : "wrong firmware password";
+    if (!uploadOk) return;
+    app_loading("firmware update", 0);
+    uploadOk = Update.begin(UPDATE_SIZE_UNKNOWN);
+    if (!uploadOk) uploadErr = Update.errorString();
+  } else if (raw.status == RAW_WRITE) {
+    if (uploadOk && Update.write(raw.buf, raw.currentSize) != raw.currentSize) { uploadOk = false; uploadErr = Update.errorString(); Update.abort(); }
+    uploadProgress("firmware update");
+    yield();
+  } else if (raw.status == RAW_END) {
+    if (uploadOk && !Update.end(true)) { uploadOk = false; uploadErr = Update.errorString(); }
+  } else if (raw.status == RAW_ABORTED) {
+    Update.abort(); uploadOk = false; uploadErr = "aborted";
+    app_resume();
+  }
+}
+
+static void handleUpdateDone() {
+  if (!uploadOk) { app_resume(); server.send(uploadErr.startsWith("wrong") ? 401 : 400, "application/json", "{\"error\":" + jsonStr(uploadErr) + "}"); return; }
+  server.send(200, "application/json", "{\"ok\":true,\"rebooting\":true}");
+  Serial.println("ota: update written, rebooting");
+  app_message("firmware update", "done, rebooting");
+  delay(500);
+  ESP.restart();
+}
+
+static void otaBegin() {
+  if (otaUp) return;
+  ArduinoOTA.setHostname(hostName().c_str());
+  if (cfg.otaPass.length()) ArduinoOTA.setPassword(cfg.otaPass.c_str());
+  ArduinoOTA.onStart([]() { app_loading("firmware update", 0); Serial.println("ota: start"); });
+  ArduinoOTA.onProgress([](unsigned int p, unsigned int t) { static int last = -1; int pct = t ? (int)((uint64_t)p * 100 / t) : -1; if (pct != last) { last = pct; app_loading("firmware update", pct); } });
+  ArduinoOTA.onEnd([]() { app_message("firmware update", "done, rebooting"); Serial.println("ota: done"); });
+  ArduinoOTA.onError([](ota_error_t e) { Serial.printf("ota: error %u\n", e); app_resume(); });
+  ArduinoOTA.begin();
+  otaUp = true;
+}
+
+static void handleNotFound() {
+  // captive-portal detection URLs (Apple, Android, Windows) and anything else -> the setup page
+  if (apOn && !server.hostHeader().equals(WiFi.softAPIP().toString())) {
+    server.sendHeader("Location", "http://" + WiFi.softAPIP().toString() + "/", true);
+    server.send(302, "text/plain", "");
+    return;
+  }
+  server.send(404, "text/plain", "not found");
+}
+
+void netStartAp() {
+  if (apOn) return;
+  WiFi.mode(staWanted ? WIFI_AP_STA : WIFI_AP);
+  if (cfg.apPass.length() >= 8) WiFi.softAP(apSsid.c_str(), cfg.apPass.c_str());
+  else WiFi.softAP(apSsid.c_str());        // open network; the page is the only thing on it
+  dns.setErrorReplyCode(DNSReplyCode::NoError);
+  dns.start(53, "*", WiFi.softAPIP());
+  apOn = true;
+  Serial.printf("setup AP '%s' at http://%s/\n", apSsid.c_str(), WiFi.softAPIP().toString().c_str());
+}
+
+static void startSta() {
+  WiFi.begin(cfg.ssid.c_str(), cfg.pass.c_str());
+  staStartedAt = lastStaRetry = millis();
+  Serial.printf("wifi: connecting to '%s'\n", cfg.ssid.c_str());
+}
+
+void netBegin() {
+  apSsid = "DeskBuddy-" + deviceId();
+  WiFi.persistent(false);
+  WiFi.setHostname(hostName().c_str());
+  staWanted = cfg.ssid.length() > 0;
+  if (staWanted) { WiFi.mode(WIFI_STA); startSta(); }
+  else netStartAp();
+
+  server.on("/", HTTP_GET, handleRoot);
+  server.on("/settings", HTTP_GET, handleSettingsPage);
+  server.on("/style.css", HTTP_GET, handleCss);
+  server.on("/api/anim", HTTP_GET, handleAnimList);
+  server.on("/api/anim", HTTP_PUT, handleAnimUploadDone, handleAnimUploadRaw);
+  server.on("/api/anim", HTTP_POST, handleAnimUploadDone, handleAnimUploadRaw);
+  server.on("/api/anim", HTTP_DELETE, handleAnimUploadDone);
+  server.on("/api/update", HTTP_PUT, handleUpdateDone, handleUpdateRaw);
+  server.on("/api/update", HTTP_POST, handleUpdateDone, handleUpdateRaw);
+  const char *hdrs[] = { "X-OTA-Password", "X-Anim-Name" };
+  server.collectHeaders(hdrs, 2);
+  server.on("/api/status", HTTP_GET, handleStatus);
+  server.on("/api/play", HTTP_POST, handlePlay);
+  server.on("/api/scan", HTTP_GET, handleScan);
+  server.on("/api/screen", HTTP_POST, handleScreen);
+  server.on("/api/brightness", HTTP_POST, handleBrightness);
+  server.on("/api/theme", HTTP_POST, handleTheme);
+  server.on("/api/reset", HTTP_POST, handleReset);
+  server.on("/api/config", HTTP_POST, handleConfig);
+  server.on("/api/reboot", HTTP_POST, handleReboot);
+  server.onNotFound(handleNotFound);
+  server.begin();
+}
+
+void netLoop() {
+  static bool wasConnected = false;
+  bool connected = netConnected();
+  if (connected && !wasConnected) {
+    Serial.printf("wifi: connected, http://%s/  (http://%s.local/)\n", WiFi.localIP().toString().c_str(), hostName().c_str());
+    if (!mdnsUp && MDNS.begin(hostName().c_str())) { MDNS.addService("http", "tcp", 80); mdnsUp = true; }
+    otaBegin();
+  }
+  if (!connected && wasConnected) Serial.println("wifi: disconnected");
+  wasConnected = connected;
+
+  if (staWanted && !connected) {
+    if (!apOn && millis() - staStartedAt > STA_TIMEOUT_MS) {
+      Serial.println("wifi: could not connect, starting setup AP");
+      netStartAp();
+    }
+    if (apOn && millis() - lastStaRetry > STA_RETRY_MS) { lastStaRetry = millis(); WiFi.disconnect(); WiFi.begin(cfg.ssid.c_str(), cfg.pass.c_str()); }
+  }
+  if (apOn) dns.processNextRequest();
+  if (otaUp) ArduinoOTA.handle();
+  server.handleClient();
+}

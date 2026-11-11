@@ -1,0 +1,6 @@
+.DS_Store
+__pycache__/
+node_modules/
+hardware/.pio/
+hardware/.vscode/
+sim/test/out/

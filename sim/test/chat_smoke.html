@@ -1,0 +1,43 @@
+<!doctype html>
+<!-- End-to-end test of the "Ask Claude" panel with the Claude Code backend
+     (needs ./serve.sh running and the claude CLI; uses your Claude Code login).
+     Types a prompt, waits for the generated animation to load and auto-save,
+     reports. ?push=<board address> also pushes it to a running board. -->
+<meta charset="utf-8">
+<title>chat smoke test</title>
+<pre id="result">running…</pre>
+<iframe id="f" src="../index.html" width="1200" height="900"></iframe>
+<script>
+const out = [];
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+const report = ok => { out.push(ok ? 'CHAT OK' : 'CHAT FAIL'); document.getElementById('result').textContent = out.join('\n'); };
+document.getElementById('f').onload = async () => {
+  const d = document.getElementById('f').contentDocument;
+  for (let i = 0; i < 100 && !d.getElementById('chat-mode').textContent; i++) await sleep(100);
+  await sleep(500);
+  const be = d.getElementById('chat-backend');
+  if (be.querySelector('option[value=cli]').disabled) { out.push('Claude Code backend unavailable (serve.py + claude CLI needed)'); return report(false); }
+  be.value = 'cli'; be.dispatchEvent(new Event('change'));
+  const q = new URLSearchParams(location.search);
+  const prompt = q.get('prompt') || 'A short wink: the left eye closes briefly and the mouth pulls up on that side. Name it exactly "Face: wink". Keep it under 2.5 seconds.';
+  const want = (prompt.match(/"(Face: [^"]+)"/) || [])[1] || 'Face: wink';
+  d.getElementById('chat-autosave').checked = true;
+  if (q.get('push')) { d.getElementById('board-host').value = q.get('push'); d.getElementById('chat-push').checked = true; }
+  d.getElementById('chat-input').value = prompt;
+  d.getElementById('chat-send').click();
+  const bubbles = () => [...d.querySelectorAll('#chat-log .bubble.sys')].map(b => b.textContent);
+  let done = false;
+  for (let i = 0; i < 3000 && !done; i++) {   // up to 5 minutes
+    await sleep(100);
+    done = bubbles().some(t => /^Loaded|has errors|Claude Code:|API error|declined|cut off/.test(t));
+  }
+  if (q.get('push')) for (let i = 0; i < 600 && !bubbles().some(t => /^Pushed|Push to the board failed/.test(t)); i++) await sleep(100);
+  out.push(...bubbles().slice(1).map(t => 'sys: ' + t.split('\n').slice(0, 3).join(' / ')));
+  out.push('cli info: ' + d.getElementById('chat-cli-info').textContent);
+  const loaded = bubbles().find(t => t.startsWith('Loaded "' + want + '"')) || '';
+  out.push(`in list: ${[...d.querySelectorAll('#anim-list li')].some(li => li.textContent === want)}, frame: ${d.getElementById('hud-frame').textContent}`);
+  const saved = /Saved as animations\//.test(loaded);
+  const pushed = !q.get('push') || bubbles().some(t => /^Pushed/.test(t));
+  report(!!loaded && saved && pushed);
+};
+</script>

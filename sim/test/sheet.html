@@ -1,0 +1,49 @@
+<!doctype html>
+<!-- Contact sheet: renders evenly spaced frames of one animation in a grid.
+     Open http://localhost:8080/test/sheet.html?anim=Face:%20happy&n=12&cols=6 -->
+<meta charset="utf-8">
+<title>contact sheet</title>
+<style>
+  body { background: #15171a; color: #ccc; font: 12px monospace; margin: 12px; }
+  #grid { display: grid; gap: 8px; }
+  figure { margin: 0; }
+  canvas { width: 180px; height: 180px; border-radius: 50%; background: #000; image-rendering: pixelated; display: block; }
+  figcaption { text-align: center; margin-top: 2px; }
+  iframe { position: absolute; left: -3000px; width: 1200px; height: 800px; }
+</style>
+<div id="title"></div>
+<div id="grid"></div>
+<iframe id="f" src="../index.html"></iframe>
+<script>
+const q = new URLSearchParams(location.search);
+const want = q.get('anim'), n = +(q.get('n') || 12), cols = +(q.get('cols') || 6);
+const grid = document.getElementById('grid');
+grid.style.gridTemplateColumns = `repeat(${cols}, 180px)`;
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+document.getElementById('f').onload = async () => {
+  const d = document.getElementById('f').contentDocument;
+  for (let i = 0; i < 50 && !d.querySelectorAll('#anim-list li').length; i++) await sleep(100);
+  const items = [...d.querySelectorAll('#anim-list li')];
+  const li = items.find(l => l.textContent === want) || items[0];
+  li.click();
+  await sleep(300);
+  const total = +d.getElementById('scrub').max + 1;
+  document.getElementById('title').textContent = `${li.textContent} - ${total} frames`;
+  const scrub = d.getElementById('scrub');
+  for (let k = 0; k < n; k++) {
+    const idx = Math.round(k * (total - 1) / Math.max(1, n - 1));
+    scrub.value = idx;
+    scrub.dispatchEvent(new Event('input'));
+    for (let i = 0; i < 50 && d.getElementById('hud-frame').textContent !== `${idx + 1} / ${total}`; i++) await sleep(20);
+    await sleep(30);
+    const c = document.createElement('canvas'); c.width = 240; c.height = 240;
+    c.getContext('2d').drawImage(d.getElementById('screen'), 0, 0);
+    const fig = document.createElement('figure');
+    fig.appendChild(c);
+    const cap = document.createElement('figcaption'); cap.textContent = `#${idx}`;
+    fig.appendChild(cap);
+    grid.appendChild(fig);
+  }
+  document.body.dataset.done = '1';
+};
+</script>

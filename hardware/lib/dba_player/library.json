@@ -1,0 +1,9 @@
+{
+  "name": "dba_player",
+  "version": "1.0.0",
+  "description": "Decoder for DBA1 animations exported by the desk_buddies simulator (sim/).",
+  "keywords": "display, animation, rgb565",
+  "license": "MIT",
+  "frameworks": "*",
+  "platforms": "*"
+}

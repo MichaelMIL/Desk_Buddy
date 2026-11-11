@@ -1,0 +1,31 @@
+<!doctype html>
+<!-- Exports every animation into the firmware directory via serve.py's
+     /api/export (test/export_all.sh), or with ?push=<board address> uploads
+     them all to a running desk buddy over Wi-Fi (test/push_all.sh). -->
+<meta charset="utf-8">
+<title>export all</title>
+<pre id="result">running…</pre>
+<iframe id="f" src="../index.html" width="1200" height="800" style="position:absolute;left:-3000px"></iframe>
+<script>
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+document.getElementById('f').onload = async () => {
+  const w = document.getElementById('f').contentWindow;
+  const out = [];
+  for (let i = 0; i < 100 && !(w.SimApp && w.SimApp.registry.length); i++) await sleep(100);
+  const skip = /^(Template)$/;
+  const host = new URLSearchParams(location.search).get('push');
+  if (host) { w.document.getElementById('board-host').value = host; w.document.getElementById('chk-board-play').checked = false; }
+  for (const a of [...w.SimApp.registry]) {
+    if (skip.test(a.name)) continue;
+    if (host) {
+      const j = await w.SimApp.pushToBoard(a);
+      out.push(j ? `${a.name}: stored on ${host} (${j.free_kb} KB free)` : `${a.name}: FAILED`);
+    } else {
+      const j = await w.SimApp.exportToFirmware(a);
+      out.push(j ? `${a.name}: ${(j.bytes / 1024).toFixed(1)} KB -> ${j.file.split('/').pop()}` : `${a.name}: FAILED`);
+    }
+  }
+  out.push(out.some(l => l.endsWith('FAILED')) ? 'EXPORT FAIL' : 'EXPORT OK');
+  document.getElementById('result').textContent = out.join('\n');
+};
+</script>
