@@ -21,6 +21,7 @@ Sim.register({
   frame(g, f) {
     const F = Face, t = f.t / 1000;
     g.clear(Sim.hex('#1e0f3a'));
+    F.background = Sim.hex('#1e0f3a');
     // rainbow sweeps across the top
     const sweep = F.kf(t, [[0.3, 0], [1.8, 1], [3.6, 1], [4.0, 0]]);
     const cols = ['#ff4f6d', '#ff9f43', '#ffe14d', '#4dff88', '#4dc9ff', '#b56bff'].map(Sim.hex);
@@ -44,6 +45,7 @@ Sim.register({
   frame(g, f) {
     const F = Face, t = f.t / 1000;
     g.clear(Sim.hex('#1e0f3a'));
+    F.background = Sim.hex('#1e0f3a');
     const ur = n => (Math.sin(n * 33.1) * 43758.5453) % 1;
     for (let k = 0; k < 12; k++) {
       const u = ((t / 1.5) + ur(k + 1)) % 1, s = Math.round(2 + 6 * Math.sin(u * Math.PI));

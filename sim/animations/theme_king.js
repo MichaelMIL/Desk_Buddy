@@ -21,6 +21,7 @@ Sim.register({
   frame(g, f) {
     const F = Face, t = f.t / 1000;
     g.clear(Sim.hex('#1a0a2a'));
+    F.background = Sim.hex('#1a0a2a');
     const dy = Math.round(2 * Math.sin(t * 1.5));
     const smug = F.kf(t, [[0.8, 0], [1.2, 1], [3.0, 1], [3.5, 0]]);
     F.eyes(g, { open: 1 - 0.4 * smug, lookX: Math.round(6 * smug), iris: 15 }, 0, dy + 8);
@@ -46,6 +47,7 @@ Sim.register({
   frame(g, f) {
     const F = Face, t = f.t / 1000;
     g.clear(Sim.hex('#1a0a2a'));
+    F.background = Sim.hex('#1a0a2a');
     const kr = n => (Math.sin(n * 61.7) * 43758.5453) % 1;
     const gold = Sim.hex('#f0c419');
     // coins rain down behind the face

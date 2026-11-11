@@ -30,6 +30,7 @@ Sim.register({
   frame(g, f) {
     const F = Face, t = f.t / 1000;
     water(g, t);
+    F.background = Sim.hex('#06456a');
     // seaweed
     for (let k = 0; k < 6; k++) {
       const bx = 20 + k * 40;

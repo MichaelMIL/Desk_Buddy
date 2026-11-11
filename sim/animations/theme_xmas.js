@@ -10,6 +10,7 @@ Sim.register({
   frame(g, f) {
     const F = Face, t = f.t / 1000;
     g.clear(Sim.hex('#0b1a2e'));
+    F.background = Sim.hex('#0b1a2e');
     // snow (persistent positions, falling with a sway)
     for (let k = 0; k < 40; k++) {
       const speed = 25 + 30 * xr(k + 7);
@@ -23,10 +24,10 @@ Sim.register({
     F.smile(g, 120, F.MY + dy + 6, 30, 0.9, 6);
     F.blush(g, 0.8, 0, dy + 6);
     // hat: red cone with white brim and pompom, bobbing with the head
-    const hy = 30 + dy;
-    g.fillTriangle(48, hy + 48, 176, hy + 48, 150, hy - 10, Sim.hex('#d8202a'));
+    const hy = 16 + dy;
+    g.fillTriangle(48, hy + 48, 176, hy + 48, 140, hy - 4, Sim.hex('#d8202a'));
     g.fillRoundRect(40, hy + 40, 150, 18, 9, Sim.C.WHITE);
-    g.fillCircle(154 + Math.round(3 * Math.sin(t * 2)), hy - 10, 11, Sim.C.WHITE);
+    g.fillCircle(146 + Math.round(3 * Math.sin(t * 2)), hy + 2, 10, Sim.C.WHITE);
   },
 });
 

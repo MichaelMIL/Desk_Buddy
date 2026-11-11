@@ -126,6 +126,7 @@ Layout constants: `Face.LX = 70`, `Face.RX = 170` (eye centres),
 | `Face.grin(g, cx, cy, halfWidth, depth)` | open grin, flat top, round bottom |
 | `Face.oMouth(g, cx, cy, rx, ry)` | open "o" mouth |
 | `Face.blush(g, amount, dx, dy)` | cheeks, amount 0..1 |
+| `Face.background = colour` | set at the start of `frame()` when the background is not black: lids, the grin's top edge and blush blend against it (reset automatically before each frame) |
 
 Existing face animations to learn from: `face_happy.js`, `face_sleepy.js`,
 `face_surprised.js`. A typical structure: compute a few 0..1 "amounts" with

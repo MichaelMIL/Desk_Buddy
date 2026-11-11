@@ -1,9 +1,9 @@
 /* Bunny theme (the long-ears build): a nose twitch and hop, and munching a carrot. */
 function bunnyEars(g, dy, lean, col, inner) {
   for (const s of [-1, 1]) {
-    const bx = 120 + s * 36, tx = bx + s * lean;
-    g.fillTriangle(bx - 16, 60 + dy, bx + 16, 60 + dy, tx, -20 + dy, col);
-    g.fillTriangle(bx - 8, 56 + dy, bx + 8, 56 + dy, tx, 0 + dy, inner);
+    const bx = 120 + s * 34, tx = bx + s * lean;
+    g.fillTriangle(bx - 15, 66 + dy, bx + 15, 66 + dy, tx, 14 + dy, col);
+    g.fillTriangle(bx - 7, 62 + dy, bx + 7, 62 + dy, tx, 28 + dy, inner);
   }
 }
 function bunnyFace(g, dy, F, opts) {
@@ -51,8 +51,8 @@ Sim.register({
     g.fillEllipse(F.LX - 14, 166, 12 + Math.round(4 * chew), 10, Sim.hex('#ffb3c6'));
     g.fillEllipse(F.RX + 14, 166, 12 + Math.round(4 * chew), 10, Sim.hex('#ffb3c6'));
     // carrot gets shorter over the loop
-    const len = Math.round(70 - 50 * f.p);
-    const cx = 150, cy = 176;
+    const len = Math.round(64 - 46 * f.p);
+    const cx = 134, cy = 178;
     g.fillTriangle(cx, cy - 10, cx, cy + 10, cx + len, cy + 2, Sim.C.ORANGE);
     for (let i = 1; i < 4; i++) g.drawLine(cx + i * 14, cy - 8 + i, cx + i * 14, cy + 8 - i, Sim.hex('#d96a10'));
     for (let k = -1; k <= 1; k++) g.fillTriangle(cx + len, cy + 2, cx + len + 14, cy - 6 + k * 10, cx + len + 4, cy + 2 + k * 4, Sim.hex('#3e9a3a'));

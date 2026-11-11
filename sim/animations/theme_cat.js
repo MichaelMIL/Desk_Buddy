@@ -50,7 +50,7 @@ Sim.register({
     const F = Face, t = f.t / 1000;
     g.clear(F.BG);
     // yarn ball bounces along the bottom; the eyes follow it
-    const bx = 120 + Math.round(90 * Math.sin(f.p * Math.PI * 2)), by = 206 - Math.round(26 * Math.abs(Math.sin(f.p * Math.PI * 6)));
+    const bx = 120 + Math.round(62 * Math.sin(f.p * Math.PI * 2)), by = 196 - Math.round(24 * Math.abs(Math.sin(f.p * Math.PI * 6)));
     const lookX = Math.round((bx - 120) / 8), lookY = 8;
     catEars(g, 0, 0, Sim.hex('#f2b8c6'), Sim.hex('#ff8fa3'));
     for (const cx of [F.LX, F.RX]) {
@@ -65,6 +65,6 @@ Sim.register({
     g.fillCircle(bx, by, 16, red);
     const rot = f.p * 720;
     for (let k = 0; k < 3; k++) g.drawArc(bx, by, 15, 12, (rot + k * 120) % 360, (rot + k * 120 + 70) % 360, Sim.hex('#ff8fa3'));
-    g.drawLine(bx + 12, by + 10, 236, 216 + Math.round(6 * Math.sin(t * 5)), red);
+    g.drawLine(bx + 12, by + 10, 200, 190 + Math.round(6 * Math.sin(t * 5)), red);
   },
 });

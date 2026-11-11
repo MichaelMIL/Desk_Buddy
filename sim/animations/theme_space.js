@@ -20,6 +20,7 @@ Sim.register({
   frame(g, f) {
     const F = Face, t = f.t / 1000, bg = Sim.hex('#050816');
     g.clear(bg);
+    F.background = Sim.hex('#0d1326');   // inside the helmet
     stars(g, t, 50, bg);
     // slow drift of the whole buddy
     const dx = Math.round(6 * Math.sin(t * Math.PI * 2 / 5)), dy = Math.round(5 * Math.cos(t * Math.PI * 2 / 5));

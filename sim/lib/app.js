@@ -132,6 +132,7 @@
   /** Run frame i of the current animation on the framebuffer. Returns its delay (ms). */
   function renderFrame(anim, i) {
     let delay;
+    if (window.Face) window.Face.background = null;
     try { delay = anim.frame(fb, frameInfo(anim, i)); }
     catch (e) { say(`${anim.name} frame ${i}: ${e.message}`, true); S.playing = false; }
     if (typeof delay !== 'number' || !(delay >= 0)) delay = 1000 / anim.fps;
@@ -470,6 +471,7 @@
         try { await anim.setup(fb, S.state); } catch (e) { errors.push(`setup: ${e.message}`); }
       }
       for (let i = 0; i < anim.frames && errors.length < 5; i++) {
+        if (window.Face) window.Face.background = null;
         try { anim.frame(fb, frameInfo(anim, i)); } catch (e) { errors.push(`frame ${i}: ${e.message}`); }
       }
     } finally {

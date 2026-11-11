@@ -17,9 +17,9 @@ Sim.register({
     const beat = Math.pow(Math.abs(Math.sin(t * Math.PI * 2)), 6);   // 120 bpm thump
     const dy = Math.round(-6 * beat);
     // equaliser bars along the bottom
-    for (let i = 0; i < 12; i++) {
-      const h = Math.round(8 + 30 * Math.abs(Math.sin(t * (3 + i * 0.7) + i)) * (0.5 + beat));
-      g.fillRect(36 + i * 14, 236 - h, 10, h, Sim.hsv(200 + i * 12, 0.9, 1));
+    for (let i = 0; i < 8; i++) {
+      const h = Math.round(6 + 26 * Math.abs(Math.sin(t * (3 + i * 0.7) + i)) * (0.5 + beat));
+      g.fillRect(66 + i * 14, 224 - h, 10, h, Sim.hsv(200 + i * 14, 0.9, 1));
     }
     const sq = F.kf(t, [[0.9, 0], [1.0, 1], [1.4, 1], [1.5, 0]]);
     F.eyes(g, { squint: sq, lookX: Math.round(6 * Math.sin(t * Math.PI)), iris: 16 }, 0, dy);
@@ -54,9 +54,9 @@ Sim.register({
     g.fillCircle(110 + look, 114, 5, Sim.hex('#101014')); g.fillCircle(130 + look, 114, 5, Sim.hex('#101014'));
     g.drawArc(120, 124, 12, 9, 110, 250, Sim.hex('#101014'));
     // tone arm
-    g.fillRoundRect(196, 20, 12, 12, 6, Sim.hex('#9aa0aa'));
+    g.fillRoundRect(174, 30, 14, 14, 7, Sim.hex('#9aa0aa'));
     const ax = 150 + Math.round(6 * scratch), ay = 90;
-    g.drawLine(202, 26, ax, ay, Sim.hex('#9aa0aa')); g.drawLine(203, 26, ax + 1, ay, Sim.hex('#9aa0aa')); g.drawLine(202, 27, ax, ay + 1, Sim.hex('#9aa0aa'));
+    g.drawLine(181, 37, ax, ay, Sim.hex('#9aa0aa')); g.drawLine(182, 37, ax + 1, ay, Sim.hex('#9aa0aa')); g.drawLine(181, 38, ax, ay + 1, Sim.hex('#9aa0aa'));
     g.fillRoundRect(ax - 6, ay - 2, 12, 8, 3, Sim.hex('#c0c6d0'));
     // wub rings when scratching
     if (Math.abs(scratch) > 0.3) for (let k = 0; k < 3; k++) g.drawCircle(120, 120, 104 + k * 6, Sim.lerp565(Sim.hex('#101014'), Sim.C.CYAN, Math.abs(scratch) * (1 - k / 3)));

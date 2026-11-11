@@ -18,7 +18,9 @@ window.Face = (() => {
     BLUSH: Sim.hex('#ff8fa3'),
     BROW: Sim.hex('#cfd8e3'),
     LX: 70, RX: 170, EY: 112, MY: 160,
+    background: null,   // set this at the start of frame() when the animation does not use a black background
   };
+  const bg = () => (F.background == null ? F.BG : F.background);
 
   /** Keyframe interpolation: pts = [[t0, v0], [t1, v1], ...] (t ascending), smoothstep between keys. */
   F.kf = (t, pts) => {
@@ -52,15 +54,15 @@ window.Face = (() => {
       g.fillCircle(px + (ir >> 1) + 1, py - (ir >> 1) - 1, Math.max(1, ir >> 2), F.SCLERA);
     }
     if (closed) {
-      g.fillEllipse(cx, cy, rx + 1, ry + 1, F.BG);
+      g.fillEllipse(cx, cy, rx + 1, ry + 1, bg());
       g.fillRoundRect(cx - rx + 4, cy + ry - 4, 2 * rx - 8, 4, 2, F.SCLERA);
     } else if (o.topLid > 0) {
-      g.fillRect(cx - rx - 1, cy - ry - 1, 2 * rx + 3, Math.round(2 * ry * o.topLid) + 1, F.BG);
+      g.fillRect(cx - rx - 1, cy - ry - 1, 2 * rx + 3, Math.round(2 * ry * o.topLid) + 1, bg());
     }
     if (o.squint > 0) {
       // cover the lower part with a background ellipse -> upward crescent
       const off = Math.round((2 * ry + 6) * (1 - o.squint) + ry * 0.55 * o.squint);
-      g.fillEllipse(cx, cy + off, rx + 4, ry + 2, F.BG);
+      g.fillEllipse(cx, cy + off, rx + 4, ry + 2, bg());
     }
   };
 
@@ -91,7 +93,7 @@ window.Face = (() => {
   F.grin = (g, cx, cy, w, h) => {
     g.fillEllipse(cx, cy, w, h, F.MOUTH);
     if (w > 5 && h > 5) g.fillEllipse(cx, cy, w - 4, h - 4, F.MOUTH_IN);
-    g.fillRect(cx - w - 1, cy - h - 1, 2 * w + 3, h + 1, F.BG);
+    g.fillRect(cx - w - 1, cy - h - 1, 2 * w + 3, h + 1, bg());
     g.fillRoundRect(cx - w, cy - 2, 2 * w + 1, 4, 2, F.MOUTH);
   };
 
@@ -103,7 +105,7 @@ window.Face = (() => {
 
   F.blush = (g, amount = 1, dx = 0, dy = 0) => {
     if (amount <= 0) return;
-    const col = Sim.lerp565(F.BG, F.BLUSH, Math.min(1, amount));
+    const col = Sim.lerp565(bg(), F.BLUSH, Math.min(1, amount));
     g.fillEllipse(F.LX - 18 + dx, F.EY + 40 + dy, 14, 7, col);
     g.fillEllipse(F.RX + 18 + dx, F.EY + 40 + dy, 14, 7, col);
   };
