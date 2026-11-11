@@ -13,10 +13,12 @@ document.getElementById('f').onload = async () => {
   const out = [];
   for (let i = 0; i < 100 && !(w.SimApp && w.SimApp.registry.length); i++) await sleep(100);
   const skip = /^(Template)$/;
-  const host = new URLSearchParams(location.search).get('push');
+  const params = new URLSearchParams(location.search);
+  const host = params.get('push');
+  const filter = params.get('filter') ? new RegExp(params.get('filter')) : null;
   if (host) { w.document.getElementById('board-host').value = host; w.document.getElementById('chk-board-play').checked = false; }
   for (const a of [...w.SimApp.registry]) {
-    if (skip.test(a.name)) continue;
+    if (skip.test(a.name) || (filter && !filter.test(a.name))) continue;
     if (host) {
       const j = await w.SimApp.pushToBoard(a);
       out.push(j ? `${a.name}: stored on ${host} (${j.free_kb} KB free)` : `${a.name}: FAILED`);

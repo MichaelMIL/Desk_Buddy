@@ -2,10 +2,10 @@
 function crown(g, dy, t) {
   const gold = Sim.hex('#f0c419'), dark = Sim.hex('#b8860b');
   g.fillRect(60, 44 + dy, 120, 22, gold);
-  for (let i = 0; i < 5; i++) g.fillTriangle(60 + i * 30, 46 + dy, 90 + i * 30, 46 + dy, 75 + i * 30, 10 + dy, gold);
+  for (let i = 0; i < 4; i++) g.fillTriangle(60 + i * 30, 46 + dy, 90 + i * 30, 46 + dy, 75 + i * 30, 10 + dy, gold);
   g.fillRect(60, 62 + dy, 120, 4, dark);
-  const gems = [Sim.C.RED, Sim.C.BLUE, Sim.C.GREEN, Sim.C.MAGENTA, Sim.C.CYAN];
-  for (let i = 0; i < 5; i++) {
+  const gems = [Sim.C.RED, Sim.C.GREEN, Sim.C.MAGENTA, Sim.C.BLUE];
+  for (let i = 0; i < 4; i++) {
     const tw = 0.5 + 0.5 * Math.sin(t * 5 + i * 1.3);
     g.fillCircle(75 + i * 30, 54 + dy, 4, Sim.lerp565(gems[i], Sim.C.WHITE, tw * 0.6));
     if (tw > 0.9) { g.drawFastHLine(69 + i * 30, 54 + dy, 13, Sim.C.WHITE); g.drawFastVLine(75 + i * 30, 48 + dy, 13, Sim.C.WHITE); }
