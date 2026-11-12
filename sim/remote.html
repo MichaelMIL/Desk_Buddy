@@ -2,42 +2,96 @@
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Desk Buddy remote</title>
 <!--
-  Bluetooth LE remote for the desk buddy (hardware/src/ble.h): Nordic UART
-  Service for commands and replies, plus a JSON state characteristic.
+  Bluetooth LE remote for the desk buddy: everything a paired device can do
+  (hardware/BLE.md). Nordic UART Service for commands and replies, plus a
+  JSON state characteristic; settings come from the "config" command,
+  animation sizes from "list", uploads use the "upload" protocol.
   Web Bluetooth needs Chrome or Edge (desktop or Android) and a secure origin:
   http://localhost via ./sim/serve.sh is fine. Safari / iOS have no Web
-  Bluetooth; use a "BLE UART" app there (commands as in the log box below).
+  Bluetooth; use a "BLE UART" app there (the same commands as the console).
   The first connection pairs: the buddy shows a 6-digit code, the system's
   pairing prompt asks for it; after that the device reconnects without it.
 -->
 <style>
-:root{--bg:#15171a;--card:#1f2227;--line:#3a3f47;--btn:#2a2e35;--fg:#e6e6e6;--dim:#8a919c;--accent:#4fb3ff}
-body{font:15px -apple-system,Segoe UI,Helvetica,Arial,sans-serif;background:var(--bg);color:var(--fg);margin:0 auto;padding:16px;max-width:560px}
+:root{--bg:#15171a;--card:#1f2227;--line:#3a3f47;--btn:#2a2e35;--fg:#e6e6e6;--dim:#8a919c;--accent:#4fb3ff;--bad:#ff7a7a}
+body{font:15px -apple-system,Segoe UI,Helvetica,Arial,sans-serif;background:var(--bg);color:var(--fg);margin:0 auto;padding:16px;max-width:640px}
 h1{font-size:18px;margin:8px 0 2px;display:flex;justify-content:space-between;align-items:baseline;gap:8px}
-h2{font-size:13px;text-transform:uppercase;letter-spacing:.08em;color:var(--dim);margin:22px 0 8px}
+h2{font-size:13px;text-transform:uppercase;letter-spacing:.08em;color:var(--dim);margin:22px 0 8px;display:inline-block}
+details>summary{cursor:pointer;list-style:none}details>summary::-webkit-details-marker{display:none}
+details>summary h2::before{content:'▸ '}details[open]>summary h2::before{content:'▾ '}
 .card{background:var(--card);border-radius:10px;padding:12px 14px;margin-bottom:10px}
 .faces{display:flex;flex-wrap:wrap;gap:8px}
 button{background:var(--btn);color:var(--fg);border:1px solid var(--line);border-radius:8px;padding:9px 12px;font:inherit;cursor:pointer}
-button.on,button.primary{background:var(--accent);color:#000;border-color:transparent}button:disabled{opacity:.5;cursor:default}
+button.on,button.primary{background:var(--accent);color:#000;border-color:transparent}button.danger{border-color:#7a2a2a}button:disabled{opacity:.5;cursor:default}
+button.small{padding:4px 9px;font-size:13px}
 label{display:block;color:var(--dim);font-size:12px;margin:8px 0 3px}
+label.chk{display:inline-flex;align-items:center;gap:6px;color:var(--fg);font-size:14px;margin:6px 12px 0 0}
 input,select{width:100%;box-sizing:border-box;background:var(--bg);color:var(--fg);border:1px solid var(--line);border-radius:6px;padding:8px;font:inherit}
-input[type=range]{padding:0;accent-color:var(--accent)}
-.row{display:flex;gap:8px;align-items:flex-end}.row>*{flex:1;min-width:0}
-#st{color:var(--dim);font-size:13px}
-#log{font:12px ui-monospace,Menlo,monospace;white-space:pre-wrap;color:var(--dim);max-height:220px;overflow:auto;margin:8px 0 0}
-small{color:var(--dim)}
+input[type=checkbox]{width:auto}input[type=range]{padding:0;accent-color:var(--accent)}input[type=file]{padding:4px}
+.row{display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap}.row>*{flex:1;min-width:110px}.row>.fit{flex:0 0 auto;min-width:0}
+#st,small,.dim{color:var(--dim);font-size:13px}
+#log{font:12px ui-monospace,Menlo,monospace;white-space:pre-wrap;color:var(--dim);max-height:240px;overflow:auto;margin:8px 0 0}
+table{width:100%;border-collapse:collapse;font-size:14px;margin-top:6px}td{padding:5px 4px;border-bottom:1px solid var(--btn)}td.r{text-align:right;white-space:nowrap}
+progress{width:100%;margin-top:8px}.msg{color:var(--accent);min-height:1.2em;font-size:13px;margin-top:8px}.msg.bad{color:var(--bad)}
+#cyc{max-height:180px;overflow:auto}#anims{display:block;max-height:320px;overflow:auto}
 </style></head><body>
 <h1><span id="title">Desk Buddy remote</span><button id="conn" class="primary">Connect</button></h1>
 <div id="st">Bluetooth LE · not connected</div>
 
 <div id="ctl" hidden>
 <h2>Face</h2><div class="card"><div class="faces" id="faces"></div>
-<div class="row" style="margin-top:10px"><button id="scr" style="flex:0 0 auto">Screen</button>
-<div><label>Brightness <span id="bv"></span>%</label><input id="bri" type="range" min="10" max="100" step="5"></div>
-<div style="flex:0 0 150px"><label>Theme</label><select id="theme"></select></div></div></div>
+<div class="row" style="margin-top:10px">
+  <button id="scr" class="fit">Screen</button><button id="next" class="fit">Next ›</button>
+  <div><label>Brightness <span id="bv"></span>%</label><input id="bri" type="range" min="10" max="100" step="5"></div>
+  <div style="flex:0 0 150px"><label>Theme</label><select id="theme"></select></div>
+</div></div>
+
+<details open><summary><h2>Playback</h2></summary><div class="card">
+<div class="row">
+  <div><label>Speed <span id="spv"></span>%</label><input id="speed" type="range" min="25" max="400" step="5"></div>
+  <div style="flex:0 0 90px"><label>Loops per face</label><input id="loops" type="number" min="1" max="50"></div>
+  <div style="flex:0 0 100px"><label>Rotation</label><select id="rot"><option value="0">0°</option><option value="1">90°</option><option value="2">180°</option><option value="3">270°</option></select></div>
+</div>
+<label>Start with (after a reboot)</label><select id="start"></select>
+<label>Faces in the cycle <small>(none ticked = all; themed faces play only in their theme)</small></label>
+<div id="cyc"></div>
+<div class="row" style="margin-top:8px"><button id="cycSave" class="fit">Save cycle list &amp; cycle</button><button id="cycAll" class="fit">Cycle all</button></div>
+<div class="msg" id="pmsg"></div>
+</div></details>
+
+<details open><summary><h2>Animations</h2></summary><div class="card">
+<div class="dim" id="fs"></div>
+<table id="anims"></table>
+<label>Upload .dba files (the simulator's ".dba binary" export)</label>
+<div class="row"><input type="file" id="files" accept=".dba" multiple><label class="chk fit"><input type="checkbox" id="upPlay"> play</label><button id="upBtn" class="fit primary">Upload</button></div>
+<progress id="upProg" value="0" max="100" hidden></progress>
+<div class="msg" id="amsg"></div>
+</div></details>
+
+<details id="netCard"><summary><h2>Wi-Fi &amp; MQTT</h2></summary><div class="card">
+<div class="dim" id="wifiSt"></div>
+<div class="row"><div><label>Wi-Fi network (SSID)</label><input id="ssid" autocapitalize="off"></div><div><label>Password</label><input id="wpass" type="password" autocomplete="off"></div><button id="wifiSave" class="fit">Save &amp; reboot</button></div>
+<div class="row"><div><label>Setup access point password <small>(8+ characters, empty = open)</small></label><input id="appass" type="password" autocomplete="off"></div><button id="apSave" class="fit">Set</button><button id="apStart" class="fit">Start access point</button></div>
+<div class="dim" id="mqttSt" style="margin-top:14px"></div>
+<div class="row"><div><label>MQTT broker <small>(empty = off)</small></label><input id="mhost" autocapitalize="off"></div><div style="flex:0 0 80px"><label>Port</label><input id="mport" type="number"></div></div>
+<div class="row"><div><label>User</label><input id="muser" autocapitalize="off"></div><div><label>Password</label><input id="mpass" type="password" autocomplete="off"></div><button id="mqttSave" class="fit">Save &amp; reboot</button></div>
+<div class="row"><div><label>Topic prefix</label><input id="prefix" autocapitalize="off"></div><button id="prefixSave" class="fit">Save &amp; reboot</button></div>
+<label class="chk"><input type="checkbox" id="ha"> Home Assistant discovery</label>
+<div class="row"><div><label>Firmware update password <small id="otaSt"></small></label><input id="otapass" type="password" autocomplete="off"></div><button id="otaSave" class="fit">Set</button></div>
+<div class="msg" id="nmsg"></div>
+</div></details>
+
+<details><summary><h2>Device</h2></summary><div class="card">
+<div class="row"><div><label>Device name <small>(Bluetooth, mDNS, Home Assistant)</small></label><input id="dname"></div><button id="nameSave" class="fit">Rename &amp; reboot</button></div>
+<div class="dim" id="bleSt" style="margin-top:12px"></div>
+<div class="row" style="margin-top:8px"><button id="forget" class="fit">Forget paired devices</button><button id="bleOff" class="fit danger">Turn Bluetooth off</button></div>
+<div class="row" style="margin-top:12px"><button id="reboot" class="fit">Reboot</button><button id="reset" class="fit danger">Factory reset</button><button id="status" class="fit">Status → console</button></div>
+<div class="dim" id="fw" style="margin-top:10px"></div>
+<div class="msg" id="dmsg"></div>
+</div></details>
 
 <h2>Console</h2><div class="card">
-<div class="row"><input id="cmd" placeholder="status, list, play face_happy, speed 150, …" autocapitalize="off" autocomplete="off"><button id="send" style="flex:0 0 auto">Send</button></div>
+<div class="row"><input id="cmd" placeholder="any command: status, list, play face_happy, speed 150, help, …" autocapitalize="off" autocomplete="off"><button id="send" class="fit">Send</button></div>
 <div id="log"></div></div>
 </div>
 <p><small id="hint"></small></p>
@@ -45,10 +99,15 @@ small{color:var(--dim)}
 <script>
 const NUS = '6e400001-b5a3-f393-e0a9-e50e24dcca9e', RX = '6e400002-b5a3-f393-e0a9-e50e24dcca9e',
       TX = '6e400003-b5a3-f393-e0a9-e50e24dcca9e', STATE = '8b3f2a51-6c0d-4e7a-9b14-d2e5f7a90c36';
+const CHUNK = 180;   // bytes per upload write: one packet at the usual MTUs (185+); longer writes would still work, slower
 const $ = s => document.querySelector(s);
 const nice = n => n.replace(/^[a-z0-9]+__/, '').replace(/^face_/, '').replace(/_/g, ' ');
 const themeOf = n => { const m = n.match(/^([a-z0-9]+)__/); return m ? m[1] : ''; };
-let dev = null, rxChr = null, stateChr = null, names = [], namesPending = false, st = null, rxText = '', writes = Promise.resolve(), stateReading = false;
+const label = n => { const t = themeOf(n); return (t ? t + ': ' : '') + nice(n); };
+const kb = b => (b / 1024).toFixed(1) + ' KB';
+let dev = null, rxChr = null, stateChr = null, st = null, cfg = null, names = [], sizes = {};
+let rxText = '', writes = Promise.resolve(), stateReading = false, refreshing = false, uploading = false, expectReboot = false;
+const waiters = [];   // replies being waited for: {test(line) -> true when it consumed the line, fail(err)}
 
 if (!navigator.bluetooth) {
   $('#conn').disabled = true;
@@ -56,32 +115,59 @@ if (!navigator.bluetooth) {
 }
 
 function log(t) { const l = $('#log'); l.textContent += t + '\n'; l.scrollTop = l.scrollHeight; }
+function say(id, t, bad) { const m = $(id); m.textContent = t; m.className = 'msg' + (bad ? ' bad' : ''); }
 
-/* Writes one command; Web Bluetooth allows one GATT operation at a time, so they queue. */
-function send(cmd) {
-  writes = writes.then(() => rxChr.writeValueWithResponse(new TextEncoder().encode(cmd + '\n'))).catch(e => log('! ' + e.message));
-  return writes;
+/* ---- the link: Web Bluetooth allows one GATT operation at a time, so they queue ---- */
+function gatt(op) { const p = writes.then(op); writes = p.catch(() => {}); return p; }
+function send(cmd) { return gatt(() => rxChr.writeValueWithResponse(new TextEncoder().encode(cmd + '\n'))).catch(e => log('! ' + e.message)); }
+
+/* Wait for the reply line matching `end`. With `take`, earlier lines for which take(line)
+ * is true are collected too (multi-line replies such as "list"); resolves with them. */
+function waitLine(end, ms = 15000, take) {
+  return new Promise((resolve, reject) => {
+    const got = [];
+    const done = () => { clearTimeout(t); const i = waiters.indexOf(w); if (i >= 0) waiters.splice(i, 1); };
+    const w = {
+      test(line) {
+        if (end.test(line)) { done(); resolve(take ? got.concat(line) : line); return true; }
+        if (take && take(line)) { got.push(line); return true; }
+        return false;
+      },
+      fail(err) { done(); reject(err); },
+    };
+    const t = setTimeout(() => w.fail(new Error('no answer from the buddy')), ms);
+    waiters.push(w);
+  });
 }
+function ask(cmd, end, ms, take) { const p = waitLine(end, ms, take); send(cmd); return p; }   // waiter first, so a fast reply is not missed
+function quiet(cmd, end) { ask(cmd, end, 8000).catch(e => log('! ' + cmd + ': ' + e.message)); }   // the reply only confirms
 
 function onLine(line) {
-  if (line.startsWith('names ')) { names = line.slice(6).split(',').filter(Boolean); namesPending = false; render(); }
-  else if (line.startsWith('state ')) { setState(line.slice(6)); }
+  for (const w of [...waiters]) if (w.test(line)) return;
+  if (line.startsWith('names ')) { names = parseNames(line); render(); renderLists(); }
+  else if (line.startsWith('config ')) { try { cfg = JSON.parse(line.slice(7)); renderConfig(); } catch (e) { log(line); } }
+  else if (line.startsWith('state ')) setState(line.slice(6));
   else if (line !== 'ok') log(line);
 }
+function onTx(e) {
+  rxText += new TextDecoder().decode(e.target.value);
+  let i; while ((i = rxText.indexOf('\n')) >= 0) { onLine(rxText.slice(0, i)); rxText = rxText.slice(i + 1); }
+}
+const parseNames = line => line.slice(6).split(',').filter(Boolean);
 
+/* ---- state characteristic ---- */
 function setState(json) { try { st = JSON.parse(json); render(); return true; } catch (e) { return false; } }
-
-/* State characteristic changed. A notification carries at most MTU-3 bytes;
- * if the JSON is cut off, read the characteristic once. Note readValue() fires
- * this same event with the full value, so never read from a read's own event. */
+// A notification carries at most MTU-3 bytes; if the JSON is cut off, read once.
+// readValue() fires this same event with the full value, so never read from a read's own event.
 function onState(e) {
   if (setState(new TextDecoder().decode(e.target.value)) || stateReading) return;
   stateReading = true;
-  writes = writes.then(() => stateChr.readValue()).catch(err => log('! ' + err.message)).finally(() => { stateReading = false; });
+  gatt(() => stateChr.readValue()).catch(err => log('! ' + err.message)).finally(() => { stateReading = false; });
 }
 
+/* ---- rendering ---- */
 function render() {
-  if (!st) return;
+  if (!st || !dev) return;
   const f = $('#faces'); f.innerHTML = '';
   for (const n of ['cycle', ...names]) {
     const th = themeOf(n);
@@ -92,13 +178,211 @@ function render() {
     b.onclick = () => send('play ' + n);
     f.appendChild(b);
   }
-  $('#scr').textContent = 'Screen: ' + (st.screen ? 'on' : 'off'); $('#scr').className = st.screen ? 'on' : '';
+  $('#scr').textContent = 'Screen: ' + (st.screen ? 'on' : 'off'); $('#scr').className = 'fit' + (st.screen ? ' on' : '');
   if (document.activeElement !== $('#bri')) { $('#bri').value = st.brightness; $('#bv').textContent = st.brightness; }
   const ts = $('#theme'), opts = ['', ...new Set(names.map(themeOf).filter(Boolean))].sort();
   if (ts.options.length !== opts.length) { ts.innerHTML = ''; for (const t of opts) ts.add(new Option(t || 'none', t)); }
   ts.value = st.theme;
-  $('#st').textContent = 'Bluetooth LE · ' + dev.name + ' · ' + (st.cycling ? 'cycling' : nice(st.current)) + ' · ' + st.count + ' animations';
-  if (names.length !== st.count && !namesPending) { namesPending = true; send('names'); }   // list changed (upload/delete)
+  $('#st').textContent = 'Bluetooth LE · ' + dev.name + ' · paired · ' + (st.cycling ? 'cycling' : nice(st.current)) + ' · ' + st.count + ' animations';
+  if (names.length !== st.count && !refreshing && !uploading) refreshAll();   // the list changed (upload/delete elsewhere)
+}
+
+function renderLists() {
+  const ss = $('#start'), cur = cfg ? (cfg.start || 'cycle') : ss.value;
+  ss.innerHTML = '';
+  for (const n of ['cycle', ...names]) ss.add(new Option(n === 'cycle' ? 'cycle through the faces' : label(n), n));
+  ss.value = cur;
+  const inCyc = cfg && cfg.cycleList ? cfg.cycleList.split(',') : [];
+  const c = $('#cyc'); c.innerHTML = '';
+  for (const n of names) {
+    const l = document.createElement('label'); l.className = 'chk';
+    const i = document.createElement('input'); i.type = 'checkbox'; i.value = n; i.checked = inCyc.includes(n);
+    l.append(i, document.createTextNode(label(n) + (themeOf(n) ? ' ✦' : ''))); c.appendChild(l);
+  }
+  const t = $('#anims'); t.innerHTML = '';
+  for (const n of names) {
+    const tr = document.createElement('tr');
+    const td = (txt, cls) => { const d = document.createElement('td'); if (cls) d.className = cls; d.textContent = txt; tr.appendChild(d); return d; };
+    td(label(n)); td(sizes[n] !== undefined ? kb(sizes[n]) : '', 'r');
+    const act = td('', 'r');
+    const p = document.createElement('button'); p.className = 'small'; p.textContent = '▶'; p.title = 'play'; p.onclick = () => send('play ' + n);
+    const d = document.createElement('button'); d.className = 'small danger'; d.textContent = 'delete';
+    d.onclick = async () => {
+      if (!confirm('Delete ' + label(n) + ' from the buddy?')) return;
+      try { const r = await ask('delete ' + n, /^(deleted|not found)/); say('#amsg', r === 'deleted' ? 'deleted ' + label(n) : r, r !== 'deleted'); }
+      catch (e) { say('#amsg', e.message, true); }
+      refreshAll();
+    };
+    act.append(p, ' ', d); t.appendChild(tr);
+  }
+}
+
+function renderConfig() {
+  if (!cfg) return;
+  const idle = id => document.activeElement !== $(id);
+  $('#title').textContent = cfg.name; document.title = cfg.name + ' remote';
+  if (idle('#speed')) { $('#speed').value = cfg.speed; $('#spv').textContent = cfg.speed; }
+  if (idle('#loops')) $('#loops').value = cfg.loops;
+  $('#rot').value = cfg.rotation;
+  $('#fs').textContent = cfg.count + ' animations · ' + cfg.freeKb + ' KB free of ' + cfg.totalKb + ' KB';
+  $('#bleSt').textContent = 'Bluetooth: ' + cfg.bonds + ' paired device' + (cfg.bonds === 1 ? '' : 's') + ' (up to 3; a fourth replaces the oldest)';
+  $('#fw').textContent = 'firmware ' + cfg.version + ' · ' + (cfg.wifiBuild ? 'Wi-Fi build' : 'build without Wi-Fi');
+  if (idle('#dname')) $('#dname').value = cfg.name;
+  $('#netCard').hidden = !cfg.wifiBuild; $('#bleOff').hidden = !cfg.wifiBuild;
+  if (cfg.wifi) {
+    const w = cfg.wifi;
+    $('#wifiSt').textContent = 'Wi-Fi: ' + (w.connected ? 'connected to ' + w.ssid + ', ' + w.ip : w.ssid ? 'not connected (' + w.ssid + ')' : 'not set')
+      + (w.ap ? ' · setup access point ' + w.ap + ' is up' : '') + ' · access point ' + (w.apPassSet ? 'has a password' : 'is open');
+    if (idle('#ssid')) $('#ssid').value = w.ssid;
+  }
+  if (cfg.mqtt) {
+    const m = cfg.mqtt;
+    $('#mqttSt').textContent = 'MQTT: ' + m.status + (m.host ? ' (' + m.host + ':' + m.port + ', prefix ' + m.prefix + ')' : '');
+    for (const [id, v] of [['#mhost', m.host], ['#mport', m.port], ['#muser', m.user], ['#prefix', m.prefix]]) if (idle(id)) $(id).value = v;
+    $('#ha').checked = m.ha;
+  }
+  $('#otaSt').textContent = cfg.otaPassSet ? '(set; empty = remove)' : '(none set)';
+}
+
+/* names, sizes (from "list") and settings ("config"), one after the other */
+async function refreshAll() {
+  if (refreshing) return;
+  refreshing = true;
+  try { names = parseNames(await ask('names', /^names /)); } catch (e) { log('! names: ' + e.message); }
+  try {
+    const lines = await ask('list', /KB free for uploads$/, 15000, l => /^\s+\S+ \(\d+ bytes/.test(l));
+    sizes = {};
+    for (const l of lines) { const m = l.match(/^\s+(\S+) \((\d+) bytes/); if (m) sizes[m[1]] = +m[2]; }
+  } catch (e) { log('! list: ' + e.message); }
+  try { cfg = JSON.parse((await ask('config', /^config /, 4000)).slice(7)); }
+  catch (e) { log('! config: ' + e.message + ' (firmware older than the "config" command: settings are not shown)'); }
+  refreshing = false;
+  renderConfig(); render(); renderLists();
+}
+
+/* ---- upload (protocol in hardware/src/upload.h) ---- */
+async function uploadFile(file, name, play) {
+  const data = new Uint8Array(await file.arrayBuffer());
+  const magic = String.fromCharCode(...data.slice(0, 4));
+  if (magic !== 'DBA1' && magic !== 'DBAZ' && magic !== 'DBAL') throw new Error(file.name + ' is not a .dba animation');
+  const ready = await ask('upload ' + name + ' ' + data.length, /^(ready|error)\b/, 60000);
+  if (!ready.startsWith('ready')) throw new Error(ready.replace(/^error /, ''));
+  const win = parseInt(ready.split(' ')[1], 10) || 2048;
+  const prog = $('#upProg'); prog.hidden = false; prog.value = 0;
+  let sent = 0, stored = null;
+  while (sent < data.length) {
+    const end = Math.min(sent + win, data.length);
+    const ack = waitLine(/^(ack|error)\b/, 20000);
+    if (end === data.length) stored = waitLine(/^(stored|error)\b/, 30000);   // may follow the last ack at once
+    for (let i = sent; i < end; i += CHUNK) {
+      const part = data.slice(i, Math.min(i + CHUNK, end));
+      await gatt(() => rxChr.writeValueWithResponse(part));
+      prog.value = 100 * (i + part.length) / data.length;
+    }
+    const a = await ack;
+    if (!a.startsWith('ack')) throw new Error(a.replace(/^error /, ''));
+    sent = end;
+  }
+  const s = await stored;
+  if (!s.startsWith('stored')) throw new Error(s.replace(/^error /, ''));
+  if (play) send('play ' + name);
+  return s;
+}
+
+$('#upBtn').onclick = async () => {
+  const files = [...$('#files').files];
+  if (!files.length) { say('#amsg', 'choose one or more .dba files', true); return; }
+  $('#upBtn').disabled = true; uploading = true;
+  try {
+    for (const f of files) {
+      const name = f.name.replace(/\.dba$/i, '').replace(/^anim_/, '').toLowerCase().replace(/[^a-z0-9_]/g, '_').slice(0, 31);
+      say('#amsg', 'uploading ' + name + ' (' + kb(f.size) + ')…');
+      const t0 = Date.now();
+      const r = await uploadFile(f, name, $('#upPlay').checked && files.length === 1);
+      say('#amsg', r + ' · ' + (f.size / 1024 / ((Date.now() - t0) / 1000)).toFixed(1) + ' KB/s');
+    }
+  } catch (e) { say('#amsg', 'upload failed: ' + e.message, true); }
+  $('#upBtn').disabled = false; $('#upProg').hidden = true; uploading = false;
+  refreshAll();
+};
+
+/* ---- controls ---- */
+$('#scr').onclick = () => send('screen ' + (st.screen ? 'off' : 'on'));
+$('#next').onclick = () => send('next');
+let briT = null, spT = null;
+$('#bri').oninput = e => { $('#bv').textContent = e.target.value; clearTimeout(briT); briT = setTimeout(() => quiet('brightness ' + e.target.value, /^brightness /), 150); };
+$('#speed').oninput = e => { $('#spv').textContent = e.target.value; clearTimeout(spT); spT = setTimeout(() => { quiet('speed ' + e.target.value, /^speed /); if (cfg) cfg.speed = +e.target.value; }, 200); };
+$('#loops').onchange = e => { quiet('loops ' + e.target.value, /^loops /); if (cfg) cfg.loops = +e.target.value; };
+$('#rot').onchange = e => { quiet('rotation ' + e.target.value, /^rotation /); if (cfg) cfg.rotation = +e.target.value; };
+$('#theme').onchange = e => send('theme ' + (e.target.value || 'none'));
+$('#start').onchange = async e => { try { say('#pmsg', await ask('start ' + e.target.value, /^(start|no animation)/)); if (cfg) cfg.start = e.target.value === 'cycle' ? '' : e.target.value; } catch (err) { say('#pmsg', err.message, true); } };
+async function saveCycle(list) {
+  try { const r = await ask('cycle ' + (list || 'all'), /^cycle list/); say('#pmsg', r + ', cycling'); if (cfg) cfg.cycleList = list; }
+  catch (e) { say('#pmsg', e.message, true); }
+}
+$('#cycSave').onclick = () => saveCycle([...$('#cyc').querySelectorAll('input:checked')].map(i => i.value).join(','));
+$('#cycAll').onclick = () => { $('#cyc').querySelectorAll('input').forEach(i => { i.checked = false; }); saveCycle(''); };
+
+function rebooting(id, what) { expectReboot = true; say(id, what + ', the buddy reboots; reconnecting…'); }
+$('#wifiSave').onclick = () => {
+  const s = $('#ssid').value.trim();
+  if (!s) { say('#nmsg', 'enter the network name', true); return; }
+  if (s.includes('"')) { say('#nmsg', 'network names containing " are not supported', true); return; }
+  send('wifi ' + (s.includes(' ') ? '"' + s + '"' : s) + ' ' + $('#wpass').value);
+  rebooting('#nmsg', 'Wi-Fi saved');
+};
+$('#apSave').onclick = async () => {
+  const p = $('#appass').value;
+  if (p && p.length < 8) { say('#nmsg', 'the access point password needs at least 8 characters', true); return; }
+  try { say('#nmsg', await ask('appass ' + p, /^(saved|AP password)/)); $('#appass').value = ''; refreshAll(); } catch (e) { say('#nmsg', e.message, true); }
+};
+$('#apStart').onclick = () => { send('ap'); say('#nmsg', 'setup access point starting'); setTimeout(refreshAll, 2000); };
+$('#mqttSave').onclick = () => {
+  const h = $('#mhost').value.trim(), port = $('#mport').value.trim() || '1883', u = $('#muser').value.trim(), p = $('#mpass').value;
+  if (/\s/.test(h + u + p)) { say('#nmsg', 'broker, user and password cannot contain spaces', true); return; }
+  if (p && !u) { say('#nmsg', 'a password needs a user', true); return; }
+  send(h ? ['mqtt', h, port, u, p].filter(Boolean).join(' ') : 'mqtt');
+  rebooting('#nmsg', h ? 'MQTT saved' : 'MQTT off');
+};
+$('#prefixSave').onclick = () => { const p = $('#prefix').value.trim(); if (!p || /\s/.test(p)) { say('#nmsg', 'enter a prefix without spaces', true); return; } send('prefix ' + p); rebooting('#nmsg', 'prefix saved'); };
+$('#ha').onchange = async e => { try { say('#nmsg', await ask('ha ' + (e.target.checked ? 'on' : 'off'), /^home assistant/)); } catch (err) { say('#nmsg', err.message, true); } };
+$('#otaSave').onclick = async () => { try { say('#nmsg', await ask('otapass ' + $('#otapass').value, /^firmware update password/)); $('#otapass').value = ''; refreshAll(); } catch (e) { say('#nmsg', e.message, true); } };
+$('#nameSave').onclick = () => { const n = $('#dname').value.trim(); if (!n) return; send('name ' + n); rebooting('#dmsg', 'renamed'); };
+$('#forget').onclick = async () => {
+  if (!confirm('Forget every paired Bluetooth device, this one included? Each needs the code again next time; also remove "' + (cfg ? cfg.name : 'Desk Buddy') + '" from their Bluetooth settings.')) return;
+  try { say('#dmsg', await ask('ble forget', /^forgot/)); refreshAll(); } catch (e) { say('#dmsg', e.message, true); }
+};
+$('#bleOff').onclick = () => { if (confirm('Turn Bluetooth off? This remote stops working until "ble on" over USB serial, or ble=1 in POST /api/config.')) { send('ble off'); say('#dmsg', 'Bluetooth off; the buddy reboots without it'); } };
+$('#reboot').onclick = () => { send('reboot'); rebooting('#dmsg', 'rebooting'); };
+$('#reset').onclick = () => { if (confirm('Factory reset: erase all settings (Wi-Fi, MQTT, name) and every paired device, then reboot? Stored animations are kept. Pair again afterwards.')) { send('reset'); say('#dmsg', 'settings erased; the buddy reboots. Remove it from this computer\'s Bluetooth settings, then connect and pair again.'); } };
+$('#status').onclick = () => { log('> status'); send('status'); };
+const sendCmd = () => { const c = $('#cmd').value.trim(); if (!c) return; log('> ' + c); send(c); $('#cmd').value = ''; };
+$('#send').onclick = sendCmd;
+$('#cmd').onkeydown = e => { if (e.key === 'Enter') sendCmd(); };
+
+/* ---- connection ---- */
+async function attach() {
+  const svc = await (await dev.gatt.connect()).getPrimaryService(NUS);
+  rxChr = await svc.getCharacteristic(RX);
+  const tx = await svc.getCharacteristic(TX);
+  stateChr = await svc.getCharacteristic(STATE);
+  rxText = ''; writes = Promise.resolve();
+  tx.addEventListener('characteristicvaluechanged', onTx);          // the same function again after a reconnect is ignored
+  stateChr.addEventListener('characteristicvaluechanged', onState);
+  names = [];
+  await tx.startNotifications();
+  await stateChr.startNotifications();
+  // The buddy asks to pair on connect. Until the 6-digit code from its screen is typed
+  // into the system's pairing prompt, reads are refused: keep trying for a minute.
+  $('#st').textContent = 'pairing: type the 6-digit code shown on the buddy into the pairing prompt (first time only)';
+  stateReading = true;
+  for (let i = 0; ; i++) {
+    try { st = JSON.parse(new TextDecoder().decode(await stateChr.readValue())); break; }
+    catch (e) { if (i >= 60 || !dev.gatt.connected) { stateReading = false; throw new Error('not paired: ' + e.message); } await new Promise(r => setTimeout(r, 1000)); }
+  }
+  stateReading = false;
+  $('#conn').textContent = 'Disconnect'; $('#conn').className = ''; $('#ctl').hidden = false;
+  await refreshAll();
 }
 
 async function connect() {
@@ -106,44 +390,23 @@ async function connect() {
     dev = await navigator.bluetooth.requestDevice({ filters: [{ services: [NUS] }] });
     dev.addEventListener('gattserverdisconnected', disconnected);
     $('#st').textContent = 'connecting to ' + dev.name + '…';
-    const svc = await (await dev.gatt.connect()).getPrimaryService(NUS);
-    rxChr = await svc.getCharacteristic(RX);
-    const tx = await svc.getCharacteristic(TX);
-    stateChr = await svc.getCharacteristic(STATE);
-    tx.addEventListener('characteristicvaluechanged', e => {
-      rxText += new TextDecoder().decode(e.target.value);
-      let i; while ((i = rxText.indexOf('\n')) >= 0) { onLine(rxText.slice(0, i)); rxText = rxText.slice(i + 1); }
-    });
-    // a notification carries at most MTU-3 bytes; read the characteristic for the whole JSON
-    stateChr.addEventListener('characteristicvaluechanged', onState);
-    names = []; namesPending = true;   // requested below, once the state is in
-    await tx.startNotifications();
-    await stateChr.startNotifications();
-    // The buddy asks to pair on connect. Until the 6-digit code from its screen is typed
-    // into the system's pairing prompt, reads are refused: keep trying for a minute.
-    $('#st').textContent = 'pairing: type the 6-digit code shown on the buddy into the pairing prompt (first time only)';
-    stateReading = true;
-    for (let i = 0; ; i++) {
-      try { st = JSON.parse(new TextDecoder().decode(await stateChr.readValue())); break; }
-      catch (e) { if (i >= 60 || !dev.gatt.connected) throw new Error('not paired: ' + e.message); await new Promise(r => setTimeout(r, 1000)); }
-    }
-    stateReading = false;
-    $('#title').textContent = dev.name; $('#conn').textContent = 'Disconnect'; $('#conn').className = ''; $('#ctl').hidden = false;
-    await send('names');
+    await attach();
   } catch (e) { $('#st').textContent = e.message; if (dev && dev.gatt.connected) dev.gatt.disconnect(); }
 }
 
-function disconnected() {
-  $('#st').textContent = 'Bluetooth LE · disconnected'; $('#conn').textContent = 'Connect'; $('#conn').className = 'primary';
-  $('#ctl').hidden = true; rxText = ''; writes = Promise.resolve();
+async function disconnected() {
+  for (const w of [...waiters]) w.fail(new Error('disconnected'));
+  refreshing = false; uploading = false;
+  $('#conn').textContent = 'Connect'; $('#conn').className = 'primary';
+  if (!expectReboot) { $('#st').textContent = 'Bluetooth LE · disconnected'; $('#ctl').hidden = true; return; }
+  expectReboot = false;
+  $('#st').textContent = 'the buddy is rebooting; reconnecting…';
+  for (let i = 0; i < 20; i++) {                // the same device: no chooser needed
+    await new Promise(r => setTimeout(r, 3000));
+    try { await attach(); return; } catch (e) { /* not back yet */ }
+  }
+  $('#st').textContent = 'Bluetooth LE · could not reconnect; press Connect'; $('#ctl').hidden = true;
 }
 
-$('#conn').onclick = () => (dev && dev.gatt.connected) ? dev.gatt.disconnect() : connect();
-$('#scr').onclick = () => send('screen ' + (st.screen ? 'off' : 'on'));
-let briT = null;
-$('#bri').oninput = e => { $('#bv').textContent = e.target.value; clearTimeout(briT); briT = setTimeout(() => send('brightness ' + e.target.value), 150); };
-$('#theme').onchange = e => send('theme ' + (e.target.value || 'none'));
-const sendCmd = () => { const c = $('#cmd').value.trim(); if (!c) return; log('> ' + c); send(c); $('#cmd').value = ''; };
-$('#send').onclick = sendCmd;
-$('#cmd').onkeydown = e => { if (e.key === 'Enter') sendCmd(); };
+$('#conn').onclick = () => { if (dev && dev.gatt.connected) { expectReboot = false; dev.gatt.disconnect(); } else connect(); };
 </script></body></html>
