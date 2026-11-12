@@ -1,0 +1,130 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Desk Buddy remote</title>
+<!--
+  Bluetooth LE remote for the desk buddy (hardware/src/ble.h): Nordic UART
+  Service for commands and replies, plus a JSON state characteristic.
+  Web Bluetooth needs Chrome or Edge (desktop or Android) and a secure origin:
+  http://localhost via ./sim/serve.sh is fine. Safari / iOS have no Web
+  Bluetooth; use a "BLE UART" app there (commands as in the log box below).
+-->
+<style>
+:root{--bg:#15171a;--card:#1f2227;--line:#3a3f47;--btn:#2a2e35;--fg:#e6e6e6;--dim:#8a919c;--accent:#4fb3ff}
+body{font:15px -apple-system,Segoe UI,Helvetica,Arial,sans-serif;background:var(--bg);color:var(--fg);margin:0 auto;padding:16px;max-width:560px}
+h1{font-size:18px;margin:8px 0 2px;display:flex;justify-content:space-between;align-items:baseline;gap:8px}
+h2{font-size:13px;text-transform:uppercase;letter-spacing:.08em;color:var(--dim);margin:22px 0 8px}
+.card{background:var(--card);border-radius:10px;padding:12px 14px;margin-bottom:10px}
+.faces{display:flex;flex-wrap:wrap;gap:8px}
+button{background:var(--btn);color:var(--fg);border:1px solid var(--line);border-radius:8px;padding:9px 12px;font:inherit;cursor:pointer}
+button.on,button.primary{background:var(--accent);color:#000;border-color:transparent}button:disabled{opacity:.5;cursor:default}
+label{display:block;color:var(--dim);font-size:12px;margin:8px 0 3px}
+input,select{width:100%;box-sizing:border-box;background:var(--bg);color:var(--fg);border:1px solid var(--line);border-radius:6px;padding:8px;font:inherit}
+input[type=range]{padding:0;accent-color:var(--accent)}
+.row{display:flex;gap:8px;align-items:flex-end}.row>*{flex:1;min-width:0}
+#st{color:var(--dim);font-size:13px}
+#log{font:12px ui-monospace,Menlo,monospace;white-space:pre-wrap;color:var(--dim);max-height:220px;overflow:auto;margin:8px 0 0}
+small{color:var(--dim)}
+</style></head><body>
+<h1><span id="title">Desk Buddy remote</span><button id="conn" class="primary">Connect</button></h1>
+<div id="st">Bluetooth LE · not connected</div>
+
+<div id="ctl" hidden>
+<h2>Face</h2><div class="card"><div class="faces" id="faces"></div>
+<div class="row" style="margin-top:10px"><button id="scr" style="flex:0 0 auto">Screen</button>
+<div><label>Brightness <span id="bv"></span>%</label><input id="bri" type="range" min="10" max="100" step="5"></div>
+<div style="flex:0 0 150px"><label>Theme</label><select id="theme"></select></div></div></div>
+
+<h2>Console</h2><div class="card">
+<div class="row"><input id="cmd" placeholder="status, list, play face_happy, speed 150, …" autocapitalize="off" autocomplete="off"><button id="send" style="flex:0 0 auto">Send</button></div>
+<div id="log"></div></div>
+</div>
+<p><small id="hint"></small></p>
+
+<script>
+const NUS = '6e400001-b5a3-f393-e0a9-e50e24dcca9e', RX = '6e400002-b5a3-f393-e0a9-e50e24dcca9e',
+      TX = '6e400003-b5a3-f393-e0a9-e50e24dcca9e', STATE = '8b3f2a51-6c0d-4e7a-9b14-d2e5f7a90c36';
+const $ = s => document.querySelector(s);
+const nice = n => n.replace(/^[a-z0-9]+__/, '').replace(/^face_/, '').replace(/_/g, ' ');
+const themeOf = n => { const m = n.match(/^([a-z0-9]+)__/); return m ? m[1] : ''; };
+let dev = null, rxChr = null, stateChr = null, names = [], namesPending = false, st = null, rxText = '', writes = Promise.resolve();
+
+if (!navigator.bluetooth) {
+  $('#conn').disabled = true;
+  $('#hint').textContent = 'This browser has no Web Bluetooth. Use Chrome or Edge on desktop or Android, opened from http://localhost (./sim/serve.sh) or https. On iPhone, a BLE UART app (e.g. Bluefruit Connect) can send the same commands.';
+}
+
+function log(t) { const l = $('#log'); l.textContent += t + '\n'; l.scrollTop = l.scrollHeight; }
+
+/* Writes one command; Web Bluetooth allows one GATT operation at a time, so they queue. */
+function send(cmd) {
+  writes = writes.then(() => rxChr.writeValueWithResponse(new TextEncoder().encode(cmd + '\n'))).catch(e => log('! ' + e.message));
+  return writes;
+}
+
+function onLine(line) {
+  if (line.startsWith('names ')) { names = line.slice(6).split(',').filter(Boolean); namesPending = false; render(); }
+  else if (line.startsWith('state ')) { setState(line.slice(6)); }
+  else if (line !== 'ok') log(line);
+}
+
+function setState(json) { try { st = JSON.parse(json); render(); } catch (e) { /* truncated notification: the read below fixes it */ } }
+
+function render() {
+  if (!st) return;
+  const f = $('#faces'); f.innerHTML = '';
+  for (const n of ['cycle', ...names]) {
+    const th = themeOf(n);
+    if (th && th !== st.theme) continue;            // other themes' faces are hidden on the device too
+    const b = document.createElement('button');
+    b.textContent = nice(n) + (th ? ' ✦' : '');
+    if (n === st.current) b.className = 'on';
+    b.onclick = () => send('play ' + n);
+    f.appendChild(b);
+  }
+  $('#scr').textContent = 'Screen: ' + (st.screen ? 'on' : 'off'); $('#scr').className = st.screen ? 'on' : '';
+  if (document.activeElement !== $('#bri')) { $('#bri').value = st.brightness; $('#bv').textContent = st.brightness; }
+  const ts = $('#theme'), opts = ['', ...st.themes];
+  if (ts.options.length !== opts.length) { ts.innerHTML = ''; for (const t of opts) ts.add(new Option(t || 'none', t)); }
+  ts.value = st.theme;
+  $('#st').textContent = 'Bluetooth LE · ' + dev.name + ' · ' + (st.cycling ? 'cycling' : nice(st.current)) + ' · ' + st.count + ' animations';
+  if (names.length !== st.count && !namesPending) { namesPending = true; send('names'); }   // list changed (upload/delete)
+}
+
+async function connect() {
+  try {
+    dev = await navigator.bluetooth.requestDevice({ filters: [{ services: [NUS] }] });
+    dev.addEventListener('gattserverdisconnected', disconnected);
+    $('#st').textContent = 'connecting to ' + dev.name + '…';
+    const svc = await (await dev.gatt.connect()).getPrimaryService(NUS);
+    rxChr = await svc.getCharacteristic(RX);
+    const tx = await svc.getCharacteristic(TX);
+    stateChr = await svc.getCharacteristic(STATE);
+    tx.addEventListener('characteristicvaluechanged', e => {
+      rxText += new TextDecoder().decode(e.target.value);
+      let i; while ((i = rxText.indexOf('\n')) >= 0) { onLine(rxText.slice(0, i)); rxText = rxText.slice(i + 1); }
+    });
+    // a notification carries at most MTU-3 bytes; read the characteristic for the whole JSON
+    stateChr.addEventListener('characteristicvaluechanged', () => { writes = writes.then(async () => setState(new TextDecoder().decode(await stateChr.readValue()))).catch(e => log('! ' + e.message)); });
+    await tx.startNotifications();
+    await stateChr.startNotifications();
+    st = JSON.parse(new TextDecoder().decode(await stateChr.readValue()));
+    names = []; namesPending = true;
+    $('#title').textContent = dev.name; $('#conn').textContent = 'Disconnect'; $('#conn').className = ''; $('#ctl').hidden = false;
+    await send('names');
+  } catch (e) { $('#st').textContent = e.message; if (dev && dev.gatt.connected) dev.gatt.disconnect(); }
+}
+
+function disconnected() {
+  $('#st').textContent = 'Bluetooth LE · disconnected'; $('#conn').textContent = 'Connect'; $('#conn').className = 'primary';
+  $('#ctl').hidden = true; rxText = ''; writes = Promise.resolve();
+}
+
+$('#conn').onclick = () => (dev && dev.gatt.connected) ? dev.gatt.disconnect() : connect();
+$('#scr').onclick = () => send('screen ' + (st.screen ? 'off' : 'on'));
+let briT = null;
+$('#bri').oninput = e => { $('#bv').textContent = e.target.value; clearTimeout(briT); briT = setTimeout(() => send('brightness ' + e.target.value), 150); };
+$('#theme').onchange = e => send('theme ' + (e.target.value || 'none'));
+const sendCmd = () => { const c = $('#cmd').value.trim(); if (!c) return; log('> ' + c); send(c); $('#cmd').value = ''; };
+$('#send').onclick = sendCmd;
+$('#cmd').onkeydown = e => { if (e.key === 'Enter') sendCmd(); };
+</script></body></html>

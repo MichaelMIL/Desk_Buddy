@@ -91,9 +91,15 @@ window.Face = (() => {
 
   /** Open grin: flat top lip, round bottom ("D" on its side). w = half width, h = depth. */
   F.grin = (g, cx, cy, w, h) => {
-    g.fillEllipse(cx, cy, w, h, F.MOUTH);
-    if (w > 5 && h > 5) g.fillEllipse(cx, cy, w - 4, h - 4, F.MOUTH_IN);
-    g.fillRect(cx - w - 1, cy - h - 1, 2 * w + 3, h + 1, bg());
+    // lower half-ellipse only, so nothing above the lip is painted over (eyes, coloured backgrounds)
+    const half = (rw, rh, col) => {
+      for (let y = 0; y <= rh; y++) {
+        const hw = Math.round(rw * Math.sqrt(Math.max(0, 1 - (y / rh) * (y / rh))));
+        g.drawFastHLine(cx - hw, cy + y, 2 * hw + 1, col);
+      }
+    };
+    half(w, h, F.MOUTH);
+    if (w > 5 && h > 5) half(w - 4, h - 4, F.MOUTH_IN);
     g.fillRoundRect(cx - w, cy - 2, 2 * w + 1, 4, 2, F.MOUTH);
   };
 

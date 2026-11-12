@@ -7,7 +7,7 @@ static Preferences prefs;
 String deviceId() {
   uint64_t mac = ESP.getEfuseMac();
   char buf[8];
-  snprintf(buf, sizeof(buf), "%06llx", (unsigned long long)(mac >> 24) & 0xffffff);
+  snprintf(buf, sizeof(buf), "%06lx", (unsigned long)((mac >> 24) & 0xffffff));   // printf is newlib-nano: no %ll
   return String(buf);
 }
 
@@ -34,6 +34,7 @@ void configLoad() {
   cfg.mqttPass = prefs.getString("mpass", "");
   cfg.mqttPrefix = prefs.getString("mprefix", "");
   cfg.haDiscovery = prefs.getBool("ha", true);
+  cfg.ble = prefs.getBool("ble", true);
   cfg.anim = prefs.getString("anim", "");
   cfg.cycleList = prefs.getString("cycle", "");
   cfg.theme = prefs.getString("theme", "");
@@ -62,6 +63,7 @@ void configSave() {
   prefs.putString("mpass", cfg.mqttPass);
   prefs.putString("mprefix", cfg.mqttPrefix);
   prefs.putBool("ha", cfg.haDiscovery);
+  prefs.putBool("ble", cfg.ble);
   prefs.putString("anim", cfg.anim);
   prefs.putString("cycle", cfg.cycleList);
   prefs.putString("theme", cfg.theme);

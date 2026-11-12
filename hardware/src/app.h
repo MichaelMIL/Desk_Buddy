@@ -1,11 +1,10 @@
-/* Shared interface between the player (main.cpp, core 1) and the network
- * modules (net.cpp / mqtt.cpp, running in their own task on core 0).
+/* Shared interface between the player (main.cpp; renders on core 0) and the
+ * network modules (net.cpp / mqtt.cpp / ble.cpp, in the Arduino loop on core 1).
  *
  * Only the player task draws on the display. Everything here takes the
  * player lock, so it is safe to call from either task. */
 #pragma once
-#include <stddef.h>
-#include <stdint.h>
+#include <Arduino.h>
 
 void app_lock();                      // recursive; wrap registry (store*) mutations and reads from other tasks
 void app_unlock();
@@ -26,3 +25,8 @@ void app_message(const char *l1, const char *l2); // show text on the screen and
 void app_loading(const char *label, int percent); // loading ring (percent -1 = indeterminate) and pause playback
 void app_resume();                    // back to the animation after app_message / app_loading
 uint32_t app_frames_rendered();       // counter, for diagnostics
+
+/* Run one console command ("play face_happy", "brightness 40", ...) and write
+ * the reply to `out`. remote = from Bluetooth: playback commands only. */
+void app_command(const String &line, Print &out, bool remote);
+String app_state_json();              // {"current","cycling","screen","brightness","theme","themes","count"}

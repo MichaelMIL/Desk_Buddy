@@ -8,7 +8,7 @@
 //  No glue or screws anywhere. A wedge key locks the head onto the neck, the
 //  back cap snaps in behind it, side pieces twist-lock into the head on a
 //  sprung peg, the band's ends click into a slot in the top of each cup, the
-//  base plate snaps into the body and traps the USB cover.
+//  base plate snaps into the body and the USB cover clicks into its notch.
 //
 //  Parts (set `part`, then F6 / export STL):
 //    core:        "head_shell" "head_cap" "neck_key" "base" "usb_cover"
@@ -109,9 +109,9 @@ mcu_l = 22.5;      // PCB only
 usb_over = 1.0;    // USB-C receptacle overhang past the PCB edge
 mcu_t = 1.0;       // PCB thickness (measure yours: 1.0-1.2)
 mcu_standoff = 2;
-mcu_clr  = 0.1;    // side and end clearance of the PCB in its mount
-mcu_grip = 0.1;    // the teeth hold the PCB down by this much (preload)
-mcu_beam_t = 0.8;  // the sprung beams along the PCB's long edges
+mcu_clr  = 0.1;    // side and end clearance of the PCB in its cradle
+mcu_edge = 0.7;    // the cradle holds only this much of each long edge: clear of the pin pads
+mcu_hook = 0.6;    // how far the rear hooks reach over the board's back corners
 plate_t = 2;
 usb_w = 12.5; usb_h = 7.5;           // notch fits a typical cable overmold
 // base plate: seats on a 45-degree cone in the body rim and snaps over
@@ -165,6 +165,8 @@ btab_x1   = btab_x0 + btab_t;             // outer face of the tab
 hook_zl   = btab_zb + 1.2;                // top of the hook's lead-in ramp
 hook_zc   = hook_zl + 0.6;                // top of its flat; the catch above it is at
 hook_dz   = btab_hook*tan(30);            // 60 degrees to the push direction
+cuff_x    = btab_x1 + btab_clr + 0.25;    // the band's end thickens into a cuff whose outer face
+                                          // reaches past the slot's wall: it covers the slot's mouth
 ear_y   = band_y - head_front_y;   // head-local position of the ear axis
 ear_z   = cup_z;
 // ============================================================
@@ -331,23 +333,30 @@ seat_top = cup_z + seat_d/2 + 0.3;         // ... below this height
 
 module band_ring_2d() difference() { circle(r = band_r_in + band_t); circle(r = band_r_in); }
 module mir() { for (m = [0, 1]) mirror([m, 0]) children(); }
-// x-z outline of the band: the ring, whose ends come down onto the cups
-// (beside the seat bosses they keep clear of them)
+// x-z outline of the band: the ring, whose ends come down onto the cups and thicken
+// into cuffs there (beside the seat bosses they keep clear of them)
 module band_profile_2d() intersection() {
-    band_ring_2d();
+    union() { band_ring_2d(); mir() cuff_2d(); }
     union() {
         translate([-100, seat_top]) square([200, 100]);
         mir() translate([leg_xi, cup_z]) square([20, seat_top - cup_z + 0.01]);
     }
 }
+// right-hand cuff: straight down at cuff_x onto the cup, and a tangent from there up to the
+// band's outer curve
+module cuff_2d() let(P = [cuff_x, cup_z + cup_d/2 + 0.3], a = atan2(P[1], P[0]) + acos(R_b/norm(P)))
+    difference() {
+        polygon([[0, 0], [leg_xi, cup_z], [cuff_x, cup_z], P, R_b*[cos(a), sin(a)]]);
+        circle(r = band_r_in);
+    }
 // outside of the right-hand cup, grown by g: the band's end is cut to sit on it
 module cup_top(g) translate([cup_in - 0.02, band_y, head_cz + cup_z]) rotate([0, 90, 0]) cylinder(r = cup_d/2 + g, h = 10);
 
-// x-z outline of the right-hand tab (head frame): lead-in, hook, catch. Near the top it
-// follows the band's outer curve, so nothing of it shows above the cup.
-module btab_2d() let(zt = cup_z + cup_d/2 + 0.4) intersection() { circle(r = R_b); polygon([
+// x-z outline of the right-hand tab (head frame): lead-in, hook, catch. Its top ends
+// inside the cuff.
+module btab_2d() let(zt = cup_z + cup_d/2 + 0.4) polygon([
     [btab_x0, zt], [btab_x0, btab_zb + 0.4], [btab_x0 + 0.4, btab_zb], [btab_x1 - 0.1, btab_zb],
-    [btab_x1 + btab_hook, hook_zl], [btab_x1 + btab_hook, hook_zc], [btab_x1, hook_zc + hook_dz], [btab_x1, zt]]); }
+    [btab_x1 + btab_hook, hook_zl], [btab_x1 + btab_hook, hook_zc], [btab_x1, hook_zc + hook_dz], [btab_x1, zt]]);
 // the slot in the cup: the tab plus clearance, open towards the head, with the groove
 // for the hook at the bottom. The tip stands on its floor; the slot's catch sits
 // btab_pre inside the hook's, so the band is pulled down onto the floor.
@@ -742,34 +751,45 @@ module body(style = "hoodie") {
         polygon([[25, rib_z - 0.65 - (25 - rib_x)], [rib_x, rib_z - 0.65], [rib_x, rib_z], [25, rib_z]]);
 }
 
-// cover for the USB notch (optional). Slide it up into the notch from the body's open
-// bottom before the base plate goes in: the flange on its inside stops it falling out,
-// the plate's conical edge stops it falling in.
+// cover for the USB notch (optional). Push it into the notch from outside, after the base
+// plate: it clicks in. A slit inside each side makes that side a spring strip, rooted at the
+// top corner, with a tooth near its bottom that catches behind the wall beside the notch.
+// The tooth's catch is at 45 degrees and keeps the strip bent by ucv_pre, so the cover is
+// pulled in onto the plate's rim and does not rattle. Pull it out at the nail slot.
+// Prints outer face down: a flat outline, only the teeth have (45-degree) undersides.
+ucv_clr   = 0.12;   // gap around the cover in the notch
+ucv_strip = 0.8;    // width of the spring strips
+ucv_slit  = 0.6;
+ucv_bite  = 0.3;    // how far the teeth reach behind the wall
+ucv_pre   = 0.1;    // the strips stay bent by this much when the cover is in
+ucv_tz    = [plate_t + 0.3, plate_t + 1.8];   // teeth: above the plate, below the board
+ucv_yi    = wall_in_y + 0.2;                   // inner face: clear of the USB receptacle
+
+module ucv_2d(g = 0) intersection() { offset(delta = g - ucv_clr) usb_notch_2d(); translate([-50, 0.3]) square([100, 50]); }
+// slit inside the right-hand strip: open at the bottom edge, up the side and round the top
+// corner to 45 degrees, where the strip is rooted
+module ucv_slit_2d() intersection() {
+    difference() { ucv_2d(-ucv_strip); ucv_2d(-ucv_strip - ucv_slit); }
+    polygon([[(usb_w - usb_h)/2, -1], [20, -1], [20, usb_z + 20 - (usb_w - usb_h)/2], [(usb_w - usb_h)/2, usb_z]]);
+}
 module usb_cover() {
+    xs = usb_w/2 - ucv_clr;  xt = usb_w/2 + ucv_bite;  xc = usb_w/2 + ucv_pre;
     difference() {
         union() {
-            xz_extrude(wall_in_y, body_wall)
-                intersection() {
-                    offset(delta = -0.12) usb_notch_2d();
-                    translate([-50, 0.3]) square([100, 50]);
-                }
-            // flange behind the wall: a hood around the top of the notch, clear of the
-            // receptacle (middle), the PCB and the plate's rear stops (below)
-            xz_extrude(wall_in_y - 0.8, 0.8) difference() {
-                intersection() { offset(r = 1.2) usb_notch_2d(); translate([-50, 5]) square([100, 50]); }
-                translate([-5, -1]) square([10, 9.8]);
-            }
+            xz_extrude(ucv_yi, body_dp/2 - ucv_yi) difference() { ucv_2d(); mir() ucv_slit_2d(); }
+            // teeth on the strips' inner ends: lead-in, tip, 45-degree catch
+            for (m = [0, 1]) mirror([m, 0, 0]) translate([0, 0, ucv_tz[0]]) linear_extrude(ucv_tz[1] - ucv_tz[0])
+                polygon([[xs - ucv_strip, wall_in_y - 1], [xs, wall_in_y - 1], [xt, wall_in_y - 0.4],
+                         [xt, wall_in_y - (xt - xc)], [xs, wall_in_y + (xc - xs)], [xs, ucv_yi + 0.1], [xs - ucv_strip, ucv_yi + 0.1]]);
         }
         base_cone(0.08);
-        // fingernail slot
-        translate([0, body_dp/2, 0.3]) cube([5, 1.6, 2.4], center = true);
-        // recess for the face of the USB receptacle
-        translate([-5.2, wall_in_y - 1, -1]) cube([10.4, 1.3, 9.8]);
+        // nail slot: a 45-degree notch in the bottom edge
+        translate([-2.5, 0, 0]) rotate([90, 0, 90]) linear_extrude(5)
+            polygon([[body_dp/2 - 1.4, 0], [body_dp/2 + 1, 0], [body_dp/2 + 1, 2.4]]);
     }
 }
 
 module base_plate() {
-    y0 = mcu_yb - mcu_l;
     difference() {
         union() {
             hull() {   // conical edge, matches the seat in the body
@@ -785,37 +805,50 @@ module base_plate() {
                 translate([0, 3, 0]) rotate([90, 0, 0]) linear_extrude(6)
                     polygon([[xb - 0.05, zb], [rib_x + base_bite, zb + 0.75 + base_bite], [rib_x + base_bite, zb + 1.05 + base_bite], [xb - 0.05, zb + 3.75]]);
             }
-            translate([0, 0, plate_t]) {
-                // rails under the board's long edges
-                for (sx = [-1, 1]) translate([sx*(mcu_w/2 - 1) - 1, y0 + 1, 0])
-                    cube([2, mcu_l - 2, mcu_standoff]);
-                // a sprung beam along each long edge of the board: a bridge between two
-                // posts (prints without support) with a tooth in the middle whose flat
-                // underside holds the board down on the rails under preload. The beam
-                // also guides the board's edge. To release, push the beams outward.
-                for (m = [0, 1]) mirror([m, 0, 0]) {
-                    xi = mcu_w/2 + mcu_clr;                      // inner face of the beam
-                    zt = mcu_standoff + mcu_t - mcu_grip;        // underside of the tooth
-                    top = mcu_standoff + mcu_t + 2.5;
-                    translate([xi, y0 - 1.6, 0]) cube([2, 2.0, top]);                 // front post
-                    translate([xi, mcu_yb - 0.8, 0]) cube([2, 1.4, top]);             // rear post
-                    translate([xi, y0 + 0.3, 1.2]) cube([mcu_beam_t, mcu_l - 1.2, top - 1.2]);   // beam
-                    translate([xi + 0.01, y0 + mcu_l/2 + 3, zt]) rotate([90, 0, 0]) linear_extrude(6)
-                        polygon([[0, 0], [-0.5, 0], [-0.5, 0.3], [0, 1.1]]);           // tooth
-                }
-                // front stop (antenna end): takes the push when plugging in
-                translate([-(mcu_w/2 + 0.8), y0 - 1.6, 0])
-                    cube([mcu_w + 1.6, 1.6 - mcu_clr, mcu_standoff + mcu_t + 0.6]);
-                // rear stops beside the receptacle: take the pull when unplugging
-                for (sx = [-1, 1]) translate([sx*7 - 1, mcu_yb + mcu_clr, 0])
-                    cube([2, 0.8, mcu_standoff + mcu_t*0.5]);
-            }
         }
         // notches that let the plate pass the catch ribs
         for (m = [0, 1]) mirror([m, 0, 0]) translate([rib_x - 0.9, -4.5, -1]) cube([8, 9, 1 + plate_t + 0.01]);
         // pull slot: hook a fingertip or a tool here to unclip the plate
         hull() for (sx = [-1, 1]) translate([sx*4, -12, -1]) cylinder(d = 6, h = 6, $fn = 32);
+        // slots that free the cradle's sprung fingers (open at the back)
+        for (m = [0, 1]) mirror([m, 0, 0]) translate([mcu_w/2 + mcu_clr - 0.05, mcu_yb - 9, -1]) cube([2.15, 20, plate_t + 1.01]);
     }
+    translate([0, 0, plate_t]) mcu_cradle();
+}
+
+// cradle for the SuperMini (on the plate's top face). The board slides in from the back,
+// antenna end first, along a groove in each side wall: a ledge under its edge and a
+// 45-degree roof over it, so it cannot lift. A rigid stop takes the push when a cable is
+// plugged in. At the back the walls turn into sprung fingers (free in slots in the plate)
+// whose hooks snap in behind the board's corners and take the pull when it is unplugged.
+// To take the board out, spread the fingers and slide it back. Nothing touches the board
+// except its end faces and the outer mcu_edge of its long edges, so wires can be soldered
+// to every pin. No bridges: the fingers stand on the bed, the hooks' undersides are 45 degrees.
+module mcu_cradle() {
+    y0 = mcu_yb - mcu_l;                          // front edge of the board
+    xg = mcu_w/2 + mcu_clr;                       // back of the grooves
+    xl = mcu_w/2 - mcu_edge;                      // inner edge of the ledges
+    xr = xl + 0.25;                               // inner edge of the roofs
+    zb = mcu_standoff;  zt = mcu_standoff + mcu_t + mcu_clr;   // groove floor and roof
+    wt = zt + 0.9;                                // wall height
+    yf = mcu_yb - 9;                              // the rigid walls end, the fingers begin
+    xf = xg + 0.3;                                // inner face of the fingers
+    yh = mcu_yb + mcu_clr;                        // the hooks' catch face
+    for (m = [0, 1]) mirror([m, 0, 0]) {
+        xz_extrude(y0 - 1.7, yf - (y0 - 1.7))
+            polygon([[xl, 0], [xg + 1.6, 0], [xg + 1.6, wt], [xr, wt], [xr, zt + xg - xr], [xg, zt], [xg, zb], [xl, zb]]);
+        xz_extrude(yf - 0.5, mcu_yb - yf + 0.5) polygon([[xl, 0], [xg - 0.1, 0], [xg - 0.1, zb], [xl, zb]]);   // ledge
+        translate([xf, yf - 1, -plate_t]) cube([1, yh + 0.7 - yf + 1, wt + plate_t]);                         // finger
+        intersection() {                                                                                      // hook
+            translate([0, 0, -plate_t]) linear_extrude(wt + plate_t)
+                polygon([[xf + 0.01, yh], [mcu_w/2 - mcu_hook, yh], [mcu_w/2 - mcu_hook, yh + 0.1],
+                         [mcu_w/2, yh + 0.1 + mcu_hook], [xf + 0.01, yh + 0.1 + mcu_hook]]);
+            xz_extrude(yh - 1, 3) polygon([[mcu_w/2 - mcu_hook - 0.5, zb + 0.4], [xf + 1, zb - 0.1 - (xf + 1 - (mcu_w/2 - mcu_hook))],
+                                           [xf + 1, wt + 1], [mcu_w/2 - mcu_hook - 0.5, wt + 1]]);
+        }
+    }
+    // front stop (antenna end)
+    translate([-(xg + 1.6), y0 - 1.7, 0]) cube([2*(xg + 1.6), 1.7 - mcu_clr, zt + 0.5]);
 }
 
 // stand-in for the SuperMini (preview only)
@@ -876,6 +909,6 @@ else if (part == "body_hoodie") body("hoodie");
 else if (part == "body_cat")    body("cat");
 else if (part == "body_astro")  body("astro");
 else if (part == "base")        base_plate();
-else if (part == "usb_cover")   show([90, 0, 0])  usb_cover();   // flange down
+else if (part == "usb_cover")   show([-90, 0, 0]) usb_cover();   // outer face down
 else if (part == "screen")      place_head() screen_dummy();
 else if (part == "mcu")         mcu_dummy();

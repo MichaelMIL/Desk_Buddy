@@ -33,7 +33,7 @@ pio device monitor         # 115200 baud
 If upload cannot find the port: hold BOOT, tap RESET, release BOOT, retry.
 The board is defined as `lolin_s3_mini` (same ESP32-S3FH4R2 chip as the
 SuperMini: 4 MB flash, 2 MB PSRAM, native USB). Partition table is
-`huge_app.csv`: a single 3 MB app slot, no OTA, so animations have room.
+`partitions.csv`: two 1 MB app slots (OTA) and 1.875 MB for animations.
 
 ## First start, Wi-Fi and the web page
 
@@ -53,14 +53,41 @@ so pixel values are scaled; black stays black). The
 **Settings** page (`/settings`) has device settings (name, display rotation,
 loops per face when cycling, playback speed, which faces take part in
 cycling, the face to start with, passwords for the setup AP and for firmware
-updates), Wi-Fi (with scan), MQTT, the list of stored animations (upload,
+updates, Bluetooth on/off), Wi-Fi (with scan), MQTT, the list of stored animations (upload,
 delete), firmware update, reboot and factory reset.
 
-Serial commands (115200): `status`, `list`, `delete <name>`, `play <name>` (or `play cycle`),
+Serial commands (115200): `status`, `list`, `names`, `state`, `delete <name>`, `play <name>` (or `play cycle`),
 `next`, `cycle [a,b,c]`, `wifi <ssid> <password>`, `mqtt <host> [port] [user]
 [password]`, `prefix <topic prefix>`, `name <device name>`, `rotation 0-3`,
 `loops <n>`, `speed <percent>`, `theme <name>|none`, `screen on|off`, `brightness <10-100>`,
-`appass <password>`, `ap`, `reset`, `reboot`.
+`ble on|off`, `appass <password>`, `ap`, `reset`, `reboot`. `names` and `state` print one
+machine-readable line (comma-separated names / JSON).
+
+## Bluetooth LE
+
+The buddy also advertises over Bluetooth LE under its device name (on by
+default; Settings page, or `ble on|off` on serial, both reboot). It speaks the
+Nordic UART Service, so a generic "BLE UART" app (nRF Connect, Bluefruit
+Connect, Serial Bluetooth Terminal) can drive it by typing commands, and
+`sim/remote.html` is a remote with face buttons, screen, brightness and theme
+(Chrome/Edge with Web Bluetooth; open it through `./sim/serve.sh`, i.e.
+http://localhost:8080/remote.html).
+
+| Characteristic | UUID | |
+|---|---|---|
+| service | `6e400001-b5a3-f393-e0a9-e50e24dcca9e` | Nordic UART |
+| RX | `6e400002-…` | write: commands, one per line (or per write) |
+| TX | `6e400003-…` | notify: replies, text lines (`ok` when a command prints nothing) |
+| state | `8b3f2a51-6c0d-4e7a-9b14-d2e5f7a90c36` | read/notify: `{"current","cycling","screen","brightness","theme","themes","count"}` |
+
+Commands over Bluetooth are the serial console's playback ones: `names`,
+`state`, `list`, `play <name>|cycle`, `next`, `cycle [a,b|all]`, `screen
+on|off`, `brightness <10-100>`, `theme <name>|none`, `speed`, `loops`,
+`rotation`, `status`. There is no pairing (anyone in range can connect, as
+anyone on the LAN can open the web page), so Wi-Fi, MQTT, passwords, name,
+delete, reset and reboot are refused and stay on USB serial and the web page.
+A state notification carries at most MTU−3 bytes; read the characteristic
+for the whole JSON.
 
 ## Themes
 
@@ -72,7 +99,9 @@ Themes are discovered from the stored names, so pushing an animation with a
 new prefix creates a new theme. Select it on the Settings page, with
 `theme <name>` / `theme none` on serial, or over MQTT (`theme/set`, a Home
 Assistant select). Shipped themes: one per build variant (`dj`, `cat`, `bear`, `bunny`,
-`king`, `unicorn`) and seasonal ones (`halloween`, `xmas`, `space`, `ocean`).
+`king`, `unicorn`, `skeleton`, `gamer`, `bee`, `devil`, `dragon`, `robot`)
+and seasonal or occasion ones (`halloween`, `xmas`, `space`, `ocean`,
+`birthday`, `valentine`, `summer`).
 
 ## MQTT
 
@@ -119,8 +148,9 @@ HTTP API used by all of the above: `GET /api/anim` (list), `PUT /api/anim`
 with header `X-Anim-Name: <name>` and the DBA1 bytes as body, `DELETE
 /api/anim?name=<name>`, `POST /api/play?name=<name>`.
 
-Nothing is compiled in by default: the firmware is kept small (~910 KB) so
-the two OTA slots can be 1 MB each and the file system gets 1.875 MB. With
+Nothing is compiled in by default: the firmware is kept small (~935 KB with
+Bluetooth) so the two OTA slots can be 1 MB each and the file system gets
+1.875 MB. With
 no animation stored the screen says "push one from the sim". Compiled-in
 animations are still possible (`src/animations/anim_<name>.h` + generated
 `animations.h`, written by the simulator's **→ firmware** button or
@@ -128,10 +158,27 @@ animations are still possible (`src/animations/anim_<name>.h` + generated
 one eats into the 1 MB slot; a stored animation with the same name replaces
 a built-in one.
 
-Where the flash goes: the Wi-Fi/TCP stack, web server, mDNS, OTA and MQTT
-make up ~850 KB of the firmware and are needed for everything above, so
-moving the remaining ~25 KB of pages and fonts to the file system would not
-buy a smaller slot. Dropping the compiled-in face (87 KB) was the lever.
+Where the flash goes: the precompiled ESP-IDF in the Arduino core (Wi-Fi
+~310 KB, lwIP ~95 KB, Bluetooth controller ~67 KB, LittleFS, mDNS, FreeRTOS)
+is most of it and cannot be trimmed without building ESP-IDF from source.
+Bluetooth (NimBLE, ~210 KB as shipped) fits because of these trims, measured
+with the linker map (`.pio/build/esp32s3_supermini/firmware.map`):
+
+| Trim | Where | Saves |
+|---|---|---|
+| printf/vfprintf from the chip ROM, sprintf from newlib-nano (as ESP-IDF's `CONFIG_NEWLIB_NANO_FORMAT`): **no `%f` / `%ll` in printf formats** | `slim.py` | 56 KB |
+| no C++ unwind tables (nothing catches exceptions; uncaught ones abort either way) | `platformio.ini` | 51 KB |
+| NimBLE: peripheral role only, one connection | `platformio.ini` | 38 KB |
+| NimBLE: no pairing/bonding (security manager, ECC, bond store in NVS) | `platformio.ini` | 24 KB |
+| no core dump writer (nothing read the dumps) | `src/no_coredump.c` | 11 KB |
+| web pages gzipped (`web/` → generated `web_pages.h`) | `slim.py` | ~8 KB |
+| no ESP Insights log hooks (esp_diagnostics) | `slim.py` | 2 KB |
+| TFT font 1 (GLCD) not loaded | `platformio.ini` | ~1.5 KB |
+
+The linker already drops library functions nothing calls, so editing library
+sources buys little: what is left unused but linked is small (WebServer's
+multipart parser 3.4 KB, TFT_eSPI's virtual readPixel 0.8 KB) and would mean
+vendoring the libraries.
 
 ## Firmware updates over Wi-Fi (OTA)
 
@@ -152,7 +199,8 @@ network. Changing `partitions.csv` requires one USB flash.
 
 Two tasks on the two cores: the renderer (core 0) draws frames and the
 loading ring; the Arduino loop (core 1) runs Wi-Fi, the web server, uploads,
-OTA, MQTT and the serial console. A recursive mutex guards the player state
+OTA, MQTT, Bluetooth commands (queued by the NimBLE task) and the serial
+console. A recursive mutex guards the player state
 and the animation registry; only the renderer touches the display. A slow
 upload, a Wi-Fi scan or an MQTT reconnect therefore never stalls the face.
 While an animation or firmware image is being received the screen shows a
@@ -166,15 +214,18 @@ a message saying how much space is available.
 ## Layout
 
 ```
-platformio.ini          board, pins, TFT_eSPI flags, OTA env
+platformio.ini          board, pins, TFT_eSPI + NimBLE flags, size flags, OTA env
+slim.py                 build script: ROM printf, no log hooks, gzips web/ into web_pages.h
 partitions.csv          two 1 MB app slots (OTA) + 1.875 MB LittleFS
 ota.sh                  build + upload over Wi-Fi
-src/main.cpp            player loop + serial commands
+web/                    the pages (faces.html, settings.html, style.css), served gzipped
+src/main.cpp            player loop + console commands (serial and Bluetooth)
+src/ble.*               Bluetooth LE: Nordic UART Service + state characteristic
 src/store.*             animation registry: LittleFS uploads + built-ins
 src/net.*               Wi-Fi, setup AP, web pages, HTTP API, OTA
 src/mqtt.*              MQTT + Home Assistant discovery
 src/config.*            settings in NVS
-src/web_page.h          the two pages (faces, settings)
+src/no_coredump.c       leaves ESP-IDF's core dump writer out (see the size table)
 src/animations/         optional built-in animations (generated; empty by default)
 lib/dba_player/         DBA1 decoder (plain C; sim/player symlinks here, sim/test checks it)
 ```

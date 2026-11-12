@@ -1,53 +1,4 @@
-/* Pages served by the device. Plain HTML, no external assets.
- *   /          faces: pick what plays, screen on/off
- *   /settings  device, Wi-Fi, MQTT, stored animations, firmware update */
-#pragma once
-#include <pgmspace.h>
-
-static const char WEB_CSS[] PROGMEM = R"CSS(
-body{font:15px -apple-system,Segoe UI,Helvetica,Arial,sans-serif;background:#15171a;color:#e6e6e6;margin:0;padding:16px;max-width:520px;margin:auto}
-h1{font-size:18px;margin:8px 0 2px;display:flex;justify-content:space-between;align-items:baseline}h1 a{font-size:13px;color:#4fb3ff;text-decoration:none}
-h2{font-size:13px;text-transform:uppercase;letter-spacing:.08em;color:#8a919c;margin:22px 0 8px}
-.card{background:#1f2227;border-radius:10px;padding:12px 14px;margin-bottom:10px}
-.faces{display:flex;flex-wrap:wrap;gap:8px}
-button{background:#2a2e35;color:#e6e6e6;border:1px solid #3a3f47;border-radius:8px;padding:9px 12px;font:inherit;cursor:pointer}
-button.on,button.primary{background:#4fb3ff;color:#000;border-color:transparent}button.danger{border-color:#7a2a2a}
-label{display:block;color:#8a919c;font-size:12px;margin:8px 0 3px}
-label.chk{display:inline-flex;align-items:center;gap:6px;color:#e6e6e6;font-size:14px;margin:6px 12px 0 0}
-input,select{width:100%;box-sizing:border-box;background:#15171a;color:#e6e6e6;border:1px solid #3a3f47;border-radius:6px;padding:8px;font:inherit}
-input[type=checkbox]{width:auto}input[type=file]{padding:4px}input[type=range]{padding:0;accent-color:#4fb3ff}
-.row{display:flex;gap:8px;align-items:flex-end}.row>*{flex:1}
-#st{color:#8a919c;font-size:13px}#msg{color:#4fb3ff;min-height:1.2em;font-size:13px;margin-top:8px}
-small{color:#8a919c}table{width:100%;border-collapse:collapse;font-size:14px}td{padding:5px 4px;border-bottom:1px solid #2a2e35}td:last-child{text-align:right}
-progress{width:100%}
-)CSS";
-
-static const char FACES_PAGE[] PROGMEM = R"HTML(<!doctype html>
-<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Desk Buddy</title><link rel="stylesheet" href="/style.css"></head><body>
-<h1><span id="title">Desk Buddy</span><a href="/settings">Settings ›</a></h1><div id="st">…</div>
-<h2>Face</h2><div class="card"><div class="faces" id="faces"></div>
-<div class="row" style="margin-top:10px"><button id="scr" onclick="screen()">Screen</button><div style="flex:3"><label>Brightness <span id="bv"></span>%</label><input id="bri" type="range" min="10" max="100" step="5"></div></div>
-<div id="msg"></div></div>
-<p><small id="dev"></small></p>
-<script>
-const $=s=>document.querySelector(s);let anims=[],cur='',scrOn=true;
-async function j(u,o){const r=await fetch(u,o);if(!r.ok)throw new Error(r.status+' '+await r.text());return r.json()}
-const nice=n=>n.replace(/^[a-z0-9]+__/,'').replace(/^face_/,'').replace(/_/g,' ');let theme='';
-const themeOf=n=>{const m=n.match(/^([a-z0-9]+)__/);return m?m[1]:''};
-function faces(){$('#faces').innerHTML='';for(const n of ['cycle',...anims]){const th=themeOf(n);if(th&&th!==theme)continue;const b=document.createElement('button');b.textContent=nice(n)+(th?' ✦':'');if(n===cur)b.className='on';b.onclick=()=>play(n);$('#faces').appendChild(b)}
-$('#scr').textContent='Screen: '+(scrOn?'on':'off');$('#scr').className=scrOn?'on':''}
-async function play(n){try{await j('/api/play?name='+encodeURIComponent(n),{method:'POST'});cur=n;faces();$('#msg').textContent='playing '+nice(n)}catch(e){$('#msg').textContent=e.message}}
-async function screen(){try{const r=await j('/api/screen?on='+(scrOn?0:1),{method:'POST'});scrOn=r.on;faces()}catch(e){$('#msg').textContent=e.message}}
-let briT=null;$('#bri').oninput=e=>{$('#bv').textContent=e.target.value;clearTimeout(briT);briT=setTimeout(()=>fetch('/api/brightness?value='+e.target.value,{method:'POST'}).catch(()=>{}),150)};
-async function load(){const s=await j('/api/status');anims=s.animations;cur=s.current;scrOn=s.screen;theme=s.theme||'';faces();if(document.activeElement!==$('#bri')){$('#bri').value=s.brightness;$('#bv').textContent=s.brightness}
-$('#title').textContent=s.config.name||'Desk Buddy';document.title=$('#title').textContent;
-$('#st').textContent=(s.wifi.connected?'Wi-Fi: '+s.wifi.ssid+' ('+s.wifi.ip+')':'Wi-Fi: not connected')+(s.ap?'  ·  setup AP '+s.ap:'')+'  ·  MQTT: '+s.mqtt+'  ·  theme: '+(theme||'none');
-$('#dev').textContent='device '+s.id+'  ·  http://'+s.host+'.local  ·  '+s.animations.length+' animations';}
-load().catch(e=>$('#st').textContent=e.message);setInterval(()=>load().catch(()=>{}),10000);
-</script></body></html>)HTML";
-
-static const char SETTINGS_PAGE[] PROGMEM = R"HTML(<!doctype html>
+<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Desk Buddy settings</title><link rel="stylesheet" href="/style.css"></head><body>
 <h1><span>Settings</span><a href="/">‹ Faces</a></h1><div id="st">…</div>
@@ -64,6 +15,8 @@ static const char SETTINGS_PAGE[] PROGMEM = R"HTML(<!doctype html>
 <label>Start with</label><select name="anim" id="startsel"></select>
 <div class="row"><div><label>Setup AP password <small>(empty = open)</small></label><input name="apPass" type="password" autocomplete="off" placeholder="at least 8 characters"></div>
 <div><label>Firmware update password <small>(empty = none)</small></label><input name="otaPass" type="password" autocomplete="off"></div></div>
+<label class="chk"><input type="checkbox" name="ble"> Bluetooth control</label>
+<p><small>Phones and the simulator's remote page (sim/remote.html) can pick faces, screen, brightness and theme over Bluetooth LE (Nordic UART Service, no pairing). Settings stay on this page and USB serial.</small></p>
 </form></div>
 
 <h2>Wi-Fi</h2><div class="card"><form id="wifi">
@@ -103,10 +56,10 @@ const $=s=>document.querySelector(s);let anims=[],cur='';
 async function j(u,o){const r=await fetch(u,o);if(!r.ok)throw new Error(r.status+' '+await r.text());return r.json()}
 const nice=n=>n.replace(/^face_/,'').replace(/_/g,' ');const kb=b=>(b/1024).toFixed(1)+' KB';const themeOf=n=>{const m=n.match(/^([a-z0-9]+)__/);return m?m[1]:''};
 async function load(){const s=await j('/api/status');anims=s.animations;cur=s.current;
-$('#st').textContent=(s.wifi.connected?'Wi-Fi: '+s.wifi.ssid+' ('+s.wifi.ip+', '+s.wifi.rssi+' dBm)':'Wi-Fi: not connected')+(s.ap?'  ·  setup AP '+s.ap:'')+'  ·  MQTT: '+s.mqtt;
+$('#st').textContent=(s.wifi.connected?'Wi-Fi: '+s.wifi.ssid+' ('+s.wifi.ip+', '+s.wifi.rssi+' dBm)':'Wi-Fi: not connected')+(s.ap?'  ·  setup AP '+s.ap:'')+'  ·  MQTT: '+s.mqtt+'  ·  Bluetooth: '+s.ble;
 $('#dev').textContent='device '+s.id+'  ·  http://'+s.host+'.local  ·  '+s.heap+' bytes free  ·  up '+Math.round(s.uptime/60)+' min';$('#ver').textContent=s.version;
 const c=s.config,f=$('#wifi');f.ssid.value=c.ssid;const m=$('#mqtt');m.mqttHost.value=c.mqttHost;m.mqttPort.value=c.mqttPort;m.mqttUser.value=c.mqttUser;m.mqttPrefix.value=c.mqttPrefix;m.haDiscovery.checked=c.haDiscovery;$('#tp').textContent=c.mqttPrefix;m.mqttPrefix.oninput=()=>$('#tp').textContent=m.mqttPrefix.value;
-const t=$('#set');t.name.value=c.name;t.rotation.value=c.rotation;t.loops.value=c.loops;t.speed.value=c.speed;t.apPass.value=c.apPass;t.otaPass.value=c.otaPass;
+const t=$('#set');t.name.value=c.name;t.rotation.value=c.rotation;t.loops.value=c.loops;t.speed.value=c.speed;t.apPass.value=c.apPass;t.otaPass.value=c.otaPass;t.ble.checked=c.ble;
 const ts=$('#themesel');ts.innerHTML='';for(const t of ['',...(s.themes||[])]){const o=document.createElement('option');o.value=t;o.textContent=t||'none (common animations only)';ts.appendChild(o)}ts.value=s.theme||'';
 ts.onchange=()=>fetch('/api/theme?name='+ts.value,{method:'POST'}).then(()=>{$('#msg').textContent='theme: '+(ts.value||'none')}).catch(()=>{});
 const inCyc=c.cycleList?c.cycleList.split(','):[];$('#cyc').innerHTML='';for(const n of anims){const th=themeOf(n);const l=document.createElement('label');l.className='chk';const i=document.createElement('input');i.type='checkbox';i.value=n;i.checked=inCyc.includes(n);l.appendChild(i);l.appendChild(document.createTextNode((th?th+': ':'')+nice(n.replace(/^[a-z0-9]+__/,''))+(th?' ✦':'')));$('#cyc').appendChild(l)}
@@ -125,9 +78,9 @@ put('/api/update',f,$('#fprog'),(s,t)=>{$('#fmsg').textContent=s===200?'update w
 async function scan(){$('#nets').textContent='scanning…';try{const r=await j('/api/scan');$('#nets').innerHTML='';for(const n of r){const b=document.createElement('button');b.textContent=n.ssid+' ('+n.rssi+' dBm'+(n.open?', open':'')+')';b.style.margin='4px 4px 0 0';b.onclick=()=>{$('#ssid').value=n.ssid};$('#nets').appendChild(b)}if(!r.length)$('#nets').textContent='no networks found'}catch(e){$('#nets').textContent=e.message}}
 async function save(){const t=$('#set');if(t.apPass.value&&t.apPass.value.length<8){$('#msg').textContent='AP password needs at least 8 characters';return}
 const d=new URLSearchParams();for(const f of ['#set','#wifi','#mqtt'])for(const [k,v] of new FormData($(f)))d.append(k,v);
-d.set('haDiscovery',$('#mqtt').haDiscovery.checked?'1':'0');d.set('cycleList',[...$('#cyc').querySelectorAll('input:checked')].map(i=>i.value).join(','));d.set('apPassSet','1');d.set('otaPassSet','1');
+d.set('haDiscovery',$('#mqtt').haDiscovery.checked?'1':'0');d.set('ble',t.ble.checked?'1':'0');d.set('cycleList',[...$('#cyc').querySelectorAll('input:checked')].map(i=>i.value).join(','));d.set('apPassSet','1');d.set('otaPassSet','1');
 try{await j('/api/config',{method:'POST',body:d});$('#msg').textContent='saved, rebooting… if you changed Wi-Fi, reconnect to your network and open http://'+(t.name.value||'deskbuddy').toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,'')+'.local'}catch(e){$('#msg').textContent=e.message}}
 async function reboot(){await fetch('/api/reboot',{method:'POST'});$('#msg').textContent='rebooting…'}
 async function factory(){if(!confirm('Erase all settings (Wi-Fi, MQTT, display) and reboot into setup mode? Stored animations are kept.'))return;await fetch('/api/reset',{method:'POST'});$('#msg').textContent='settings erased, rebooting into setup AP…'}
 load().catch(e=>$('#st').textContent=e.message);
-</script></body></html>)HTML";
+</script></body></html>

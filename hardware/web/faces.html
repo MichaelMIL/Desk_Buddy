@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Desk Buddy</title><link rel="stylesheet" href="/style.css"></head><body>
+<h1><span id="title">Desk Buddy</span><a href="/settings">Settings ›</a></h1><div id="st">…</div>
+<h2>Face</h2><div class="card"><div class="faces" id="faces"></div>
+<div class="row" style="margin-top:10px"><button id="scr" onclick="screen()">Screen</button><div style="flex:3"><label>Brightness <span id="bv"></span>%</label><input id="bri" type="range" min="10" max="100" step="5"></div></div>
+<div id="msg"></div></div>
+<p><small id="dev"></small></p>
+<script>
+const $=s=>document.querySelector(s);let anims=[],cur='',scrOn=true;
+async function j(u,o){const r=await fetch(u,o);if(!r.ok)throw new Error(r.status+' '+await r.text());return r.json()}
+const nice=n=>n.replace(/^[a-z0-9]+__/,'').replace(/^face_/,'').replace(/_/g,' ');let theme='';
+const themeOf=n=>{const m=n.match(/^([a-z0-9]+)__/);return m?m[1]:''};
+function faces(){$('#faces').innerHTML='';for(const n of ['cycle',...anims]){const th=themeOf(n);if(th&&th!==theme)continue;const b=document.createElement('button');b.textContent=nice(n)+(th?' ✦':'');if(n===cur)b.className='on';b.onclick=()=>play(n);$('#faces').appendChild(b)}
+$('#scr').textContent='Screen: '+(scrOn?'on':'off');$('#scr').className=scrOn?'on':''}
+async function play(n){try{await j('/api/play?name='+encodeURIComponent(n),{method:'POST'});cur=n;faces();$('#msg').textContent='playing '+nice(n)}catch(e){$('#msg').textContent=e.message}}
+async function screen(){try{const r=await j('/api/screen?on='+(scrOn?0:1),{method:'POST'});scrOn=r.on;faces()}catch(e){$('#msg').textContent=e.message}}
+let briT=null;$('#bri').oninput=e=>{$('#bv').textContent=e.target.value;clearTimeout(briT);briT=setTimeout(()=>fetch('/api/brightness?value='+e.target.value,{method:'POST'}).catch(()=>{}),150)};
+async function load(){const s=await j('/api/status');anims=s.animations;cur=s.current;scrOn=s.screen;theme=s.theme||'';faces();if(document.activeElement!==$('#bri')){$('#bri').value=s.brightness;$('#bv').textContent=s.brightness}
+$('#title').textContent=s.config.name||'Desk Buddy';document.title=$('#title').textContent;
+$('#st').textContent=(s.wifi.connected?'Wi-Fi: '+s.wifi.ssid+' ('+s.wifi.ip+')':'Wi-Fi: not connected')+(s.ap?'  ·  setup AP '+s.ap:'')+'  ·  MQTT: '+s.mqtt+'  ·  Bluetooth: '+s.ble+'  ·  theme: '+(theme||'none');
+$('#dev').textContent='device '+s.id+'  ·  http://'+s.host+'.local  ·  '+s.animations.length+' animations';}
+load().catch(e=>$('#st').textContent=e.message);setInterval(()=>load().catch(()=>{}),10000);
+</script></body></html>

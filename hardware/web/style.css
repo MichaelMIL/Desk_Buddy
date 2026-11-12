@@ -1,0 +1,15 @@
+body{font:15px -apple-system,Segoe UI,Helvetica,Arial,sans-serif;background:#15171a;color:#e6e6e6;margin:0;padding:16px;max-width:520px;margin:auto}
+h1{font-size:18px;margin:8px 0 2px;display:flex;justify-content:space-between;align-items:baseline}h1 a{font-size:13px;color:#4fb3ff;text-decoration:none}
+h2{font-size:13px;text-transform:uppercase;letter-spacing:.08em;color:#8a919c;margin:22px 0 8px}
+.card{background:#1f2227;border-radius:10px;padding:12px 14px;margin-bottom:10px}
+.faces{display:flex;flex-wrap:wrap;gap:8px}
+button{background:#2a2e35;color:#e6e6e6;border:1px solid #3a3f47;border-radius:8px;padding:9px 12px;font:inherit;cursor:pointer}
+button.on,button.primary{background:#4fb3ff;color:#000;border-color:transparent}button.danger{border-color:#7a2a2a}
+label{display:block;color:#8a919c;font-size:12px;margin:8px 0 3px}
+label.chk{display:inline-flex;align-items:center;gap:6px;color:#e6e6e6;font-size:14px;margin:6px 12px 0 0}
+input,select{width:100%;box-sizing:border-box;background:#15171a;color:#e6e6e6;border:1px solid #3a3f47;border-radius:6px;padding:8px;font:inherit}
+input[type=checkbox]{width:auto}input[type=file]{padding:4px}input[type=range]{padding:0;accent-color:#4fb3ff}
+.row{display:flex;gap:8px;align-items:flex-end}.row>*{flex:1}
+#st{color:#8a919c;font-size:13px}#msg{color:#4fb3ff;min-height:1.2em;font-size:13px;margin-top:8px}
+small{color:#8a919c}table{width:100%;border-collapse:collapse;font-size:14px}td{padding:5px 4px;border-bottom:1px solid #2a2e35}td:last-child{text-align:right}
+progress{width:100%}

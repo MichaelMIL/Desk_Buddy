@@ -17,6 +17,9 @@ with swappable accessories.
 <p align="center">
   <img src="docs/images/themes.png" alt="Seasonal themes" width="430">
 </p>
+<p align="center">
+  <img src="docs/images/more_themes.png" alt="More themes: skeleton, gamer, bee, devil, dragon, robot, birthday, valentine, summer" width="880">
+</p>
 
 ## What's in the box
 
@@ -77,9 +80,10 @@ and can push it straight to the board.
   Brightness number.
 - Themes: animations tagged with a theme only play while that theme is
   selected; the common faces always do. There is a theme per build variant
-  (`dj`, `cat`, `bear`, `bunny`, `king`, `unicorn`) and seasonal ones
-  (`halloween`, `xmas`, `space`, `ocean`), three animations each for the
-  seasons and two per build.
+  (`dj`, `cat`, `bear`, `bunny`, `king`, `unicorn`, `skeleton`, `gamer`,
+  `bee`, `devil`, `dragon`, `robot`) and seasonal or occasion ones
+  (`halloween`, `xmas`, `space`, `ocean`, `birthday`, `valentine`,
+  `summer`, `stpatricks`).
 
 ## Hardware
 

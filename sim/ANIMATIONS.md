@@ -71,8 +71,9 @@ on the device as `halloween__<name>` and plays only while that theme is
 selected on the device's settings page (common animations, without a theme,
 play in every theme). Name themed animations `'Halloween: pumpkin'`: the
 theme prefix is dropped from the board name. Existing themes: the build variants `dj`,
-`cat`, `bear`, `bunny`, `king`, `unicorn` and the seasons `halloween`,
-`xmas`, `space`, `ocean` (see `theme_*.js`); a new theme name creates a new
+`cat`, `bear`, `bunny`, `king`, `unicorn`, `skeleton`, `gamer`, `bee`,
+`devil`, `dragon`, `robot` and the seasons/occasions `halloween`, `xmas`,
+`space`, `ocean`, `birthday`, `valentine`, `summer` (see `theme_*.js`); a new theme name creates a new
 theme automatically. Build-variant animations keep the standard face and add
 the accessory (headphones, ears, crown, horn) plus a matching behaviour.
 
@@ -162,6 +163,21 @@ Parameters (unlisted ones keep their default): `open`, `openL`, `openR`,
 `exclaim` (0..1). Ease is `smooth` (default), `linear`, `pop` or `step`.
 When asked to tweak such a file, edit the SPEC and keep the
 `FaceRig.animation(SPEC)` call so it stays editable in the editor.
+
+The rig also works as a face engine for code animations that add their own
+drawing (accessories, props, backgrounds):
+
+```js
+Sim.register(FaceRig.animation({ name: 'Devil: wink', theme: 'devil', fps: 24, duration: 3000,
+  tracks: { openL: [[0, 1], [1000, 0], [1400, 1]], mouthCurve: [[0, 0.9]] } }, {
+  under(g, c) { /* after the background, before the face */ },
+  over(g, c) { /* on top: horns, hats, props. c = { v, t, f, dx, dy, bg } */ },
+}));
+```
+
+Or call `FaceRig.draw(g, values, f.t, spec, hooks, f)` from your own
+`frame()` with values from `FaceRig.valuesAt(spec, f.t)` that you adjust
+(e.g. make the eyes follow something). Many `theme_*.js` files do this.
 
 
 

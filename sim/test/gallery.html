@@ -21,7 +21,8 @@ grid.style.gridTemplateColumns = `repeat(${cols}, ${size}px)`;
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 document.getElementById('f').onload = async () => {
   const w = document.getElementById('f').contentWindow, d = document.getElementById('f').contentDocument;
-  for (let i = 0; i < 100 && !(w.SimApp && w.SimApp.registry.length); i++) await sleep(100);
+  // wait until every animation file has loaded (the list is built once, at the end)
+  for (let i = 0; i < 200 && !d.querySelector('#anim-list li.item'); i++) await sleep(100);
   for (const a of [...w.SimApp.registry]) {
     if (!filter.test(a.name) || a.name === 'Template') continue;
     await w.SimApp.select(a);

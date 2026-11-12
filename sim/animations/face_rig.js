@@ -12,6 +12,14 @@
  * A keyframe is [timeMs, value, ease?] where ease (for the segment that starts
  * at this key) is 'smooth' (default), 'linear', 'step' or 'pop' (overshoot).
  * Parameters without keys keep their default value.
+ *
+ * Code animations can reuse the rig for the face and add their own drawing:
+ *   Sim.register(FaceRig.animation(SPEC, {
+ *     under(g, c) { ... },   // after the background is cleared, before the face
+ *     over(g, c) { ... },    // after the face and effects
+ *   }));
+ * c = { v (parameter values), t (seconds), f (frame info), dx, dy (head offset), bg }.
+ * Animations with hooks open as code in the editor (the hooks are code).
  */
 window.FaceRig = (() => {
   const P = (key, label, group, min, max, step, def, hint) => ({ key, label, group, min, max, step, def, hint });
@@ -122,7 +130,7 @@ window.FaceRig = (() => {
     g.fillTriangle(x - 2 * s, y + 1, x + 2 * s, y + 1, x, y + 3 * s, col);
   }
 
-  function draw(g, v, tms, spec) {
+  function draw(g, v, tms, spec, hooks, f) {
     const F = window.Face, t = tms / 1000;
     const bg = Sim.hex(spec.colors.bg), mouth = Sim.hex(spec.colors.mouth);
     const keep = { IRIS: F.IRIS, MOUTH: F.MOUTH, MOUTH_IN: F.MOUTH_IN, BLUSH: F.BLUSH };
@@ -136,6 +144,8 @@ window.FaceRig = (() => {
       const dx = Math.round(v.headX + v.shake * 5 * Math.sin(t * 45));
       const dy = Math.round(v.headY - v.bob * 10 * Math.abs(Math.sin(t * Math.PI * 2)));
       const rx = Math.round(32 * v.eyeSize), ry = Math.round(40 * v.eyeSize);
+      const hc = hooks ? { v, t, f, dx, dy, bg } : null;
+      if (hooks && hooks.under) hooks.under(g, hc);
 
       // eyes
       for (const [cx, own] of [[F.LX, v.openL], [F.RX, v.openR]]) {
@@ -211,19 +221,20 @@ window.FaceRig = (() => {
         g.fillRoundRect(bx - 3, by, 7, 20, 3, c);
         g.fillCircle(bx, by + 28, 4, c);
       }
+      if (hooks && hooks.over) hooks.over(g, hc);
     } finally {
       Object.assign(F, keep);
     }
   }
 
-  /** Turn a SPEC into an animation definition for Sim.register(). */
-  function animation(spec) {
+  /** Turn a SPEC (plus optional under/over drawing hooks) into an animation for Sim.register(). */
+  function animation(spec, hooks) {
     const s = normalize(spec);
     const def = {
       name: s.name, fps: s.fps, duration: s.duration, loop: s.loop !== false,
-      rig: s,   // lets the editor recognise and reopen it
-      frame(g, f) { draw(g, valuesAt(s, f.t), f.t, s); },
+      frame(g, f) { draw(g, valuesAt(s, f.t), f.t, s, hooks, f); },
     };
+    if (!hooks) def.rig = s;   // lets the editor recognise and reopen it visually
     if (s.theme) def.theme = s.theme;
     if (s.category) def.category = s.category;
     return def;

@@ -14,6 +14,8 @@ struct Config {
   String mqttUser, mqttPass;
   String mqttPrefix;         // default: deskbuddy/<id>
   bool haDiscovery = true;   // publish Home Assistant MQTT discovery
+  // bluetooth
+  bool ble = true;           // Bluetooth LE control (Nordic UART Service), see ble.h
   // display / playback
   String anim;               // animation to start with ("" or "cycle" = cycle)
   String cycleList;          // comma-separated names to cycle through ("" = all)

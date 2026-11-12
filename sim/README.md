@@ -15,6 +15,7 @@ sim/
   lib/chat.js         "Ask Claude" panel (Anthropic SDK in the browser)
   lib/board.js        shared: board names, rendering to DBAZ, push with progress
   editor.html, lib/editor.js   the animation editor (visual keyframes + code)
+  remote.html         Bluetooth LE remote for the real buddy (Web Bluetooth, Chrome/Edge)
   animations/         your animations (one .js file each) + index.js manifest
   animations/face_lib.js  shared helpers for the buddy's face (eyes, mouth, brows)
   animations/face_rig.js  keyframed faces (the visual editor's format)
@@ -32,6 +33,11 @@ sim/
 
 Opening `sim/index.html` straight from disk also works for everything except
 `Sim.loadImage()` / `g.drawImage()` (browsers block pixel reads from `file://`).
+
+The Bluetooth remote is at http://localhost:8080/remote.html (Web Bluetooth
+needs Chrome or Edge and localhost or https, so open it through `serve.sh`).
+It lists the faces on the device and sets face, screen, brightness and theme;
+the protocol is in `hardware/README.md` (Bluetooth LE).
 
 Keys: `Space` play/pause, `←` `→` step one frame, `R` reload animation files.
 Hover the screen to read a pixel's coordinates and RGB565 value. Pixels outside
@@ -112,7 +118,8 @@ only redraw what changes (it also makes the exported file smaller).
 `halloween__<name>` and plays only while that theme is selected (common
 animations play in every theme). The shipped themes are in
 `animations/theme_*.js`: one per build variant (dj, cat, bear, bunny, king,
-unicorn) and seasonal ones (halloween, xmas, space, ocean).
+unicorn, skeleton, gamer, bee, devil, dragon, robot) and seasonal or occasion
+ones (halloween, xmas, space, ocean, birthday, valentine, summer).
 
 Drawing API on `g` (integer pixels, colours are RGB565 numbers, same
 algorithms as Adafruit_GFX / TFT_eSPI so a C++ port looks identical):

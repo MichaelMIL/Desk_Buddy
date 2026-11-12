@@ -25,8 +25,12 @@ PlatformIO firmware that plays what the simulator exports.
   upload` compiles them in instead (built-in fallback, limited space).
 - Firmware: `cd hardware && pio run -t upload` over USB, or
   `hardware/ota.sh <address>` over Wi-Fi. The OTA app slots are 1 MB and the
-  firmware is ~910 KB, so watch the "Flash:" line when adding libraries; do
-  not compile animations in (they live on LittleFS). The DBA1 decoder's single source is
+  firmware is ~935 KB with Bluetooth, so watch the "Flash:" line when adding
+  libraries; do not compile animations in (they live on LittleFS). It only
+  fits because of the trims in `hardware/slim.py` and `platformio.ini` (table
+  in `hardware/README.md`); among them printf is newlib-nano from the ROM, so
+  no `%f` / `%ll` in printf formats. Web pages live in `hardware/web/` (gzipped
+  into the firmware at build time). The DBA1 decoder's single source is
   `hardware/lib/dba_player/`. The ESP32 WebServer does not parse query
   arguments for raw-body (PUT) requests, so uploads carry the name in the
   `X-Anim-Name` header.
