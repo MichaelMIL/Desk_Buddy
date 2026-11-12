@@ -18,7 +18,7 @@ with swappable accessories.
   <img src="docs/images/themes.png" alt="Seasonal themes" width="430">
 </p>
 <p align="center">
-  <img src="docs/images/claude_theme.png" alt="Claude theme: thinking, writing, hello, spark" width="560">
+  <img src="docs/images/claude_theme.png" alt="Claude theme: thinking, writing, hello, spark, pondering, coding, tests pass, debugging, ship it" width="700">
 </p>
 <p align="center">
   <img src="docs/images/more_themes.png" alt="More themes: skeleton, gamer, bee, devil, dragon, robot, birthday, valentine, summer" width="880">
@@ -87,7 +87,10 @@ and can push it straight to the board.
   `bee`, `devil`, `dragon`, `robot`) and seasonal or occasion ones
   (`halloween`, `xmas`, `space`, `ocean`, `birthday`, `valentine`,
   `summer`, `stpatricks`), plus a `claude` theme in Claude's coral and
-  cream. Every theme has at least three animations.
+  cream, most of it about coding with Claude Code: the CLI spinner
+  "Pondering…", typing code in a terminal, `npm test` going green, hunting a
+  bug, and `git push` sending a rocket off. Every theme has at least three
+  animations.
 
 ## Hardware
 
