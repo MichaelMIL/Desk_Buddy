@@ -8,14 +8,15 @@ public struct BuddyState: Decodable, Equatable {
     public var brightness: Int          // 10...100
     public var theme: String            // "" = none
     public var animations: [String]
+    public var library: [String]        // what the bridge's library could put back on the buddy
 
-    enum CodingKeys: String, CodingKey { case current, screen, brightness, theme, animations }
+    enum CodingKeys: String, CodingKey { case current, screen, brightness, theme, animations, library }
     private struct Named: Decodable { var name: String }
 
     public init(current: String = "cycle", screen: Bool = true, brightness: Int = 100, theme: String = "",
-                animations: [String] = []) {
+                animations: [String] = [], library: [String] = []) {
         self.current = current; self.screen = screen; self.brightness = brightness
-        self.theme = theme; self.animations = animations
+        self.theme = theme; self.animations = animations; self.library = library
     }
 
     public init(from decoder: Decoder) throws {
@@ -30,6 +31,7 @@ public struct BuddyState: Decodable, Equatable {
         } else {
             animations = (try? c.decodeIfPresent([Named].self, forKey: .animations))?.map(\.name) ?? []
         }
+        library = (try? c.decodeIfPresent([String].self, forKey: .library)) ?? []
     }
 
     public var isCycling: Bool { current == "cycle" }
@@ -39,11 +41,29 @@ public struct BuddyState: Decodable, Equatable {
         Array(Set(animations.compactMap { BuddyState.theme(of: $0) })).sorted()
     }
 
-    /// Faces of no theme (`face_happy`, `spinner`); they cycle whatever the theme.
+    /// Faces of no theme (`face_happy`); they cycle whatever the theme.
     public var commonFaces: [String] { animations.filter { BuddyState.theme(of: $0) == nil }.sorted() }
 
     public func faces(in theme: String) -> [String] {
         animations.filter { BuddyState.theme(of: $0) == theme }.sorted()
+    }
+
+    /// In the library but not on the buddy: playing one uploads it first (the bridge does).
+    public var missing: [String] {
+        let on = Set(animations)
+        return library.filter { !on.contains($0) }.sorted()
+    }
+
+    /// Faces to offer for a theme ("" = no theme): the ones on the buddy, then the library's others.
+    public func menuFaces(in theme: String) -> [(name: String, onBuddy: Bool)] {
+        let have = theme.isEmpty ? commonFaces : faces(in: theme)
+        let more = missing.filter { (BuddyState.theme(of: $0) ?? "") == theme }
+        return have.map { ($0, true) } + more.map { ($0, false) }
+    }
+
+    /// Themes with a face on the buddy or in the library.
+    public var menuThemes: [String] {
+        Array(Set((animations + library).compactMap { BuddyState.theme(of: $0) })).sorted()
     }
 
     public static func theme(of name: String) -> String? {

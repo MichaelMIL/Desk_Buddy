@@ -42,6 +42,9 @@ CONF_FILE = os.path.join(CONF_DIR, 'claude.json')
 STATE_FILE = os.path.join(CONF_DIR, 'claude-state.json')
 LOG_FILE = os.path.join(CONF_DIR, 'claude-bridge.log')
 PYTHON_FILE = os.path.join(CONF_DIR, 'claude-python')   # the daemon's interpreter (has bleak), for menubar/
+# Animation files to put back on the buddy (kept by sim/serve.py: every push, and sim/test/library.sh)
+LIBRARY_DIR = os.environ.get('DESK_BUDDY_LIBRARY') or os.path.join(CONF_DIR, 'library')
+PLAYS_FILE = os.path.join(CONF_DIR, 'claude-plays.json')  # when each animation last played (what to delete first)
 SETTINGS_FILE = os.path.join(os.path.expanduser('~'), '.claude', 'settings.json')
 HOOK_MARK = 'buddy_bridge.py'            # how install/uninstall recognise our hook entries
 HEADER = 'X-Desk-Buddy'                  # required on daemon requests (keeps web pages from posting to it)
@@ -60,6 +63,8 @@ DEFAULTS = {
     'rotate_seconds': 30,                # long thinking / debugging alternates between its animations
     'restore': 'previous',               # when Claude is idle: 'previous' (what was playing), 'cycle', or a name
     'animations': {},                    # overrides: {"thinking": "claude__thinking", "done": ["face_happy"]}
+    'auto_upload': 'all',                # an activity's animation missing on the buddy but in the library:
+                                         # 'all' uploads it, 'core' all but the language/studio ones, 'off' never
 }
 
 # Activity -> animations on the buddy, best first. The first one stored on the
@@ -116,6 +121,8 @@ ACTIVITIES['designing'] = ['claude__designing', 'claude__editing', 'claude__writ
 FILE_KINDS = dict(LANGS, **STUDIO)
 # not part of the core theme; `status` does not ask to push them
 OPTIONAL = set(LANGS.values()) | set(STUDIO.values())
+# The animations the bridge itself relies on (not the optional ones): a full buddy keeps them longest.
+CORE_NAMES = {n for a, ns in ACTIVITIES.items() if a not in OPTIONAL for n in ns}
 # Activities that alternate between animations when they last (every rotate_seconds).
 ROTATE = {'thinking': ['claude__pondering', 'claude__thinking'],
           'debugging': ['claude__debugging', 'claude__rubber_duck']}
@@ -359,6 +366,71 @@ def classify(ev):
     return None
 
 
+# ---------------------------------------------------------------------------- the library
+
+LIB_FILE_RE = re.compile(r'^([a-z0-9_]{1,31})\.(dbal|dbaz|dba)$')
+SPACE_RE = re.compile(r'not enough space')
+UPLOAD_REPLY_RE = re.compile(r'^(ready|ack|stored|error)\b ?(.*)$')
+MAX_EVICTIONS = 12                       # deletions to make room for one upload
+UPLOAD_RETRY_SECONDS = 600               # a failed upload is not tried again for this long
+
+
+class Library:
+    """Animation files the bridge can put back on the buddy after they were deleted from it:
+    <name>.dbal (or .dbaz / .dba) in LIBRARY_DIR, the bytes the buddy stores."""
+
+    def __init__(self, path):
+        self.path = path
+
+    def names(self):
+        try:
+            return {m.group(1) for m in map(LIB_FILE_RE.match, os.listdir(self.path)) if m}
+        except OSError:
+            return set()
+
+    def data(self, name):
+        for ext in ('.dbal', '.dbaz', '.dba'):
+            try:
+                with open(os.path.join(self.path, name + ext), 'rb') as f:
+                    return f.read()
+            except OSError:
+                continue
+        return None
+
+
+class Recency:
+    """When each animation last played on the buddy (shown by the bridge, picked in the menu bar
+    app, or seen playing), kept in PLAYS_FILE. A full buddy deletes the least recently played first."""
+
+    def __init__(self, path, clock=time.time):
+        self.path, self.clock = path, clock
+        try:
+            with open(path) as f:
+                self.at = {str(k): float(v) for k, v in json.load(f).items()}
+        except (OSError, ValueError, AttributeError):
+            self.at = {}
+
+    def touch(self, name):
+        if not name or name == 'cycle':
+            return
+        self.at[name] = self.clock()
+        try:
+            os.makedirs(os.path.dirname(self.path), exist_ok=True)
+            tmp = self.path + '.tmp'
+            with open(tmp, 'w') as f:
+                json.dump(self.at, f)
+            os.replace(tmp, self.path)
+        except OSError:
+            pass
+
+    def get(self, name):
+        return self.at.get(name, 0.0)
+
+
+def theme_of(name):
+    return name.split('__', 1)[0] if '__' in name[1:] else ''
+
+
 # ---------------------------------------------------------------------------- the buddy
 
 # Console commands the menu bar app may send through the daemon (POST /buddy); nothing that
@@ -419,6 +491,33 @@ class Board:
                 return 'error %d' % e.code
         except (OSError, ValueError, http.client.HTTPException):
             return None
+
+    def upload(self, name, data):
+        """Store an animation (PUT /api/anim). Returns ('ok', KB free), ('space', message) when it
+        does not fit, ('error', message) or ('down', message)."""
+        req = urllib.request.Request('http://%s/api/anim' % self.host, data=data, method='PUT',
+                                     headers={'X-Anim-Name': name, 'Content-Type': 'application/octet-stream'})
+        try:
+            with urllib.request.urlopen(req, timeout=max(30.0, len(data) / 2000)) as r:
+                return 'ok', json.loads(r.read().decode() or '{}').get('free_kb')
+        except urllib.error.HTTPError as e:
+            try:
+                msg = json.loads(e.read().decode()).get('error') or 'error %d' % e.code
+            except (OSError, ValueError, AttributeError):
+                msg = 'error %d' % e.code
+            return ('space' if e.code == 507 or SPACE_RE.search(msg) else 'error'), msg
+        except (OSError, ValueError, http.client.HTTPException) as e:
+            return 'down', str(e)
+
+    def delete(self, name):
+        """'ok', 'missing' (not there, or built in) or 'down'."""
+        try:
+            self._request('DELETE', '/api/anim?name=' + urllib.parse.quote(name))
+            return 'ok'
+        except urllib.error.HTTPError as e:
+            return 'missing' if e.code == 404 else 'down'
+        except (OSError, ValueError, http.client.HTTPException):
+            return 'down'
 
     def describe(self):
         return 'http://%s/' % self.host
@@ -580,6 +679,54 @@ class BleBoard:
         st['animations'] = list(self.names)
         return st
 
+    async def _reply(self, timeout):
+        """The next ready / ack / stored / error line of an upload."""
+        end = self.loop.time() + timeout
+        while True:
+            line = await asyncio.wait_for(self.lines.get(), max(0.05, end - self.loop.time()))
+            m = UPLOAD_REPLY_RE.match(line)
+            if m:
+                return m.group(1), m.group(2)
+
+    async def _upload(self, name, data):
+        """The upload protocol (hardware/BLE.md): `upload <name> <bytes>`, then windows of raw bytes
+        as writes without response, each acknowledged. It holds the lock throughout, so no command
+        (and no release) can land in the middle of the data."""
+        self.gen += 1                                          # cancels a pending release
+        async with self.lock:
+            try:
+                await self._ensure()
+                while not self.lines.empty():
+                    self.lines.get_nowait()
+                wait = self.pair_timeout if self.fresh else self.timeout
+                await self.client.write_gatt_char(NUS_RX, ('upload %s %d\n' % (name, len(data))).encode(), response=True)
+                kind, rest = await self._reply(wait)
+                self.fresh = False
+                if kind == 'error':
+                    return ('space' if SPACE_RE.search(rest) else 'error'), rest
+                if kind != 'ready':
+                    return 'error', '%s %s' % (kind, rest)
+                window, sent = int(rest.split()[0]), 0
+                chunk = max(20, int(getattr(self.client, 'mtu_size', 23) or 23) - 3)
+                while sent < len(data):
+                    part = data[sent:sent + window]
+                    for i in range(0, len(part), chunk):
+                        await self.client.write_gatt_char(NUS_RX, part[i:i + chunk], response=False)
+                    sent += len(part)
+                    kind, rest = await self._reply(20)
+                    if kind != 'ack':
+                        return 'error', rest or 'upload failed'
+                kind, rest = await self._reply(20)
+                if kind != 'stored':
+                    return 'error', rest or 'the buddy did not store it'
+                self.names = None                              # fetch the list again
+                m = re.search(r'(\d+) KB free', rest)
+                return 'ok', int(m.group(1)) if m else None
+            except Exception as e:
+                self.error = str(e) or type(e).__name__
+                await self._drop()                             # a broken upload ends with the link
+                return 'down', self.error
+
     async def _release_later(self, gen):
         await asyncio.sleep(self.linger)
         if gen == self.gen:
@@ -610,6 +757,23 @@ class BleBoard:
                               self.pair_timeout + self.timeout + 30)
         except Exception:
             return None
+
+    def upload(self, name, data):
+        """Store an animation over the link; see Board.upload for the result."""
+        try:
+            return self._call(self._upload(name, data), self.pair_timeout + 60 + len(data) / 1000)
+        except Exception as e:
+            return 'down', str(e) or type(e).__name__
+
+    def delete(self, name):
+        """'ok', 'missing' (not there, or built in) or 'down'."""
+        try:
+            line = self._call(self._command('delete ' + name, lambda l: l == 'deleted' or l.startswith(('not found', 'delete'))),
+                              self.pair_timeout + self.timeout + 30)
+        except Exception:
+            return 'down'
+        self.names = None
+        return 'ok' if line == 'deleted' else 'missing'
 
     def release(self):
         """Disconnect after `linger` seconds unless another command comes first."""
@@ -681,8 +845,15 @@ class Controller:
     """Turns hook messages into what the buddy should show, and shows it.
     apply() runs on the HTTP threads; tick() runs on the daemon's main loop."""
 
-    def __init__(self, cfg, board, clock=time.monotonic):
+    def __init__(self, cfg, board, clock=time.monotonic, library=None, recency=None):
         self.cfg, self.board, self.clock = cfg, board, clock
+        self.library = library or Library(LIBRARY_DIR)
+        self.recency = recency or Recency(PLAYS_FILE)
+        self.upload_lock = threading.Lock()     # one upload at a time (the tick, the menu bar app)
+        self.uploading = None                   # the animation being put on the buddy now
+        self.upload_failed = {}                 # name -> when an upload last failed (retried later)
+        self.undeletable = set()                # built in: the buddy refuses to delete them
+        self.board_current, self.board_theme = None, ''
         self.lock = threading.RLock()
         self.sessions = {}
         self.flashes = collections.deque()      # (activity, queued at)
@@ -853,8 +1024,97 @@ class Controller:
             self._board_down(now, 'status')
             return None
         self.names, self.names_at = anim_names(st), now
+        self.board_current, self.board_theme = st.get('current'), st.get('theme') or ''
+        self.recency.touch(self.board_current)
         self._board_up()
         return st
+
+    # -- the library: put animations back on the buddy
+
+    def upload_target(self, act):
+        """The animation to upload for an activity: its best candidate when that is not on the
+        buddy but in the library (None when the best one available is on the buddy already)."""
+        mode = self.cfg.get('auto_upload', 'all')
+        if mode in (False, None, 'off', 'none') or self.names is None or (mode == 'core' and act in OPTIONAL):
+            return None
+        lib = None
+        for n in self.candidates(act):
+            if n in self.names:
+                return None
+            lib = self.library.names() if lib is None else lib
+            if n in lib:
+                return n if self.clock() - self.upload_failed.get(n, -1e9) > UPLOAD_RETRY_SECONDS else None
+        return None
+
+    def _victim(self, keep):
+        """What to delete to make room: an animation the library can put back, never the one being
+        uploaded, what is showing, what the buddy goes back to, or a built-in one. First the ones
+        nothing uses now: other themes' faces (they do not cycle) and the optional language and
+        studio animations; then faces that cycle and the core Claude ones. Least recently played
+        first within each."""
+        lib = self.library.names()
+        protect = {keep, self.shown, self.prev, self.board_current, 'cycle'} | self.undeletable
+        if self.cfg.get('restore') not in (None, 'previous', 'cycle'):
+            protect.add(self.cfg['restore'])
+        cands = [n for n in (self.names or ()) if n in lib and n not in protect]
+        if not cands:
+            return None
+        theme = self.board_theme
+
+        def key(n):
+            t = theme_of(n)
+            return (t == '' or t == theme or n in CORE_NAMES, self.recency.get(n), n)
+        return min(cands, key=key)
+
+    def ensure(self, name, why):
+        """Make sure `name` is on the buddy, uploading it from the library if needed and deleting
+        the least recently played animations the library holds while the buddy says it is full.
+        True when it is there. Blocks for the upload (Bluetooth: about 8 s for 20 KB)."""
+        with self.upload_lock:
+            now = self.clock()
+            if self.names is None and self.refresh_names(now) is None:
+                return False
+            if name in self.names:
+                return True
+            data = self.library.data(name)
+            if data is None:
+                return False
+            self.uploading = name
+            try:
+                for _ in range(MAX_EVICTIONS + 1):
+                    if self.clock() < self.away_until:          # POST /hold: another program takes the buddy
+                        log('%s: upload of %s stopped for a hold' % (why, name))
+                        return False
+                    r, info = self.board.upload(name, data)
+                    if r == 'ok':
+                        self.names.add(name)
+                        self.upload_failed.pop(name, None)
+                        log('%s: put %s back on the buddy from the library (%d KB%s)'
+                            % (why, name, (len(data) + 1023) // 1024, ', %s KB free' % info if info is not None else ''))
+                        return True
+                    if r != 'space':
+                        log('%s: could not upload %s: %s' % (why, name, info))
+                        if r == 'down':
+                            self._board_down(self.clock(), 'upload')
+                        break
+                    victim = self._victim(name)
+                    if victim is None:
+                        log('%s: no room for %s, and nothing on the buddy that the library could put back' % (why, name))
+                        break
+                    d = self.board.delete(victim)
+                    if d == 'ok':
+                        self.names.discard(victim)
+                        log('deleted %s from the buddy to make room for %s (least recently played; the library has it)'
+                            % (victim, name))
+                    elif d == 'missing':
+                        self.undeletable.add(victim)            # built in
+                    else:
+                        self._board_down(self.clock(), 'delete')
+                        break
+                self.upload_failed[name] = self.clock()
+                return False
+            finally:
+                self.uploading = None
 
     def _activate(self, now):
         st = self.refresh_names(now)
@@ -874,6 +1134,7 @@ class Controller:
             return False
         r = self.board.play(name)
         if r == 'ok':
+            self.recency.touch(name)
             self.shown, self.shown_act = name, act
             self._board_up()
             self.history.append((time.strftime('%H:%M:%S'), act, name))
@@ -902,9 +1163,13 @@ class Controller:
         if cur == target:
             log('Claude is idle; the buddy is already playing %s' % cur)
         elif cur == self.shown or cur.startswith('claude__'):
+            if target != 'cycle' and self.names is not None and target not in self.names:
+                self.ensure(target, 'idle')                 # deleted meanwhile: put it back if the library can
             r = self.board.play(target)
             if r == 'missing' and target != 'cycle':
                 r = self.board.play('cycle')
+            if r == 'ok':
+                self.recency.touch(target)
             log('Claude is idle; the buddy goes back to %s (%s)' % (target, r))
             self.history.append((time.strftime('%H:%M:%S'), 'idle', target))
         else:
@@ -955,6 +1220,17 @@ class Controller:
             verb = cmd.split(' ', 1)[0]
             if verb not in commands:
                 return 400, {'ok': False, 'error': '%s is not available over %s' % (verb, self.board.describe())}
+            arg = cmd.split(' ', 1)[1].strip() if ' ' in cmd else ''
+            if verb == 'play' and arg and arg != 'cycle':
+                if self.names is None or arg not in self.names:
+                    self.refresh_names(self.clock())
+                if self.names is not None and arg not in self.names and arg in self.library.names() \
+                        and not self.ensure(arg, 'menu bar'):
+                    st = self.board.status()
+                    if not self.active:
+                        self.board.release()
+                    return 200, {'ok': False, 'error': 'could not put %s on the buddy (see the log)' % arg,
+                                 'buddy': self._with_library(st), 'commands': commands}
             reply = self.board.command(cmd)
             if reply is None:
                 self.board.release()
@@ -962,17 +1238,25 @@ class Controller:
             ok = reply == 'ok' or reply.startswith(verb + ' ')     # "brightness 60%"
             if ok:
                 log('menu bar: %s' % cmd)
+                if verb == 'play':
+                    self.recency.touch(arg)
         st = self.board.status()
         if not self.active:
             self.board.release()                    # Bluetooth: let go after the linger
         if st is None:
             return 502, {'ok': False, 'error': 'no answer over %s' % self.board.describe()}
-        body = {'ok': ok, 'buddy': st, 'commands': commands}
+        body = {'ok': ok, 'buddy': self._with_library(st), 'commands': commands}
         if reply is not None:
             body['reply'] = reply
         if not ok:
             body['error'] = reply
         return 200, body
+
+    def _with_library(self, st):
+        """The buddy's state for the menu bar app, plus what the library could put back on it."""
+        if st is not None:
+            st = dict(st, library=sorted(self.library.names()))
+        return st
 
     def tick(self):
         now = self.clock()
@@ -1011,6 +1295,13 @@ class Controller:
         if name and name != self.shown and self._show(name, act, now):
             # no hold after "needs you": once the user answers, the face follows at once
             self.hold_until = now if urgent else now + self.cfg['min_seconds']
+            return
+        # the activity's own animation is not on the buddy but in the library: upload it now that
+        # the stand-in is showing (never for "needs you"); the next tick shows it
+        if not urgent and self._board_ok(now):
+            target = self.upload_target(act)
+            if target and (self.active or self._activate(now)):
+                self.ensure(target, act)
 
     def snapshot(self):
         now = self.clock()
@@ -1024,7 +1315,7 @@ class Controller:
                 # seconds left of a POST /hold, the daemon's pid
                 'link': self.board.describe(), 'connected': connected() if connected else None,
                 'hold_s': max(0, round(self.away_until - now)), 'pid': os.getpid(), 'python': sys.executable,
-                'paused': self.paused,
+                'paused': self.paused, 'uploading': self.uploading,
                 'sessions': [{'id': s.sid[:8], 'cwd': s.cwd, 'activity': s.act,
                               'waiting_for_user': s.attention is not None, 'subagents': s.agents,
                               'last_event_s': round(now - s.seen, 1)} for s in self.sessions.values()],

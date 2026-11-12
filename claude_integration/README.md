@@ -61,6 +61,25 @@ command, or "done", it is free, and the phone app, the remote page or
   such an app while Claude is working, or `pause` the bridge first.
 - **Using the phone for a while:** `buddy_bridge.py pause`, then `resume`.
 
+### Putting deleted animations back (the library)
+
+`~/.config/desk-buddy/library` holds a copy of every animation: `sim/serve.py`
+saves each one it pushes, and `sim/test/library.sh` exports them all from the
+simulator. When the animation for an activity is not on the buddy but is in
+the library, the bridge shows the best one the buddy has at once, uploads the
+real one (about 7 s for 15 KB over Bluetooth), and switches to it if the
+activity is still on. A face picked in the menu bar app that is no longer on
+the buddy is uploaded first, then played.
+
+When the buddy says it is full, the bridge deletes animations to make room:
+only ones the library can put back, never what is showing, what it goes back
+to, or a built-in one. It deletes other themes' faces and the optional
+language and studio animations before faces that cycle and the core Claude
+ones, and the least recently played first within each
+(`~/.config/desk-buddy/claude-plays.json`). A `hold` waits for an upload in
+progress to finish, then keeps the bridge off. `auto_upload` (Settings) limits
+or turns off the uploads the bridge starts on its own.
+
 ## What it shows
 
 | Claude Code | Activity | Buddy plays |
@@ -168,6 +187,7 @@ optional):
 | `rotate_seconds` | 30 | long thinking / debugging alternates animations at this interval |
 | `restore` | `previous` | when idle: `previous`, `cycle`, or an animation name |
 | `animations` | `{}` | per-activity override, e.g. `{"done": "face_happy", "thinking": ["claude__thinking"]}` |
+| `auto_upload` | `all` | an activity's animation missing on the buddy but in the library: `all` uploads it, `core` all but the language and studio ones, `off` never (menu bar picks are still uploaded) |
 | `port` | 47615 | the daemon's local port |
 
 After changing settings, run `buddy_bridge.py stop`; the next event starts

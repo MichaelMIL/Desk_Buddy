@@ -20,6 +20,11 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 import buddy_bridge as bb  # noqa: E402
 
+# never the real library or play log in ~/.config/desk-buddy
+_TMP = tempfile.mkdtemp()
+bb.LIBRARY_DIR = os.path.join(_TMP, 'library')
+bb.PLAYS_FILE = os.path.join(_TMP, 'plays.json')
+
 CLAUDE = ['claude__' + n for n in (
     'thinking writing hello spark pondering coding tests_pass debugging ship_it reading searching editing '
     'todo_list permission build_failed merge_conflict code_review ci_pipeline subagents compacting '
@@ -138,10 +143,35 @@ class Clock:
 class FakeBoard:
     commands = bb.BUDDY_COMMANDS
 
-    def __init__(self, names, current='cycle'):
+    def __init__(self, names, current='cycle', free_kb=1000, builtin=()):
         self.names, self.current, self.plays, self.up = set(names), current, [], True
         self.releases = self.closes = 0
         self.brightness, self.screen, self.theme = 100, True, ''
+        self.free_kb, self.sizes, self.builtin = free_kb, {}, set(builtin)
+        self.uploads, self.deletes = [], []
+
+    def upload(self, name, data):
+        """Like hardware/src/store.cpp: refused up front when it does not fit."""
+        if not self.up:
+            return 'down', 'no answer'
+        kb = (len(data) + 1023) // 1024
+        if kb > self.free_kb:
+            return 'space', 'not enough space: need %d KB, %d KB available (delete an animation first)' % (kb, self.free_kb)
+        self.names.add(name)
+        self.free_kb -= kb
+        self.sizes[name] = kb
+        self.uploads.append(name)
+        return 'ok', self.free_kb
+
+    def delete(self, name):
+        if not self.up:
+            return 'down'
+        if name in self.builtin or name not in self.names:
+            return 'missing'
+        self.names.discard(name)
+        self.free_kb += self.sizes.pop(name, 5)
+        self.deletes.append(name)
+        return 'ok'
 
     def describe(self):
         return 'fake'
@@ -476,11 +506,32 @@ class FakeBleClient:
     """Stands in for bleak's client: answers console commands like hardware/src/ble.cpp, as
     20-byte notifications on TX."""
 
+    mtu_size = 185
+
     def __init__(self, names, current='cycle'):
         self.names, self.current, self.commands = list(names), current, []
         self.is_connected, self.silent, self.board = True, False, None
+        self.up = None                         # [name, total, received bytes] while an upload runs
+        self.free_kb, self.chunks = 100, []
+
+    def _send(self, reply):
+        out = (reply + '\n').encode()
+        for i in range(0, len(out), 20):
+            self.board._on_tx(None, bytearray(out[i:i + 20]))
 
     async def write_gatt_char(self, char, data, response=None):
+        if self.up is not None:                # raw upload bytes (hardware/src/upload.cpp)
+            self.chunks.append((len(data), response))
+            self.up[2] += bytes(data)
+            got, total = len(self.up[2]), self.up[1]
+            if got == total or got % 2048 == 0:
+                self._send('ack %d' % got)
+            if got == total:
+                self.names.append(self.up[0])
+                self.free_kb -= (total + 1023) // 1024
+                self._send('stored %s %d KB free' % (self.up[0], self.free_kb))
+                self.up = None
+            return
         cmd = bytes(data).decode().strip()
         self.commands.append(cmd)
         if self.silent:
@@ -495,6 +546,19 @@ class FakeBleClient:
                 self.current, reply = n, 'ok'
             else:
                 reply = "no animation named '%s' (try: list)" % n
+        elif cmd.startswith('upload '):
+            _, name, n = cmd.split()
+            if (int(n) + 1023) // 1024 > self.free_kb:
+                reply = 'error not enough space: need %d KB, %d KB available (delete an animation first)' % (
+                    (int(n) + 1023) // 1024, self.free_kb)
+            else:
+                self.up, reply = [name, int(n), b''], 'ready 2048'
+        elif cmd.startswith('delete '):
+            n = cmd[7:]
+            reply = 'deleted' if n in self.names else 'not found or built-in'
+            if n in self.names:
+                self.names.remove(n)
+                self.free_kb += 5
         elif cmd.startswith('brightness '):
             reply = 'brightness %s%%' % cmd[11:]
         elif cmd in ('next', 'screen off'):
@@ -585,6 +649,20 @@ class Bluetooth(unittest.TestCase):
         self.assertFalse(self.fake.is_connected)
         self.assertIsNone(self.board.client)
 
+    def test_upload_and_delete(self):
+        data = b'DBAL' + bytes(5000)
+        self.assertEqual(self.board.upload('hacker__matrix', data), ('ok', 95))
+        self.assertIn('upload hacker__matrix 5004', self.fake.commands)
+        self.assertTrue(all(n <= 182 and resp is False for n, resp in self.fake.chunks))   # MTU - 3, no response
+        self.assertIn('hacker__matrix', bb.anim_names(self.board.status()))               # names fetched again
+        self.assertEqual(self.board.delete('hacker__matrix'), 'ok')
+        self.assertEqual(self.board.delete('hacker__matrix'), 'missing')
+        self.fake.free_kb = 3
+        r, msg = self.board.upload('claude__designing', data)
+        self.assertEqual(r, 'space')
+        self.assertIn('need 5 KB', msg)
+        self.assertEqual(self.board.play('claude__done'), 'ok')                           # the link still works
+
     def test_controller_over_bluetooth(self):
         home = tempfile.TemporaryDirectory()
         bb.STATE_FILE, bb.LOG_FILE = os.path.join(home.name, 's'), os.path.join(home.name, 'l')
@@ -607,7 +685,28 @@ class Bluetooth(unittest.TestCase):
 
 class FakeBuddy(BaseHTTPRequestHandler):
     """The endpoints the bridge uses, like hardware/src/net.cpp."""
-    state = {'current': 'cycle', 'plays': [], 'brightness': 100, 'screen': True, 'theme': ''}
+    state = {'current': 'cycle', 'plays': [], 'brightness': 100, 'screen': True, 'theme': '', 'free_kb': 30,
+             'stored': {}}
+
+    def do_PUT(self):
+        n = int(self.headers.get('Content-Length') or 0)
+        data, name = self.rfile.read(n), self.headers.get('X-Anim-Name', '')
+        kb = (n + 1023) // 1024
+        if self.path != '/api/anim' or not name:
+            return self._json(400, {'error': 'bad request'})
+        if kb > self.state['free_kb']:
+            return self._json(507, {'error': 'not enough space: need %d KB, %d KB available (delete an animation first)'
+                                             % (kb, self.state['free_kb'])})
+        self.state['stored'][name] = data
+        self.state['free_kb'] -= kb
+        return self._json(200, {'ok': True, 'name': name, 'free_kb': self.state['free_kb']})
+
+    def do_DELETE(self):
+        q = urllib.parse.urlparse(self.path)
+        name = urllib.parse.parse_qs(q.query).get('name', [''])[0]
+        if q.path == '/api/anim' and self.state['stored'].pop(name, None) is not None:
+            return self._json(200, {'ok': True, 'free_kb': self.state['free_kb']})
+        return self._json(404, {'error': 'not found or built-in'})
 
     def _json(self, code, body):
         data = json.dumps(body).encode()
@@ -676,6 +775,12 @@ class HttpBoard(unittest.TestCase):
             self.assertEqual((st['brightness'], st['screen'], st['theme'], st['current']), (40, False, '', 'cycle'))
             self.assertNotIn('next', b.commands)
             self.assertIn('not available', b.command('next'))
+            self.assertEqual(b.upload('hacker__matrix', b'DBAL' + bytes(20 * 1024)), ('ok', 9))
+            self.assertEqual(FakeBuddy.state['stored']['hacker__matrix'][:4], b'DBAL')
+            r, msg = b.upload('claude__designing', b'DBAL' + bytes(20 * 1024))
+            self.assertEqual((r, 'not enough space' in msg), ('space', True))
+            self.assertEqual(b.delete('hacker__matrix'), 'ok')
+            self.assertEqual(b.delete('hacker__matrix'), 'missing')
         finally:
             buddy.shutdown()
             buddy.server_close()
@@ -773,5 +878,120 @@ class EndToEnd(unittest.TestCase):
             buddy.server_close()
 
 
+
+class LibraryUploads(unittest.TestCase):
+    """Putting animations back on the buddy from the library, and making room for them."""
+
+    def setUp(self):
+        self.home = tempfile.TemporaryDirectory()
+        bb.STATE_FILE = os.path.join(self.home.name, 'state.json')
+        bb.LOG_FILE = os.path.join(self.home.name, 'log')
+        lib = os.path.join(self.home.name, 'library')
+        os.makedirs(lib)
+        for n, kb in [('claude__designing', 20), ('hacker__matrix', 26), ('claude__python', 10),
+                      ('xmas__santa', 6), ('bear__honey', 6), ('face_wink', 4), ('claude__editing', 8)]:
+            with open(os.path.join(lib, n + '.dbal'), 'wb') as f:
+                f.write(b'DBAL' + bytes(kb * 1024 - 4))
+        self.clock = Clock()
+        self.recency = bb.Recency(os.path.join(self.home.name, 'plays.json'), clock=self.clock)
+        self.lib = bb.Library(lib)
+
+    def tearDown(self):
+        self.home.cleanup()
+
+    def make(self, names, free_kb=1000, cfg=None, **kw):
+        self.board = FakeBoard(names, free_kb=free_kb, **kw)
+        self.ctl = bb.Controller(dict(bb.DEFAULTS, **(cfg or {})), self.board, self.clock, self.lib, self.recency)
+        return self.ctl
+
+    def send(self, e):
+        m = bb.classify(e)
+        if m:
+            self.ctl.apply(m)
+
+    def run_for(self, seconds, step=0.25):
+        end = self.clock.t + seconds
+        while self.clock.t < end:
+            self.ctl.tick()
+            self.clock.t += step
+
+    def test_activity_shows_the_stand_in_then_uploads_its_own(self):
+        self.make([n for n in CLAUDE if n != 'claude__designing'])
+        self.send(ev('UserPromptSubmit', prompt='style it'))
+        self.send(pre('Edit', file_path='/w/site.css'))
+        self.run_for(1)
+        self.assertEqual(self.board.plays[0], 'claude__editing')          # at once, while it uploads
+        self.run_for(4)
+        self.assertEqual(self.board.uploads, ['claude__designing'])
+        self.assertEqual(self.board.plays[-1], 'claude__designing')
+        self.assertEqual(self.ctl.snapshot()['uploading'], None)
+
+    def test_full_buddy_deletes_other_themes_least_recently_played_first(self):
+        self.make(CLAUDE + ['face_happy', 'face_wink', 'xmas__santa', 'bear__honey', 'claude__python'], free_kb=8)
+        for n in self.board.names:
+            self.board.sizes[n] = 6
+        self.recency.touch('bear__honey')                                   # played lately
+        self.clock.t += 10
+        self.assertTrue(self.ctl.ensure('claude__designing', 'test'))      # 20 KB into 8 KB free
+        # unused first: another theme's face and an optional language animation, never played
+        self.assertEqual(sorted(self.board.deletes), ['claude__python', 'xmas__santa'])
+        self.assertIn('face_wink', self.board.names)                        # a common face cycles: kept
+        self.assertIn('bear__honey', self.board.names)                      # played lately: kept
+        self.assertIn('claude__editing', self.board.names)                  # the bridge's own: kept
+
+    def test_never_deletes_what_the_library_cannot_put_back(self):
+        c = self.make([n for n in CLAUDE if n != 'claude__editing'] + ['face_happy'], free_kb=5)   # none in the library
+        self.assertFalse(c.ensure('hacker__matrix', 'test'))
+        self.assertEqual(self.board.deletes, [])
+        self.send(ev('UserPromptSubmit', prompt='x'))
+        self.send(pre('Edit', file_path='/w/a.py'))
+        self.board.names.discard('claude__python')
+        self.run_for(5)
+        self.assertEqual(self.board.uploads, [])                            # no room: not retried at once
+
+    def test_protects_what_shows_and_what_it_goes_back_to(self):
+        c = self.make(['claude__editing', 'xmas__santa', 'bear__honey'], free_kb=0, builtin={'bear__honey'})
+        c.shown, c.prev = 'claude__editing', 'xmas__santa'
+        self.assertFalse(c.ensure('face_wink', 'test'))
+        self.assertEqual(self.board.deletes, [])
+        self.assertIn('bear__honey', c.undeletable)                          # built in: the buddy refused
+
+    def test_menu_bar_play_uploads_first(self):
+        c = self.make(CLAUDE + ['face_happy'])
+        code, body = c.buddy('play hacker__matrix')
+        self.assertEqual((code, body['ok']), (200, True))
+        self.assertEqual(self.board.uploads, ['hacker__matrix'])
+        self.assertEqual(self.board.current, 'hacker__matrix')
+        self.assertIn('claude__designing', body['buddy']['library'])
+        self.assertGreater(self.recency.get('hacker__matrix'), 0)
+        code, body = c.buddy('play not_anywhere')                            # neither on the buddy nor in the library
+        self.assertFalse(body['ok'])
+
+    def test_core_skips_languages_and_off_skips_everything(self):
+        self.make([n for n in CLAUDE], cfg={'auto_upload': 'core'})
+        self.send(ev('UserPromptSubmit', prompt='x'))
+        self.send(pre('Edit', file_path='/w/a.py'))
+        self.run_for(5)
+        self.assertEqual(self.board.uploads, [])
+        self.assertEqual(self.board.plays[-1], 'claude__editing')
+        self.make([n for n in CLAUDE if n != 'claude__designing'], cfg={'auto_upload': 'off'})
+        self.send(ev('UserPromptSubmit', prompt='x'))
+        self.send(pre('Edit', file_path='/w/a.css'))
+        self.run_for(5)
+        self.assertEqual(self.board.uploads, [])
+
+    def test_hold_stops_an_upload_before_it_starts(self):
+        c = self.make(CLAUDE)
+        c.away_until = self.clock.t + 60
+        self.assertFalse(c.ensure('hacker__matrix', 'test'))
+        self.assertEqual(self.board.uploads, [])
+
+    def test_recency_persists(self):
+        self.recency.touch('xmas__santa')
+        again = bb.Recency(self.recency.path)
+        self.assertEqual(again.get('xmas__santa'), self.clock.t)
+        self.assertEqual(again.get('cycle'), 0.0)
+
+
 if __name__ == '__main__':
-    unittest.main(verbosity=1)
+    unittest.main()

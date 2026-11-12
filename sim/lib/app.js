@@ -363,6 +363,32 @@
     }
   }
 
+  /** Render the animation and save it in the local library (serve.py /api/library), which the
+   *  apps and the Claude Code bridge upload from when it is no longer on the buddy. */
+  async function exportToLibrary(anim) {
+    anim = anim || S.anim;
+    if (!anim) return null;
+    S.busy = true;
+    try {
+      const { bytes } = await buildAnimation(anim);
+      let b64 = '';
+      for (let i = 0; i < bytes.length; i += 0x8000) b64 += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000));
+      const r = await fetch('/api/library', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: symbolName(anim).replace(/^anim_/, ''), data_base64: btoa(b64) }),
+      });
+      const j = await r.json();
+      if (!r.ok) throw new Error(j.error || r.statusText);
+      return j;
+    } catch (e) {
+      say('library export failed: ' + e.message, true);
+      return null;
+    } finally {
+      await renderTo(anim, S.index);
+      S.busy = false;
+    }
+  }
+
   async function pushToBoard(anim) {
     anim = anim || S.anim;
     if (!anim) return null;
@@ -532,6 +558,7 @@
     reload: name => reloadAnimations(name),
     dryRun,
     exportToFirmware,
+    exportToLibrary,
     pushToBoard,
     removeAnimation(name) {
       const i = registry.findIndex(a => a.name === name);

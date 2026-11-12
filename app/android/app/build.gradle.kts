@@ -43,3 +43,14 @@ kotlin {
 flutter {
     source = "../.."
 }
+
+// Every build packs the simulator's current animations into assets/library (tool/sync_library.sh:
+// a full export only when an animation changed since the last one), before Flutter bundles assets.
+val syncAnimationLibrary by tasks.registering(Exec::class) {
+    workingDir = rootProject.projectDir.parentFile
+    commandLine("sh", "tool/sync_library.sh")
+}
+tasks.named("preBuild") { dependsOn(syncAnimationLibrary) }
+tasks.configureEach {
+    if (name.startsWith("compileFlutterBuild")) dependsOn(syncAnimationLibrary)
+}

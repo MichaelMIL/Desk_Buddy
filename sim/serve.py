@@ -20,6 +20,15 @@ Claude chat so generated animations can be saved straight into animations/:
   POST /api/export {symbol, data_base64, comment}
                                  -> writes <firmware>/anim_<symbol>.h and regenerates
                                     animations.h there (default: ../hardware/src/animations)
+  POST /api/library {name, data_base64}
+                                 -> saves the animation in the local library (below)
+  GET  /api/library              -> {"dir", "animations": [{"name", "file", "bytes"}]}
+  GET  /api/library/<name>       -> the animation's bytes (DBAL, or DBAZ/DBA1 if it came that way)
+
+The library (~/.config/desk-buddy/library, or $DESK_BUDDY_LIBRARY) holds a copy of every
+animation pushed to a buddy and of every library export (test/library.sh). The Claude Code
+bridge, the remote page and the phone app upload from it when they play an animation that
+was deleted from the buddy.
 
 Usage: python3 serve.py [port]   (default 8080, binds 127.0.0.1 only)
 """
@@ -48,6 +57,48 @@ HOST_RE = re.compile(r"^(?:usb(?::[\w./\-]+)?|ble(?::[\w .\-]{1,29})?|[A-Za-z0-9
 NAME_RE = re.compile(r"^[a-z0-9_]{1,31}$")
 MODEL_RE = re.compile(r"^[a-z0-9][a-z0-9.\-]*$")
 REPO_ROOT = os.path.normpath(os.path.join(ROOT, ".."))
+LIBRARY_DIR = os.environ.get("DESK_BUDDY_LIBRARY") or os.path.join(os.path.expanduser("~"), ".config", "desk-buddy", "library")
+LIB_EXT = {b"DBAL": ".dbal", b"DBAZ": ".dbaz", b"DBA1": ".dba"}
+LIB_FILE_RE = re.compile(r"^([a-z0-9_]{1,31})\.(dbal|dbaz|dba)$")
+
+
+def library_index():
+    """Rewrite <library>/index.json from the files there; returns its animations list."""
+    anims = []
+    if os.path.isdir(LIBRARY_DIR):
+        for f in sorted(os.listdir(LIBRARY_DIR)):
+            m = LIB_FILE_RE.match(f)
+            if m:
+                anims.append({"name": m.group(1), "file": f, "bytes": os.path.getsize(os.path.join(LIBRARY_DIR, f))})
+        tmp = os.path.join(LIBRARY_DIR, ".index.json.tmp")
+        with open(tmp, "w", encoding="utf-8") as fh:
+            json.dump({"version": 1, "animations": anims}, fh, indent=0)
+        os.replace(tmp, os.path.join(LIBRARY_DIR, "index.json"))
+    return anims
+
+
+def library_save(name, data):
+    """Keep <name>.<dbal|dbaz|dba> in the library (one file per name) and refresh index.json."""
+    os.makedirs(LIBRARY_DIR, exist_ok=True)
+    ext = LIB_EXT.get(bytes(data[:4]), ".dba")
+    for e in set(LIB_EXT.values()) - {ext}:          # the same name in another format is stale now
+        try:
+            os.remove(os.path.join(LIBRARY_DIR, name + e))
+        except FileNotFoundError:
+            pass
+    tmp = os.path.join(LIBRARY_DIR, ".%s.tmp" % name)
+    with open(tmp, "wb") as fh:
+        fh.write(data)
+    os.replace(tmp, os.path.join(LIBRARY_DIR, name + ext))
+    return library_index()
+
+
+def library_file(name):
+    for ext in (".dbal", ".dbaz", ".dba"):
+        p = os.path.join(LIBRARY_DIR, name + ext)
+        if os.path.isfile(p):
+            return p
+    return None
 
 
 def find_claude():
@@ -111,6 +162,22 @@ class Handler(SimpleHTTPRequestHandler):
         if self.path.split("?")[0] == "/api/ping":
             fw = FIRMWARE_DIR if os.path.isdir(FIRMWARE_DIR) else None
             return self._json(200, {"ok": True, "root": ROOT, "firmware": fw, "claude": CLAUDE_CLI})
+        route = self.path.split("?")[0]
+        if route == "/api/library":
+            return self._json(200, {"dir": LIBRARY_DIR, "animations": library_index()})
+        if route.startswith("/api/library/"):
+            name = route[len("/api/library/"):]
+            path = library_file(name) if NAME_RE.match(name) else None
+            if not path:
+                return self._json(404, {"error": "not in the library: %s" % name})
+            with open(path, "rb") as fh:
+                body = fh.read()
+            self.send_response(200)
+            self.send_header("Content-Type", "application/octet-stream")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+            return None
         return super().do_GET()
 
     def do_POST(self):
@@ -121,6 +188,8 @@ class Handler(SimpleHTTPRequestHandler):
             return self.do_claude()
         if route == "/api/push":
             return self.do_push()
+        if route == "/api/library":
+            return self.do_library()
         if route != "/api/save":
             return self._json(404, {"error": "unknown endpoint"})
         try:
@@ -162,6 +231,21 @@ class Handler(SimpleHTTPRequestHandler):
         except Exception as e:  # noqa: BLE001
             return self._json(500, {"error": str(e)})
 
+    def do_library(self):
+        try:
+            n = int(self.headers.get("Content-Length", "0"))
+            req = json.loads(self.rfile.read(n) or b"{}")
+            name = str(req.get("name", "")).strip()
+            if not NAME_RE.match(name):
+                return self._json(400, {"error": "bad name (a-z, 0-9, _ only)"})
+            data = base64.b64decode(req.get("data_base64", ""))
+            if data[:4] not in LIB_EXT:
+                return self._json(400, {"error": "data is not a DBA1/DBAZ/DBAL animation"})
+            anims = library_save(name, data)
+            return self._json(200, {"ok": True, "name": name, "bytes": len(data), "count": len(anims), "dir": LIBRARY_DIR})
+        except Exception as e:  # noqa: BLE001
+            return self._json(400, {"error": str(e)})
+
     def do_push(self):
         try:
             n = int(self.headers.get("Content-Length", "0"))
@@ -177,6 +261,7 @@ class Handler(SimpleHTTPRequestHandler):
                 return self._json(400, {"error": "data is not a DBA1/DBAZ/DBAL animation"})
             if data[:4] == b"DBA1":
                 data = dba.compress(data, "zlib")   # DBAZ: every firmware takes it
+            library_save(name, data)                 # so it can be put back after it is deleted from the buddy
         except Exception as e:  # noqa: BLE001
             return self._json(400, {"error": str(e)})
         # stream progress while the bytes go to the board
@@ -401,7 +486,7 @@ def _bridge_hold(seconds):
     and stay off the buddy for `seconds` (0 ends the hold). The buddy takes one connection, and a
     command the bridge wrote mid-upload would land in the upload data. No bridge running: ignored."""
     try:
-        c = http.client.HTTPConnection("127.0.0.1", 47615, timeout=15)
+        c = http.client.HTTPConnection("127.0.0.1", 47615, timeout=90)   # waits for an upload the bridge is doing
         c.request("POST", "/hold", body=json.dumps({"seconds": seconds}), headers={"X-Desk-Buddy": "1"})
         c.getresponse().read()
         c.close()

@@ -1,5 +1,6 @@
 
 import 'package:desk_buddy/buddy_link.dart';
+import 'package:desk_buddy/library.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'fake_buddy.dart';
@@ -332,5 +333,101 @@ void main() {
     await _settle();
     expect(link.deviceName, 'Office Buddy');
     expect(remembered, ['Desk Buddy', 'Office Buddy']);
+  });
+
+  group('library', () {
+    // sizes in bytes; the bytes themselves are a recognisable pattern
+    AnimationLibrary lib(Map<String, int> sizes) =>
+        AnimationLibrary(sizes, (n) async => List.generate(sizes[n]!, (i) => (i * 7 + n.length) & 0xff));
+
+    test('playing a face that is only in the library uploads it, then plays it', () async {
+      final b = FakeBuddy();
+      final link = _link([b])..library = lib({'hacker__matrix': 5000, 'face_happy': 3000});
+      await link.connect('id');
+      await _settle();
+      b.commands.clear();
+
+      await link.play('hacker__matrix');
+      await _settle();
+
+      expect(b.commands.first, 'upload hacker__matrix 5000');
+      expect(b.commands.last, 'play hacker__matrix');
+      expect(b.uploaded['hacker__matrix'], await link.library.bytes('hacker__matrix'));
+      expect(b.writes.every((w) => w.length <= 182), isTrue);            // MTU - 3
+      expect(link.names, contains('hacker__matrix'));
+      expect(link.state!.current, 'hacker__matrix');
+      expect(link.uploading, isNull);
+    });
+
+    test('a full buddy deletes other themes first, least recently played, never what plays or cycles', () async {
+      final b = FakeBuddy(names: ['face_happy', 'face_sleepy', 'xmas__santa', 'bear__honey', 'robot__boot', 'claude__done']);
+      b.freeKb = 4;
+      for (final n in b.names) {
+        b.sizes[n] = 6;
+      }
+      b.current = 'robot__boot';
+      b.cycling = false;
+      b.cycleList = 'face_sleepy';
+      final link = _link([b])
+        ..library = lib({for (final n in b.names) n: 6000, 'hacker__typing': 15000})
+        ..plays = PlayLog({'bear__honey': 500, 'xmas__santa': 100});
+      await link.connect('id');
+      await _settle();
+
+      expect(await link.ensureOnBuddy('hacker__typing'), isTrue);       // 15 KB into 4 KB free
+      await _settle();
+      // xmas and bear are other themes (robot is selected): oldest first
+      expect(b.commands.where((c) => c.startsWith('delete')), ['delete xmas__santa', 'delete bear__honey']);
+      expect(b.names, containsAll(['face_happy', 'face_sleepy', 'robot__boot', 'claude__done', 'hacker__typing']));
+    });
+
+    test('nothing the library could put back: no deletes, a message, no play', () async {
+      final b = FakeBuddy();
+      b.freeKb = 2;
+      final link = _link([b])..library = lib({'hacker__denied': 20000});        // has none of the buddy's
+      await link.connect('id');
+      await _settle();
+      b.commands.clear();
+      final notices = <String>[];
+      final sub = link.notices.listen(notices.add);
+
+      await link.play('hacker__denied');
+      await _settle();
+
+      expect(b.commands, ['upload hacker__denied 20000']);
+      expect(notices.single, contains('No room'));
+      await sub.cancel();
+    });
+
+    test('commands sent during an upload wait for it (they would land in the data)', () async {
+      final b = FakeBuddy();
+      final link = _link([b])..library = lib({'hacker__matrix': 9000});
+      await link.connect('id');
+      await _settle();
+      b.commands.clear();
+
+      final up = link.play('hacker__matrix');
+      await Future<void>.delayed(Duration.zero);
+      link.setBrightness(30);
+      await up;
+      await _settle();
+
+      // (the new count also fetches the names again)
+      expect(b.commands.where((c) => c != 'names'), ['upload hacker__matrix 9000', 'play hacker__matrix', 'brightness 30']);
+      expect(b.brightness, 30);
+    });
+
+    test('a built-in animation the buddy refuses to delete is skipped', () async {
+      final b = FakeBuddy(names: ['face_happy', 'xmas__santa', 'xmas__lights']);
+      b.freeKb = 0;
+      b.builtin.add('xmas__lights');
+      b.sizes['xmas__santa'] = 6;
+      final link = _link([b])..library = lib({'xmas__santa': 6000, 'xmas__lights': 6000, 'face_wink': 4000});
+      await link.connect('id');
+      await _settle();
+
+      expect(await link.ensureOnBuddy('face_wink'), isTrue);
+      expect(b.commands.where((c) => c.startsWith('delete')), ['delete xmas__lights', 'delete xmas__santa']);
+    });
   });
 }

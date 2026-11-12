@@ -337,7 +337,8 @@ const _emoji = <String, String>{
   'claude': '✳️', 'claudecode': '💻', 'devil': '😈', 'dj': '🎧', 'dragon': '🐉',
   'gamer': '🎮', 'halloween': '🎃', 'king': '👑', 'ocean': '🌊', 'robot': '🤖',
   'skeleton': '💀', 'space': '🚀', 'summer': '☀️', 'unicorn': '🦄',
-  'valentine': '💘', 'xmas': '🎄', 'stpatricks': '🍀',
+  'valentine': '💘', 'xmas': '🎄', 'stpatricks': '🍀', 'template': '🧩',
+  'builder': '👷', 'hacker': '🧑‍💻',
 };
 
 /// A decorative emoji for an animation or theme name; the longest matching

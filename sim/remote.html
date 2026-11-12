@@ -5,7 +5,9 @@
   Bluetooth LE remote for the desk buddy: everything a paired device can do
   (hardware/BLE.md). Nordic UART Service for commands and replies, plus a
   JSON state characteristic; settings come from the "config" command,
-  animation sizes from "list", uploads use the "upload" protocol.
+  animation sizes from "list", uploads use the "upload" protocol. A face
+  that is in the local library (serve.py /api/library) but no longer on the
+  buddy is shown with ⤓ and uploaded from the library when played.
   Web Bluetooth needs Chrome or Edge (desktop or Android) and a secure origin:
   http://localhost via ./sim/serve.sh is fine. Safari / iOS have no Web
   Bluetooth; use a "BLE UART" app there (the same commands as the console).
@@ -22,7 +24,7 @@ details>summary h2::before{content:'▸ '}details[open]>summary h2::before{conte
 .card{background:var(--card);border-radius:10px;padding:12px 14px;margin-bottom:10px}
 .faces{display:flex;flex-wrap:wrap;gap:8px}
 button{background:var(--btn);color:var(--fg);border:1px solid var(--line);border-radius:8px;padding:9px 12px;font:inherit;cursor:pointer}
-button.on,button.primary{background:var(--accent);color:#000;border-color:transparent}button.danger{border-color:#7a2a2a}button:disabled{opacity:.5;cursor:default}
+button.on,button.primary{background:var(--accent);color:#000;border-color:transparent}button.lib{opacity:.6;border-style:dashed}button.danger{border-color:#7a2a2a}button:disabled{opacity:.5;cursor:default}
 button.small{padding:4px 9px;font-size:13px}
 label{display:block;color:var(--dim);font-size:12px;margin:8px 0 3px}
 label.chk{display:inline-flex;align-items:center;gap:6px;color:var(--fg);font-size:14px;margin:6px 12px 0 0}
@@ -107,6 +109,15 @@ const label = n => { const t = themeOf(n); return (t ? t + ': ' : '') + nice(n);
 const kb = b => (b / 1024).toFixed(1) + ' KB';
 let dev = null, rxChr = null, stateChr = null, st = null, cfg = null, names = [], sizes = {};
 let rxText = '', writes = Promise.resolve(), stateReading = false, refreshing = false, uploading = false, expectReboot = false;
+// the local library (serve.py /api/library): faces played but no longer on the buddy are uploaded from it
+let library = new Set();
+const undeletable = new Set();
+const PLAYS_KEY = 'remote.plays';                     // when each face last played here: a full buddy deletes the oldest first
+const plays = (() => { try { return JSON.parse(localStorage.getItem(PLAYS_KEY) || '{}'); } catch (e) { return {}; } })();
+function touch(n) { if (!n || n === 'cycle') return; plays[n] = Date.now(); try { localStorage.setItem(PLAYS_KEY, JSON.stringify(plays)); } catch (e) {} }
+async function loadLibrary() {
+  try { const r = await fetch('/api/library'); if (r.ok) library = new Set((await r.json()).animations.map(a => a.name)); } catch (e) {}
+}
 const waiters = [];   // replies being waited for: {test(line) -> true when it consumed the line, fail(err)}
 
 if (!navigator.bluetooth) {
@@ -169,13 +180,16 @@ function onState(e) {
 function render() {
   if (!st || !dev) return;
   const f = $('#faces'); f.innerHTML = '';
-  for (const n of ['cycle', ...names]) {
+  const more = [...library].filter(n => !names.includes(n)).sort();      // in the library, not on the buddy
+  for (const n of ['cycle', ...names, ...more]) {
     const th = themeOf(n);
     if (th && th !== st.theme) continue;            // other themes' faces are hidden on the device too
     const b = document.createElement('button');
-    b.textContent = nice(n) + (th ? ' ✦' : '');
+    const stored = n === 'cycle' || names.includes(n);
+    b.textContent = nice(n) + (th ? ' ✦' : '') + (stored ? '' : ' ⤓');
+    if (!stored) { b.className = 'lib'; b.title = 'not on the buddy: uploaded from the library when played'; }
     if (n === st.current) b.className = 'on';
-    b.onclick = () => send('play ' + n);
+    b.onclick = () => play(n);
     f.appendChild(b);
   }
   $('#scr').textContent = 'Screen: ' + (st.screen ? 'on' : 'off'); $('#scr').className = 'fit' + (st.screen ? ' on' : '');
@@ -265,6 +279,10 @@ async function uploadFile(file, name, play) {
   const data = new Uint8Array(await file.arrayBuffer());
   const magic = String.fromCharCode(...data.slice(0, 4));
   if (magic !== 'DBA1' && magic !== 'DBAZ' && magic !== 'DBAL') throw new Error(file.name + ' is not a .dba animation');
+  return uploadData(data, name, play);
+}
+
+async function uploadData(data, name, play) {
   const ready = await ask('upload ' + name + ' ' + data.length, /^(ready|error)\b/, 60000);
   if (!ready.startsWith('ready')) throw new Error(ready.replace(/^error /, ''));
   const win = parseInt(ready.split(' ')[1], 10) || 2048;
@@ -287,6 +305,52 @@ async function uploadFile(file, name, play) {
   if (!s.startsWith('stored')) throw new Error(s.replace(/^error /, ''));
   if (play) send('play ' + name);
   return s;
+}
+
+/* ---- the library: play puts a deleted face back first ---- */
+async function play(n) {
+  if (n !== 'cycle' && !names.includes(n) && library.has(n)) {
+    if (uploading) { say('#amsg', 'another upload is running', true); return; }
+    uploading = true;
+    try {
+      say('#amsg', 'uploading ' + label(n) + ' from the library…');
+      await ensureOnBuddy(n);
+      say('#amsg', 'uploaded ' + label(n) + ' from the library');
+    } catch (e) { say('#amsg', 'could not upload ' + label(n) + ': ' + e.message, true); return; }
+    finally { uploading = false; $('#upProg').hidden = true; }
+  }
+  touch(n);
+  send('play ' + n);
+}
+
+/* Uploads `n` from the library; when the buddy says it is full, deletes the least recently played
+ * face the library can put back (other themes' first; never the one playing, a cycle-list face or
+ * a built-in one) and tries again. */
+async function ensureOnBuddy(n) {
+  const r = await fetch('/api/library/' + n);
+  if (!r.ok) throw new Error('not in the library');
+  const data = new Uint8Array(await r.arrayBuffer());
+  for (let i = 0; i <= 12; i++) {
+    try { await uploadData(data, n, false); if (!names.includes(n)) names.push(n); return; }
+    catch (e) {
+      if (!/not enough space/.test(e.message)) throw e;
+      const v = victim(n);
+      if (!v) throw new Error('no room, and nothing on the buddy that the library can put back');
+      const d = await ask('delete ' + v, /^(deleted|not found|delete)/);
+      if (d === 'deleted') { names = names.filter(x => x !== v); log('deleted ' + v + ' to make room for ' + n + ' (least recently played; the library has it)'); }
+      else if (/not available/.test(d)) throw new Error('this firmware cannot delete over Bluetooth');
+      else undeletable.add(v);
+    }
+  }
+  throw new Error('no room on the buddy');
+}
+
+function victim(keep) {
+  const protect = new Set([keep, st && st.current, ...(cfg && cfg.cycleList ? cfg.cycleList.split(',') : []), ...undeletable]);
+  const inUse = n => { const t = themeOf(n); return t === '' || t === (st && st.theme) || t === 'claude' ? 1 : 0; };   // claude: the bridge plays it
+  const c = names.filter(n => library.has(n) && !protect.has(n));
+  c.sort((a, b) => inUse(a) - inUse(b) || (plays[a] || 0) - (plays[b] || 0) || a.localeCompare(b));
+  return c[0] || null;
 }
 
 $('#upBtn').onclick = async () => {
@@ -382,6 +446,7 @@ async function attach() {
   }
   stateReading = false;
   $('#conn').textContent = 'Disconnect'; $('#conn').className = ''; $('#ctl').hidden = false;
+  await loadLibrary();
   await refreshAll();
 }
 

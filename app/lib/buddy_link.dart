@@ -9,6 +9,7 @@ import 'dart:math';
 
 import 'package:flutter/foundation.dart';
 
+import 'library.dart';
 import 'protocol.dart';
 import 'transport.dart';
 
@@ -100,8 +101,27 @@ class BuddyLink extends ChangeNotifier {
   /// each connect, and when the buddy reports a new name.
   void Function(String deviceId, String name)? onConnected;
 
+  /// What can be put back on the buddy when it is played but no longer stored.
+  AnimationLibrary _library = AnimationLibrary.empty;
+  AnimationLibrary get library => _library;
+  set library(AnimationLibrary l) {
+    _library = l;
+    notifyListeners();
+  }
+
+  /// When each animation last played; a full buddy deletes the least recent first.
+  PlayLog plays = PlayLog();
+
+  /// The animation being uploaded from the library, and how far it is (0..1).
+  String? uploading;
+  double uploadProgress = 0;
+
   BuddyTransport? _t;
   final _subs = <StreamSubscription<dynamic>>[];
+  _LineQueue? _upQueue; // upload replies (ready / ack / stored / error) while one runs
+  final _waiters = <_Waiter>[];
+  final _undeletable = <String>{}; // built in: the buddy refuses to delete them
+  static const _maxEvictions = 12;
   int _session = 0;
   Future<void> _writes = Future.value();
   final _lines = LineAssembler();
@@ -202,7 +222,188 @@ class BuddyLink extends ChangeNotifier {
     return _writes;
   }
 
-  Future<void> play(String name) => send('play $name');
+  /// Plays [name]; one that is in the library but no longer on the buddy is
+  /// uploaded first (making room if needed).
+  Future<void> play(String name) async {
+    if (name != 'cycle' && !names.contains(name) && library.has(name)) {
+      if (!await ensureOnBuddy(name)) return;
+    }
+    plays.touch(name);
+    await send('play $name');
+  }
+
+  // ---- the library: put animations back on the buddy ------------------------------
+
+  /// Uploads [name] from the library unless the buddy has it. When the buddy
+  /// says it is full, deletes the least recently played animation the library
+  /// can put back (never the one playing, a cycle-list face or a built-in
+  /// one) and tries again. Returns whether it is on the buddy now.
+  Future<bool> ensureOnBuddy(String name) async {
+    if (names.contains(name)) return true;
+    if (!library.has(name) || !isReady) return false;
+    if (uploading != null) {
+      _notice('Another upload is running');
+      return false;
+    }
+    uploading = name;
+    uploadProgress = 0;
+    notifyListeners();
+    try {
+      final data = await library.bytes(name);
+      for (var i = 0; i <= _maxEvictions; i++) {
+        final r = await _upload(name, data);
+        if (r.ok) {
+          if (!names.contains(name)) names = List.unmodifiable([...names, name]);
+          _info('uploaded $name from the library (${(data.length + 1023) ~/ 1024} KB)');
+          return true;
+        }
+        if (!r.space) {
+          _notice('Could not upload ${niceName(name)}: ${r.message}');
+          return false;
+        }
+        final victim = _victim(name);
+        if (victim == null) {
+          _notice('No room on the buddy for ${niceName(name)}, and nothing on it that this app can put back');
+          return false;
+        }
+        final d = await _delete(victim);
+        if (d == null) return false;
+        if (d) {
+          names = List.unmodifiable(names.where((n) => n != victim));
+          _info('deleted $victim to make room for $name (least recently played; the library has it)');
+        } else {
+          _undeletable.add(victim);
+        }
+      }
+      _notice('No room on the buddy for ${niceName(name)}');
+      return false;
+    } catch (e) {
+      _notice('Upload failed: ${_describe(e)}');
+      return false;
+    } finally {
+      uploading = null;
+      notifyListeners();
+    }
+  }
+
+  /// What to delete to make room: only animations the library can put back,
+  /// never [keep], the one playing, the cycle list or a built-in one. First
+  /// other themes' faces (they do not cycle), then the rest; the least
+  /// recently played first. The Claude theme counts as in use: the Claude
+  /// Code bridge plays it whatever the theme.
+  String? _victim(String keep) {
+    final protect = {keep, state?.current ?? '', ...settings.cycleNames, ..._undeletable};
+    final theme = state?.theme ?? '';
+    final cands = names.where((n) => library.has(n) && !protect.contains(n)).toList();
+    if (cands.isEmpty) return null;
+    int inUse(String n) {
+      final t = themeOf(n);
+      return t.isEmpty || t == theme || t == 'claude' ? 1 : 0;
+    }
+
+    cands.sort((a, b) {
+      final c = inUse(a).compareTo(inUse(b));
+      if (c != 0) return c;
+      final d = plays.lastPlayed(a).compareTo(plays.lastPlayed(b));
+      return d != 0 ? d : a.compareTo(b);
+    });
+    return cands.first;
+  }
+
+  /// The upload protocol (hardware/BLE.md): `upload <name> <bytes>`, then
+  /// `ready <window>`, each window of raw bytes and its `ack`, then `stored`.
+  /// It runs in the write queue, so no command lands in the middle of it.
+  Future<({bool ok, bool space, String message})> _upload(String name, List<int> data) =>
+      _exclusive((t) async {
+        final q = _upQueue = _LineQueue();
+        var sentData = false;
+        try {
+          final piece = max(20, t.mtu - 3);
+          await _writeAll(t, utf8.encode('upload $name ${data.length}\n'), piece);
+          var line = await q.next(const Duration(seconds: 20));
+          if (line.startsWith('error')) {
+            final m = line.substring(5).trim();
+            return (ok: false, space: m.contains('not enough space'), message: m);
+          }
+          if (!line.startsWith('ready')) return (ok: false, space: false, message: line);
+          final parts = line.split(' ');
+          final window = parts.length > 1 ? int.tryParse(parts[1]) ?? 2048 : 2048;
+          var sent = 0;
+          while (sent < data.length) {
+            final end = min(sent + window, data.length);
+            sentData = true;
+            await _writeAll(t, data.sublist(sent, end), piece);
+            sent = end;
+            uploadProgress = sent / data.length;
+            notifyListeners();
+            line = await q.next(const Duration(seconds: 20));
+            if (!line.startsWith('ack')) return (ok: false, space: false, message: line.replaceFirst('error ', ''));
+          }
+          line = await q.next(const Duration(seconds: 20));
+          if (!line.startsWith('stored')) return (ok: false, space: false, message: line.replaceFirst('error ', ''));
+          return (ok: true, space: false, message: line);
+        } on TimeoutException {
+          // The buddy drops an upload after 10 s without data; a command sent
+          // before that would be taken as data.
+          if (sentData) await Future<void>.delayed(const Duration(seconds: 11));
+          return (ok: false, space: false, message: 'no answer from the buddy');
+        } finally {
+          _upQueue = null;
+        }
+      });
+
+  /// `delete <name>`: true when deleted, false when the buddy refuses (built
+  /// in, or gone already), null when it cannot (old firmware, no link).
+  Future<bool?> _delete(String name) async {
+    try {
+      return await _exclusive((t) async {
+        final reply = _expect((l) => l == 'deleted' || l.startsWith('not found') || l.startsWith('delete'),
+            const Duration(seconds: 10));
+        await _writeAll(t, utf8.encode('delete $name\n'), max(20, t.mtu - 3));
+        final line = await reply;
+        if (line.contains('not available')) {
+          _notice('This buddy cannot delete over Bluetooth (older firmware), so there is no room to upload');
+          return null;
+        }
+        return line == 'deleted';
+      });
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// Runs [body] in the write queue, after every command sent before it and
+  /// before every command sent while it runs.
+  Future<T> _exclusive<T>(Future<T> Function(BuddyTransport t) body) {
+    final t = _t;
+    if (t == null || phase != LinkPhase.ready) return Future.error(const LinkError('not connected'));
+    final done = Completer<T>();
+    _writes = _writes.then((_) async {
+      try {
+        done.complete(await body(t));
+      } catch (e, st) {
+        done.completeError(e, st);
+      }
+    });
+    return done.future;
+  }
+
+  static Future<void> _writeAll(BuddyTransport t, List<int> bytes, int piece) async {
+    for (var i = 0; i < bytes.length; i += piece) {
+      await t.write(bytes.sublist(i, min(i + piece, bytes.length)));
+    }
+  }
+
+  /// The next reply line [test] accepts, taken out of the normal handling.
+  /// Registered before the command is written: the reply can come at once.
+  Future<String> _expect(bool Function(String) test, Duration timeout) {
+    final w = _Waiter(test);
+    _waiters.add(w);
+    return w.done.future.timeout(timeout, onTimeout: () {
+      _waiters.remove(w);
+      throw TimeoutException('no reply');
+    });
+  }
   Future<void> cycle() => send('play cycle');
   Future<void> next() => send('next');
   Future<void> setScreen(bool on) {
@@ -408,6 +609,12 @@ class BuddyLink extends ChangeNotifier {
     _stateReading = false;
     _quietStatus = 0;
     _statusCapture = null;
+    _upQueue?.fail();
+    _upQueue = null;
+    for (final w in _waiters) {
+      w.done.completeError(const LinkError('connection closed'));
+    }
+    _waiters.clear();
     if (t != null) {
       try {
         await t.close();
@@ -436,6 +643,7 @@ class BuddyLink extends ChangeNotifier {
   }
 
   void _setState(BuddyState s) {
+    if (s.current != state?.current) plays.touch(s.current); // seen playing counts as played
     state = s;
     if (names.length != s.count && !_namesPending && phase == LinkPhase.ready) {
       _namesPending = true; // the list changed (upload or delete): fetch it again
@@ -465,6 +673,18 @@ class BuddyLink extends ChangeNotifier {
   }
 
   void _onLine(String line) {
+    final q = _upQueue;
+    if (q != null && _uploadReply.hasMatch(line)) {
+      q.add(line);
+      return;
+    }
+    for (final w in List.of(_waiters)) {
+      if (w.test(line)) {
+        _waiters.remove(w);
+        w.done.complete(line);
+        return;
+      }
+    }
     final reply = parseReply(line);
 
     // status: keep the report; hide the ones the app asked for itself
@@ -573,4 +793,40 @@ class BuddyLink extends ChangeNotifier {
 /// A newer connect or a disconnect replaced this attempt.
 class _Superseded implements Exception {
   const _Superseded();
+}
+
+final _uploadReply = RegExp(r'^(ready|ack|stored|error)\b');
+
+class _Waiter {
+  _Waiter(this.test);
+  final bool Function(String) test;
+  final done = Completer<String>();
+}
+
+/// Lines in arrival order, taken one at a time with a timeout.
+class _LineQueue {
+  final _items = <String>[];
+  Completer<void>? _wake;
+  Object? _error;
+
+  void add(String line) {
+    _items.add(line);
+    _wake?.complete();
+    _wake = null;
+  }
+
+  void fail() {
+    _error = const LinkError('connection closed');
+    _wake?.complete();
+    _wake = null;
+  }
+
+  Future<String> next(Duration timeout) async {
+    while (_items.isEmpty) {
+      if (_error != null) throw _error!;
+      _wake ??= Completer<void>();
+      await _wake!.future.timeout(timeout);
+    }
+    return _items.removeAt(0);
+  }
 }

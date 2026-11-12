@@ -43,6 +43,18 @@ class FakeBuddy implements BuddyTransport {
   String deviceName;
   String? wifi;
 
+  /// Storage, like hardware/src/store.cpp: an upload that does not fit is
+  /// refused up front with "not enough space".
+  int freeKb = 1000;
+  final sizes = <String, int>{};
+  final builtin = <String>{};
+  String? _upName;
+  int _upTotal = 0;
+  final _upData = <int>[];
+
+  /// Animations stored by uploads, with their bytes.
+  final uploaded = <String, List<int>>{};
+
   List<String> names;
   String current = 'cycle';
   bool cycling = true;
@@ -105,6 +117,23 @@ class FakeBuddy implements BuddyTransport {
   Future<void> write(List<int> bytes) async {
     if (closed) throw const LinkError('closed');
     writes.add(bytes);
+    if (_upName != null) {
+      // raw upload data (hardware/src/upload.cpp): ack every 2048-byte window
+      _upData.addAll(bytes);
+      final got = _upData.length;
+      if (got % 2048 == 0 || got == _upTotal) reply('ack $got');
+      if (got == _upTotal) {
+        final name = _upName!, kb = (got + 1023) ~/ 1024;
+        _upName = null;
+        if (!names.contains(name)) names = [...names, name];
+        uploaded[name] = List.of(_upData);
+        sizes[name] = kb;
+        freeKb -= kb;
+        reply('stored $name $freeKb KB free');
+        notifyState();
+      }
+      return;
+    }
     for (final b in bytes) {
       if (b == 0x0a) {
         final line = utf8.decode(_rx);
@@ -209,11 +238,24 @@ class FakeBuddy implements BuddyTransport {
       case 'wifi' || 'delete' || 'reset' || 'reboot' || 'ble' || 'name' when !fullAccess:
         reply('$cmd: not available over Bluetooth (use USB serial or the web page)');
       case 'delete':
-        if (names.remove(arg)) {
+        if (!builtin.contains(arg) && names.contains(arg)) {
+          names = names.where((n) => n != arg).toList();
+          freeKb += sizes.remove(arg) ?? 5;
           reply('deleted');
           notifyState();
         } else {
           reply('not found or built-in');
+        }
+      case 'upload':
+        final parts = arg.split(' ');
+        final n = int.parse(parts[1]), kb = (n + 1023) ~/ 1024;
+        if (kb > freeKb) {
+          reply('error not enough space: need $kb KB, $freeKb KB available (delete an animation first)');
+        } else {
+          _upName = parts[0];
+          _upTotal = n;
+          _upData.clear();
+          reply('ready 2048');
         }
       case 'name':
         deviceName = arg;

@@ -1,7 +1,8 @@
 <!doctype html>
 <!-- Exports every animation into the firmware directory via serve.py's
      /api/export (test/export_all.sh), or with ?push=<board address> uploads
-     them all to a running desk buddy over Wi-Fi (test/push_all.sh). -->
+     them all to a running desk buddy over Wi-Fi (test/push_all.sh), or with
+     ?library=1 saves them all in the local library (test/library.sh). -->
 <meta charset="utf-8">
 <title>export all</title>
 <pre id="result">running…</pre>
@@ -25,7 +26,10 @@ document.getElementById('f').onload = async () => {
   if (host) { w.document.getElementById('board-host').value = host; w.document.getElementById('chk-board-play').checked = false; }
   for (const a of [...w.SimApp.registry]) {
     if (skip.test(a.name) || (filter && !filter.test(a.name))) continue;
-    if (host) {
+    if (params.get('library')) {
+      const j = await w.SimApp.exportToLibrary(a);
+      out.push(j ? `${a.name}: ${(j.bytes / 1024).toFixed(1)} KB -> library/${j.name}` : `${a.name}: FAILED`);
+    } else if (host) {
       const j = await w.SimApp.pushToBoard(a);
       out.push(j ? `${a.name}: stored on ${host} (${j.free_kb} KB free)` : `${a.name}: FAILED`);
     } else {

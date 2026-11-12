@@ -108,7 +108,7 @@ final class BuddyBarCoreTests: XCTestCase {
         symbols += ["dot.radiowaves.left.and.right", "wifi", "hand.raised", "hand.raised.slash", "pause.circle",
                     "play.circle", "stop.circle", "doc.text.magnifyingglass", "power",   // PanelView
                     "repeat", "play.fill", "forward.end.fill", "sun.min", "display", "moon",
-                    "square.grid.2x2", "slider.horizontal.3", "rectangle.stack"]           // BuddyControls
+                    "square.grid.2x2", "slider.horizontal.3", "rectangle.stack", "arrow.down.circle"]           // BuddyControls
         for s in Set(symbols) {
             XCTAssertNotNil(NSImage(systemSymbolName: s, accessibilityDescription: nil), s)
         }
@@ -147,6 +147,21 @@ final class BuddyBarCoreTests: XCTestCase {
         XCTAssertEqual(BuddyState.displayName("bear__honey"), "Honey")
         XCTAssertEqual(BuddyState.displayName("face_happy"), "Face happy")
         XCTAssertEqual(BuddyState.displayName("cycle"), "Cycling")
+    }
+
+    func testLibraryFacesInTheMenu() throws {
+        let json = #"{"current": "cycle", "theme": "", "animations": ["face_happy", "xmas__santa"],"#
+            + #" "library": ["face_happy", "face_wink", "xmas__santa", "xmas__lights", "hacker__matrix"]}"#
+        let b = try JSONDecoder().decode(BuddyState.self, from: Data(json.utf8))
+        XCTAssertEqual(b.missing, ["face_wink", "hacker__matrix", "xmas__lights"])
+        XCTAssertEqual(b.menuFaces(in: "").map(\.name), ["face_happy", "face_wink"])
+        XCTAssertEqual(b.menuFaces(in: "").map(\.onBuddy), [true, false])
+        XCTAssertEqual(b.menuFaces(in: "xmas").map(\.name), ["xmas__santa", "xmas__lights"])
+        XCTAssertEqual(b.menuThemes, ["hacker", "xmas"])
+        XCTAssertEqual(b.themes, ["xmas"])                                     // the Cycle picker: on the buddy only
+        XCTAssertEqual(BuddyState(animations: ["face_happy"]).library, [])     // an older daemon sends none
+        let s = try snapshot(#"{"uploading": "claude__designing"}"#)
+        XCTAssertEqual(s.uploading, "claude__designing")
     }
 
     func testModes() {

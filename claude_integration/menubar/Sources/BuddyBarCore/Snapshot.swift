@@ -18,9 +18,10 @@ public struct BridgeSnapshot: Decodable, Equatable {
     public var pid: Int?
     public var python: String?          // the daemon's interpreter
     public var paused: Bool?            // manual mode, as the daemon sees it
+    public var uploading: String?       // an animation going onto the buddy from the library
 
     enum CodingKeys: String, CodingKey {
-        case host, active, previous, showing, activity, wanted, sessions, recent, link, connected, pid, python, paused
+        case host, active, previous, showing, activity, wanted, sessions, recent, link, connected, pid, python, paused, uploading
         case boardError = "board_error", holdSeconds = "hold_s"
     }
 
@@ -51,6 +52,7 @@ public struct BridgeSnapshot: Decodable, Equatable {
         pid = try c.decodeIfPresent(Int.self, forKey: .pid)
         python = try c.decodeIfPresent(String.self, forKey: .python)
         paused = try c.decodeIfPresent(Bool.self, forKey: .paused)
+        uploading = try c.decodeIfPresent(String.self, forKey: .uploading)
     }
 
     /// The link to show: what the daemon reports, else derived from the configured host.

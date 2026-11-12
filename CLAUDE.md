@@ -54,6 +54,13 @@ PlatformIO firmware that plays what the simulator exports.
   (headless Chrome); when you add a body, band or side piece, add it to the
   guide's tables and rebuild. OpenSCAD's CLI renders previews headless:
   `/Applications/OpenSCAD-2021.01.app/Contents/MacOS/OpenSCAD -o x.png -D 'part="assembly_claude"' ...`.
+- Animation library: `~/.config/desk-buddy/library` (or `$DESK_BUDDY_LIBRARY`)
+  holds a `.dbal` per animation; `sim/serve.py` saves every push there and
+  `sim/test/library.sh [--app]` exports them all (`--app` also copies them into
+  `app/assets/library`, not committed). The bridge, the menu bar app (through
+  the daemon), the phone app and `sim/remote.html` upload a played animation
+  from it when the buddy no longer has it, deleting the least recently played
+  library-backed ones while the buddy answers "not enough space".
 - Claude Code integration: `claude_integration/buddy_bridge.py` (hooks →
   local daemon → `play` over Bluetooth with bleak, or `POST /api/play` over
   Wi-Fi), docs in `claude_integration/README.md`,

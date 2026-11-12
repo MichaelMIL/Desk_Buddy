@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 
 import 'buddy_link.dart';
+import 'library.dart';
 import 'saved_device.dart';
 import 'screens/connecting_screen.dart';
 import 'screens/control_screen.dart';
@@ -79,6 +80,8 @@ class _DeskBuddyAppState extends State<DeskBuddyApp> {
       if (link.phase == LinkPhase.lost && !link.reconnecting) link.reconnect();
     });
     if (widget.link == null) {
+      AnimationLibrary.fromAssets().then((lib) => link.library = lib);
+      PlayLog.load().then((log) => link.plays = log);
       SavedDevice.load().then((s) {
         if (!mounted) return;
         setState(() => _saved = s);

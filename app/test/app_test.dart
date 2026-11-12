@@ -1,4 +1,5 @@
 import 'package:desk_buddy/buddy_link.dart';
+import 'package:desk_buddy/library.dart';
 import 'package:desk_buddy/main.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -138,5 +139,33 @@ void main() {
     await settle(tester);
     expect(find.textContaining('ends with a space'), findsOneWidget);
     expect(b.commands.where((c) => c.startsWith('wifi')), isEmpty);
+  });
+
+  testWidgets('a face only in the library is marked, and tapping it uploads then plays it', (tester) async {
+    tester.view.physicalSize = const Size(1290, 7200);
+    tester.view.devicePixelRatio = 3;
+    addTearDown(tester.view.reset);
+    final b = FakeBuddy();
+    final link = BuddyLink(transportFactory: (_) => b, retryDelay: const Duration(milliseconds: 5))
+      ..library = AnimationLibrary({'face_wink': 3000}, (n) async => List.filled(3000, 1));
+    await tester.runAsync(() async {
+      await link.connect('id', name: 'Desk Buddy');
+      await Future<void>.delayed(const Duration(milliseconds: 30));
+    });
+    await tester.pumpWidget(DeskBuddyApp(link: link));
+    await tester.pumpAndSettle();
+
+    final wink = find.ancestor(of: find.text('wink'), matching: find.byType(Row));
+    expect(find.descendant(of: wink, matching: find.byIcon(Icons.download_rounded)), findsOneWidget);
+    expect(find.descendant(of: find.ancestor(of: find.text('happy'), matching: find.byType(Row)),
+        matching: find.byIcon(Icons.download_rounded)), findsNothing);
+
+    await tester.tap(find.text('wink'));
+    for (var i = 0; i < 4; i++) {
+      await settle(tester); // the upload's steps alternate between the real event loop and the test's clock
+    }
+    expect(b.commands, containsAllInOrder(['upload face_wink 3000', 'play face_wink']));
+    expect(find.byIcon(Icons.download_rounded), findsNothing);              // on the buddy now
+    expect(find.text('wink · 8 animations'), findsOneWidget);
   });
 }

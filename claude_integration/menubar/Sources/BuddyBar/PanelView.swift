@@ -222,9 +222,15 @@ struct BuddyControls: View {
     private func controls(_ b: BuddyState) -> some View {
         HStack(spacing: 6) {
             Image(systemName: b.isCycling ? "repeat" : "play.fill").foregroundStyle(.secondary).frame(width: 16)
-            Text(b.isCycling ? "Cycling faces" : BuddyState.displayName(b.current))
-                .lineLimit(1).truncationMode(.middle).help(b.current)
-            if monitor.buddyBusy { ProgressView().controlSize(.mini) }
+            if let up = monitor.snapshot?.uploading {
+                Text("Uploading \(BuddyState.displayName(up).lowercased())…")
+                    .lineLimit(1).truncationMode(.middle).foregroundStyle(.secondary)
+                    .help("Putting \(up) back on the buddy from the library")
+            } else {
+                Text(b.isCycling ? "Cycling faces" : BuddyState.displayName(b.current))
+                    .lineLimit(1).truncationMode(.middle).help(b.current)
+            }
+            if monitor.buddyBusy || monitor.snapshot?.uploading != nil { ProgressView().controlSize(.mini) }
             Spacer(minLength: 4)
             if monitor.mode != .follow {                  // following Claude: its next step would override a pick
                 if monitor.buddyCommands.contains("next") {
@@ -269,15 +275,11 @@ struct BuddyControls: View {
 
     private func facesMenu(_ b: BuddyState) -> some View {
         Menu {
-            ForEach(b.commonFaces, id: \.self) { n in
-                Button(BuddyState.displayName(n)) { monitor.send("play \(n)") }
-            }
-            if !b.themes.isEmpty { Divider() }
-            ForEach(b.themes, id: \.self) { t in
+            ForEach(b.menuFaces(in: ""), id: \.name) { face in faceButton(face) }
+            if !b.menuThemes.isEmpty { Divider() }
+            ForEach(b.menuThemes, id: \.self) { t in
                 Menu(t.capitalized + (t == b.theme ? "  ✦" : "")) {
-                    ForEach(b.faces(in: t), id: \.self) { n in
-                        Button(BuddyState.displayName(n)) { monitor.send("play \(n)") }
-                    }
+                    ForEach(b.menuFaces(in: t), id: \.name) { face in faceButton(face) }
                 }
             }
         } label: {
@@ -287,6 +289,20 @@ struct BuddyControls: View {
         .menuIndicator(.hidden)
         .fixedSize()
         .help(monitor.mode == .cycle ? "Play a face (switches to Manual)" : "Play a face")
+    }
+
+    /// A face on the buddy plays at once; one only in the library is uploaded first (a few seconds).
+    @ViewBuilder
+    private func faceButton(_ face: (name: String, onBuddy: Bool)) -> some View {
+        if face.onBuddy {
+            Button(BuddyState.displayName(face.name)) { monitor.send("play \(face.name)") }
+        } else {
+            Button {
+                monitor.send("play \(face.name)")
+            } label: {
+                Label(BuddyState.displayName(face.name) + " (upload)", systemImage: "arrow.down.circle")
+            }
+        }
     }
 
     private func themePicker(_ b: BuddyState) -> some View {

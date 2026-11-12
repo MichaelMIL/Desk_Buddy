@@ -18,6 +18,12 @@ What it does:
   theme's, as on the device), theme picker, speed, loops per face, rotation,
   and which faces cycle.
 - **Long-press a face** to play or delete it.
+- **Animations deleted from the buddy come back:** the app carries the
+  animation library, shows faces the buddy no longer has (dimmed, with a
+  download mark), and uploads one when you play it. When the buddy is full it
+  deletes the least recently played animations the library can put back:
+  other themes' first; never the one playing, a cycle-list face or a built-in
+  one.
 - **Buddy settings:** rename, Wi-Fi network (SSID and password, sent over the
   encrypted link), restart. Each restarts the buddy and the app reconnects.
 - **Console:** any console command, with the replies. Passwords in `wifi`,
@@ -37,6 +43,7 @@ Needs Flutter 3.44+ (`flutter doctor`). Bluetooth does not work in the iOS
 simulator or the Android emulator, so use a real phone.
 
 ```sh
+sim/test/library.sh --app   # the animation library into app/assets/library (not committed)
 cd app
 flutter pub get
 flutter run                 # picks a connected phone; -d <id> to choose
@@ -62,6 +69,7 @@ or any other app connected to it first.
 | `lib/buddy_link.dart` | The controller: connect and pairing wait, state and names, ordered writes, status, reconnects |
 | `lib/scanner.dart` | Scanning by service UUID, Bluetooth on/allowed state |
 | `lib/saved_device.dart` | The remembered buddy (shared_preferences) |
+| `lib/library.dart` | The bundled animation library and when each animation last played |
 | `lib/screens/` | Scan, connecting/pairing, remote and console, buddy settings |
 | `lib/widgets/buddy_face.dart` | The round-screen picture |
 
@@ -86,6 +94,7 @@ paid license for use by for-profit organizations and it sends a build-time
 ```sh
 flutter test                                          # protocol, controller, screens (no hardware)
 flutter test integration_test/device_test.dart -d macos   # against a real buddy nearby
+flutter test integration_test/library_test.dart -d macos  # upload from the library, play, delete again
 ```
 
 `test/fake_buddy.dart` answers like the firmware (replies split at MTU − 3,
