@@ -10,10 +10,14 @@ import 'package:universal_ble/universal_ble.dart';
 import 'protocol.dart';
 
 class FoundBuddy {
-  FoundBuddy(this.id, this.name, this.rssi);
+  FoundBuddy(this.id, this.name, this.rssi, {this.connected = false});
   final String id;
   String name;
   int rssi;
+
+  /// Already connected to this phone (by the system or another app), so it
+  /// does not advertise; connecting shares that link.
+  final bool connected;
   DateTime seen = DateTime.now();
 }
 
@@ -75,6 +79,7 @@ class BuddyScanner extends ChangeNotifier {
       scanning = true;
       _stopTimer?.cancel();
       _stopTimer = Timer(scanTime, stop);
+      await _addConnected();
     } catch (e) {
       scanning = false;
       error = e is UniversalBleException ? e.message : e.toString();
@@ -91,6 +96,23 @@ class BuddyScanner extends ChangeNotifier {
       await UniversalBle.stopScan();
     } catch (_) {}
     notifyListeners();
+  }
+
+  /// A buddy stops advertising while connected. When the connection belongs
+  /// to this phone (the system keeps a bonded device, another app has it),
+  /// the platform can still hand it out.
+  Future<void> _addConnected() async {
+    try {
+      final devices = await UniversalBle.getSystemDevices(withServices: [BuddyUuids.service]);
+      for (final d in devices) {
+        found.putIfAbsent(
+          d.deviceId,
+          () => FoundBuddy(d.deviceId, (d.name ?? '').isEmpty ? 'Desk Buddy' : d.name!, -40, connected: true),
+        );
+      }
+    } catch (_) {
+      // not supported everywhere; scanning still works
+    }
   }
 
   void _onResult(BleDevice d) {

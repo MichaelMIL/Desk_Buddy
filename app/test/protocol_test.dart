@@ -1,5 +1,6 @@
 import 'dart:convert';
 
+import 'package:desk_buddy/buddy_link.dart';
 import 'package:desk_buddy/protocol.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -115,6 +116,39 @@ void main() {
       expect(cycleCommand([]), 'cycle all');
       expect(cycleCommand(['a', 'b']), 'cycle a,b');
       expect(cycleCommand(List.filled(20, 'face_surprised')), isNull);
+    });
+  });
+
+  test('passwords are masked in the console', () {
+    expect(BuddyLink.redact('wifi home secret pass'), 'wifi home ••••');
+    expect(BuddyLink.redact('wifi cafe'), 'wifi cafe');
+    expect(BuddyLink.redact('wifi "My Home" secret pass'), 'wifi "My Home" ••••');
+    expect(BuddyLink.redact('wifi "My Home"'), 'wifi "My Home"');
+    expect(BuddyLink.redact('appass hunter22'), 'appass ••••');
+    expect(BuddyLink.redact('mqtt broker 1883 user pw'), 'mqtt broker 1883 user ••••');
+    expect(BuddyLink.redact('play face_happy'), 'play face_happy');
+  });
+
+  group('settings', () {
+    test('device name from status', () {
+      expect(deviceNameFromStatus('name: Desk Buddy (http://desk-buddy.local/), setup AP open'), 'Desk Buddy');
+      expect(deviceNameFromStatus('name: Kitchen (http://kitchen.local/), setup AP password-protected'), 'Kitchen');
+      expect(deviceNameFromStatus('name: Desk Buddy'), 'Desk Buddy');
+      // the build without Wi-Fi (real device output)
+      expect(
+          deviceNameFromStatus('name: Desk Buddy, build without Wi-Fi (Bluetooth + USB only), firmware 2026.11.12c'),
+          'Desk Buddy');
+      expect(deviceNameFromStatus('wifi: connected, 192.168.50.99'), isNull);
+    });
+
+    test('name and wifi commands', () {
+      expect(nameCommand(' Kitchen Buddy ').command, 'name Kitchen Buddy');
+      expect(nameCommand('').problem, isNotNull);
+      expect(wifiCommand('home', 'two words').command, 'wifi home two words');
+      expect(wifiCommand('cafe', '').command, 'wifi cafe');
+      expect(wifiCommand('My Home', 'two words').command, 'wifi "My Home" two words');
+      expect(wifiCommand('bad"name', 'x').problem, isNotNull);
+      expect(wifiCommand('home', ' padded ').problem, contains('space'));
     });
   });
 }

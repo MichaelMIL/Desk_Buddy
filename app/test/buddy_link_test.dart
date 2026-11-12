@@ -134,8 +134,8 @@ void main() {
     expect(link.names, contains('face_wink'));
   });
 
-  test('refusals and mistakes reach the notices stream and the log', () async {
-    final b = FakeBuddy();
+  test('refusals (older firmware) and mistakes reach the notices stream and the log', () async {
+    final b = FakeBuddy(fullAccess: false);
     final link = _link([b]);
     await link.connect('id');
     final notices = <String>[];
@@ -149,7 +149,7 @@ void main() {
       'wifi: not available over Bluetooth (use USB serial or the web page)',
       "no animation named 'nope' (try: list)",
     ]);
-    expect(link.log.map((l) => l.text), contains('> wifi home secret'));
+    expect(link.log.map((l) => l.text), contains('> wifi home ••••')); // password masked
     await sub.cancel();
   });
 
@@ -248,5 +248,89 @@ void main() {
     expect(await attempt.timeout(const Duration(seconds: 1)), isFalse);
     expect(link.phase, LinkPhase.idle);
     expect(link.error, isNull);
+  });
+
+  test('rename: sends the name, the buddy restarts, the app reconnects and remembers the new name', () async {
+    final first = FakeBuddy();
+    final second = FakeBuddy(deviceName: 'Kitchen Buddy');
+    final link = _link([first, second]);
+    final remembered = <String>[];
+    link.onConnected = (id, name) => remembered.add(name);
+    await link.connect('id', name: 'Desk Buddy');
+    await _settle();
+
+    expect(link.rename('  '), isNotNull);
+    expect(link.rename('x' * 40), contains('29'));
+    final phases = <LinkPhase>[];
+    var sawRestarting = false;
+    link.addListener(() {
+      if (phases.isEmpty || phases.last != link.phase) phases.add(link.phase);
+      if (link.phase == LinkPhase.lost && link.restarting) sawRestarting = true;
+    });
+    expect(link.rename('Kitchen Buddy'), isNull);
+    await Future<void>.delayed(const Duration(milliseconds: 150));
+
+    expect(first.commands.last, 'name Kitchen Buddy');
+    expect(phases, containsAllInOrder([LinkPhase.lost, LinkPhase.ready]));
+    expect(sawRestarting, isTrue);
+    expect(link.restarting, isFalse);
+    expect(link.deviceName, 'Kitchen Buddy');
+    expect(remembered.last, 'Kitchen Buddy');
+  });
+
+  test('Wi-Fi: checks the input, keeps the password out of the log', () async {
+    final first = FakeBuddy();
+    final link = _link([first, FakeBuddy()]);
+    await link.connect('id');
+    await _settle();
+
+    expect(link.setWifi('', 'x'), isNotNull);
+    expect(link.setWifi('bad"name', 'x'), isNotNull);
+    expect(link.setWifi('home', 'p' * 200), contains('too long'));
+    expect(first.wifi, isNull);
+
+    expect(link.setWifi('home', 'secret pass'), isNull);
+    await Future<void>.delayed(const Duration(milliseconds: 150));
+    expect(first.wifi, 'home secret pass');
+    expect(link.log.any((l) => l.text.contains('secret')), isFalse);
+    expect(link.phase, LinkPhase.ready); // reconnected after the restart
+  });
+
+  test('reboot drops the link on purpose and reconnects', () async {
+    final first = FakeBuddy();
+    final second = FakeBuddy();
+    final link = _link([first, second]);
+    await link.connect('id');
+    await _settle();
+
+    await link.reboot();
+    await Future<void>.delayed(const Duration(milliseconds: 150));
+    expect(first.commands.last, 'reboot');
+    expect(second.opened, isTrue);
+    expect(link.phase, LinkPhase.ready);
+  });
+
+  test('delete: the names follow the new count', () async {
+    final b = FakeBuddy();
+    final link = _link([b]);
+    await link.connect('id');
+    await _settle();
+
+    await link.deleteAnimation('clock');
+    await _settle();
+    expect(b.commands, containsAllInOrder(['delete clock', 'names']));
+    expect(link.names, isNot(contains('clock')));
+    expect(link.names.length, link.state!.count);
+  });
+
+  test('a name changed elsewhere is picked up from status', () async {
+    final b = FakeBuddy(deviceName: 'Office Buddy');
+    final link = _link([b]);
+    final remembered = <String>[];
+    link.onConnected = (id, name) => remembered.add(name);
+    await link.connect('id', name: 'Desk Buddy');
+    await _settle();
+    expect(link.deviceName, 'Office Buddy');
+    expect(remembered, ['Desk Buddy', 'Office Buddy']);
   });
 }

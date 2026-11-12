@@ -19,10 +19,21 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:integration_test/integration_test.dart';
 import 'package:universal_ble/universal_ble.dart';
 
+BuddyLink? _link; // its log is printed when a wait times out
+
 Future<int> waitFor(String what, bool Function() done, {Duration timeout = const Duration(seconds: 5)}) async {
   final sw = Stopwatch()..start();
   while (!done()) {
-    if (sw.elapsed > timeout) fail('timed out after ${timeout.inSeconds} s waiting for $what');
+    if (sw.elapsed > timeout) {
+      final l = _link;
+      if (l != null) {
+        debugPrint('phase ${l.phase}, state ${l.state}, ${l.names.length} names, error ${l.error}');
+        for (final line in l.log) {
+          debugPrint('  log: ${line.kind.name} ${line.text}');
+        }
+      }
+      fail('timed out after ${timeout.inSeconds} s waiting for $what');
+    }
     await Future<void>.delayed(const Duration(milliseconds: 5));
   }
   return sw.elapsedMilliseconds;
@@ -62,6 +73,7 @@ void main() {
 
     // ---- connect ----
     final link = BuddyLink();
+    _link = link;
     final notices = <String>[];
     link.notices.listen(notices.add);
     final sw = Stopwatch()..start();

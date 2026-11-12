@@ -7,8 +7,9 @@ Service and the JSON state characteristic. Flutter, one codebase.
 
 What it does:
 
-- **Finds buddies** by the service UUID, remembers the last one and
-  reconnects to it on launch.
+- **Finds buddies** by the service UUID (plus any already connected to the
+  phone, which do not advertise), remembers the last one and reconnects to it
+  on launch.
 - **Pairs** the first time: the buddy shows a 6-digit code, the phone's system
   prompt asks for it, and the app waits (up to 90 s) and explains the step.
   Later connections re-encrypt with the stored bond, no code.
@@ -16,11 +17,19 @@ What it does:
   next / screen on-off, brightness, the faces (common ones plus the selected
   theme's, as on the device), theme picker, speed, loops per face, rotation,
   and which faces cycle.
-- **Console:** any of the 14 Bluetooth commands, with the replies. Refused
-  commands (Wi-Fi, delete, reset, ...) and unknown names show as a message.
+- **Long-press a face** to play or delete it.
+- **Buddy settings:** rename, Wi-Fi network (SSID and password, sent over the
+  encrypted link), restart. Each restarts the buddy and the app reconnects.
+- **Console:** any console command, with the replies. Passwords in `wifi`,
+  `mqtt` and `appass` are masked in the log. Errors (unknown animation,
+  unknown command, a command the firmware refuses) also show as a message.
 - **Device status** (the `status` report: Wi-Fi, MQTT, Bluetooth, memory).
-- **Reconnects** by itself after a dropped link (three tries, then a button),
-  and again when the app comes back to the foreground.
+- **Reconnects** by itself after a dropped link or a restart (four tries,
+  then a button), and again when the app comes back to the foreground.
+
+Firmware from before full Bluetooth access (playback commands only) still
+works for the remote; there the settings and delete answer "not available
+over Bluetooth", which the app shows as a message.
 
 ## Run it
 
@@ -53,7 +62,7 @@ or any other app connected to it first.
 | `lib/buddy_link.dart` | The controller: connect and pairing wait, state and names, ordered writes, status, reconnects |
 | `lib/scanner.dart` | Scanning by service UUID, Bluetooth on/allowed state |
 | `lib/saved_device.dart` | The remembered buddy (shared_preferences) |
-| `lib/screens/` | Scan, connecting/pairing, remote and console |
+| `lib/screens/` | Scan, connecting/pairing, remote and console, buddy settings |
 | `lib/widgets/buddy_face.dart` | The round-screen picture |
 
 Protocol rules from `hardware/BLE.md` that the code follows:
@@ -80,11 +89,13 @@ flutter test integration_test/device_test.dart -d macos   # against a real buddy
 ```
 
 `test/fake_buddy.dart` answers like the firmware (replies split at MTU − 3,
-cut-off state notifications, refused reads until paired, dropped links), so
-the controller and the screens are tested without a buddy.
+cut-off state notifications, refused reads until paired, restarts after
+`name` / `wifi` / `reboot`, dropped links, and the older playback-only
+firmware), so the controller and the screens are tested without a buddy.
 
 The device test finds the nearest buddy, connects, plays a face, changes
-brightness, theme and speed, checks a refused command, drives the real
-screens, saves screenshots to the app's temp folder, and puts every setting
-back. It needs this computer paired with the buddy (or the code typed when
-asked) and no other client connected.
+brightness, theme and speed, checks an error reply, drives the real screens,
+saves screenshots to the app's temp folder, and puts every setting back. It
+sends no `wifi`, `name`, `delete` or `reboot`. It needs this computer paired
+with the buddy (or the code typed when asked) and no other client connected:
+the buddy stops advertising while one is (`"ble"` in `GET /api/status`).

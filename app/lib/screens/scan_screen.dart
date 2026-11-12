@@ -74,7 +74,11 @@ class _ScanScreenState extends State<ScanScreen> {
                       contentPadding: const EdgeInsets.fromLTRB(16, 6, 8, 6),
                       leading: const _Avatar(),
                       title: Text(saved.name),
-                      subtitle: Text(savedNearby ? 'Nearby' : 'Last used'),
+                      subtitle: Text(!savedNearby
+                          ? 'Last used'
+                          : scanner.found[saved.id]!.connected
+                              ? 'Connected to this device'
+                              : 'Nearby'),
                       onTap: () => _connect(saved.id, saved.name),
                       trailing: Row(mainAxisSize: MainAxisSize.min, children: [
                         IconButton(
@@ -114,8 +118,8 @@ class _ScanScreenState extends State<ScanScreen> {
                         ListTile(
                           leading: const _Avatar(),
                           title: Text(b.name),
-                          subtitle: Text(_signal(b.rssi)),
-                          trailing: Icon(_signalIcon(b.rssi)),
+                          subtitle: Text(b.connected ? 'Connected to this device' : _signal(b.rssi)),
+                          trailing: Icon(b.connected ? Icons.bluetooth_connected_rounded : _signalIcon(b.rssi)),
                           onTap: () => _connect(b.id, b.name),
                         ),
                     ]),

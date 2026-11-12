@@ -44,7 +44,12 @@ class BuddyLink extends ChangeNotifier {
   BuddyLink({
     BuddyTransport Function(String deviceId)? transportFactory,
     this.pairingTimeout = const Duration(seconds: 90),
-    this.reconnectDelays = const [Duration(seconds: 1), Duration(seconds: 3), Duration(seconds: 8)],
+    this.reconnectDelays = const [
+      Duration(seconds: 1),
+      Duration(seconds: 2),
+      Duration(seconds: 4),
+      Duration(seconds: 8),
+    ],
     this.retryDelay = const Duration(seconds: 1),
     this.pairingHintAfter = const Duration(milliseconds: 1500),
   }) : _factory = transportFactory ?? BleTransport.new;
@@ -66,6 +71,10 @@ class BuddyLink extends ChangeNotifier {
 
   LinkPhase phase = LinkPhase.idle;
   bool reconnecting = false;
+
+  /// The app told the buddy to reboot (rename, Wi-Fi, reboot), so the next
+  /// dropped link is expected.
+  bool restarting = false;
   String? deviceId;
   String deviceName = '';
 
@@ -87,7 +96,8 @@ class BuddyLink extends ChangeNotifier {
   /// Replies worth a snackbar: refusals and mistakes.
   Stream<String> get notices => _notices.stream;
 
-  /// Called after every successful connect, to remember the buddy.
+  /// Called with the id and name whenever they should be remembered: after
+  /// each connect, and when the buddy reports a new name.
   void Function(String deviceId, String name)? onConnected;
 
   BuddyTransport? _t;
@@ -156,6 +166,7 @@ class BuddyLink extends ChangeNotifier {
     _reconnectTimer?.cancel();
     _session++;
     reconnecting = false;
+    restarting = false;
     error = null;
     await _teardown();
     _info('disconnected');
@@ -169,7 +180,7 @@ class BuddyLink extends ChangeNotifier {
   Future<void> send(String command, {bool echo = false}) {
     final cmd = command.replaceAll(RegExp(r'[\r\n]'), ' ').trim();
     if (cmd.isEmpty) return Future.value();
-    if (echo) _log('> $cmd', LogKind.sent);
+    if (echo) _log('> ${redact(cmd)}', LogKind.sent);
     if (cmd.length > maxCommandLength) {
       _notice('Command too long (at most $maxCommandLength characters)');
       return Future.value();
@@ -222,6 +233,41 @@ class BuddyLink extends ChangeNotifier {
     if (cmd == null) return false;
     send(cmd);
     return true;
+  }
+
+  /// Renames the buddy; it reboots and the app reconnects. Returns what is
+  /// wrong with the name, or null once sent.
+  String? rename(String name) {
+    final c = nameCommand(name);
+    if (c.command == null) return c.problem;
+    _expectRestart('renaming to ${name.trim()}');
+    send(c.command!);
+    deviceName = name.trim();
+    onConnected?.call(deviceId!, deviceName);
+    return null;
+  }
+
+  /// Sets the Wi-Fi network; the buddy reboots and the app reconnects.
+  /// Returns what is wrong, or null once sent. The password is not logged.
+  String? setWifi(String ssid, String password) {
+    final c = wifiCommand(ssid, password);
+    if (c.command == null) return c.problem;
+    _expectRestart('Wi-Fi network set to $ssid');
+    send(c.command!);
+    return null;
+  }
+
+  Future<void> reboot() {
+    _expectRestart('rebooting');
+    return send('reboot');
+  }
+
+  /// Deletes a stored animation; the count changes, so the names follow.
+  Future<void> deleteAnimation(String name) => send('delete $name');
+
+  void _expectRestart(String why) {
+    restarting = true;
+    _info('$why; the buddy restarts');
   }
 
   /// Asks for a fresh `status` report into [statusLines], without logging it.
@@ -281,6 +327,7 @@ class BuddyLink extends ChangeNotifier {
 
     state = first;
     reconnecting = false;
+    restarting = false;
     error = null;
     _info('connected, MTU ${t.mtu}');
     _setPhase(LinkPhase.ready);
@@ -325,7 +372,7 @@ class BuddyLink extends ChangeNotifier {
   void _onLost() {
     _info('connection lost');
     unawaited(_teardown());
-    error = 'Connection lost';
+    error = restarting ? 'Restarting' : 'Connection lost';
     reconnecting = true;
     _setPhase(LinkPhase.lost);
     _scheduleReconnect(0);
@@ -426,6 +473,11 @@ class BuddyLink extends ChangeNotifier {
     var quiet = false;
     if (capture != null) {
       capture.add(line);
+      final name = deviceNameFromStatus(line);
+      if (name != null && name != deviceName && deviceId != null) {
+        deviceName = name; // renamed elsewhere (serial, another phone)
+        onConnected?.call(deviceId!, name);
+      }
       quiet = _quietStatus > 0;
       if (capture.length > 8) {
         _statusCapture = null; // the report's last line never came
@@ -481,6 +533,25 @@ class BuddyLink extends ChangeNotifier {
     if (e is TimeoutException) return 'timed out';
     final s = e.toString();
     return s.length > 200 ? '${s.substring(0, 200)}…' : s;
+  }
+
+  /// [cmd] with passwords masked, for the console.
+  static String redact(String cmd) {
+    if (cmd.startsWith('wifi "')) {
+      final q = cmd.indexOf('"', 6); // quoted network name with spaces
+      if (q > 0 && cmd.substring(q + 1).trim().isNotEmpty) return '${cmd.substring(0, q + 1)} ••••';
+      return cmd;
+    }
+    final w = cmd.split(' ');
+    switch (w.first) {
+      case 'wifi' when w.length > 2:
+        return '${w[0]} ${w[1]} ••••';
+      case 'appass' when w.length > 1:
+        return 'appass ••••';
+      case 'mqtt' when w.length > 4:
+        return '${w.take(4).join(' ')} ••••';
+    }
+    return cmd;
   }
 
   @override

@@ -239,14 +239,19 @@ Reply parseReply(String line) {
 /// The last line `status` prints; the app hides its own `status` up to here.
 bool isLastStatusLine(String line) => line.startsWith('device id: ');
 
-final _nameLineRe = RegExp(r'^name: (.+?)(?: \(http://.*)?$');
-
-/// The device name from the `name: Desk Buddy (http://desk-buddy.local/), ...`
-/// line of `status`, or null for any other line.
+/// The device name from the `name:` line of `status`, or null for any other
+/// line. The Wi-Fi build prints `name: Desk Buddy (http://desk-buddy.local/),
+/// setup AP open`, the build without Wi-Fi `name: Desk Buddy, build without
+/// Wi-Fi (Bluetooth + USB only), firmware 2026.11.12c`.
 String? deviceNameFromStatus(String line) {
-  final m = _nameLineRe.firstMatch(line.split(', setup AP').first);
-  final n = m?.group(1)?.trim();
-  return n == null || n.isEmpty ? null : n;
+  if (!line.startsWith('name: ')) return null;
+  var n = line.substring(6);
+  for (final end in const [' (http://', ', build without Wi-Fi', ', setup AP', ', firmware ']) {
+    final i = n.indexOf(end);
+    if (i >= 0) n = n.substring(0, i);
+  }
+  n = n.trim();
+  return n.isEmpty ? null : n;
 }
 
 // ---- settings commands ----------------------------------------------------
@@ -267,15 +272,22 @@ const maxDeviceNameLength = 29;
   return (command: 'name $n', problem: null);
 }
 
-/// `wifi <ssid> <password>`, or an explanation of what is wrong. The buddy
-/// splits at the first space, so the network name cannot contain one; the
-/// password can.
+/// `wifi <ssid> <password>`, or an explanation of what is wrong. A network
+/// name with spaces goes in quotes (`wifi "My Home" pass`); the buddy trims
+/// the password, so it cannot start or end with a space.
 ({String? command, String? problem}) wifiCommand(String ssid, String password) {
   if (ssid.isEmpty) return (command: null, problem: 'Enter the network name.');
-  if (ssid.contains(' ')) {
-    return (command: null, problem: 'Network names with spaces cannot be set this way; use USB serial.');
+  if (ssid.contains('"')) {
+    return (command: null, problem: 'Network names with a " cannot be set this way; use USB serial.');
   }
-  final cmd = password.isEmpty ? 'wifi $ssid' : 'wifi $ssid $password';
+  if (ssid.startsWith(' ') || ssid.endsWith(' ')) {
+    return (command: null, problem: 'The network name starts or ends with a space; check it.');
+  }
+  if (password != password.trim()) {
+    return (command: null, problem: 'The password starts or ends with a space, which the buddy drops.');
+  }
+  final net = ssid.contains(' ') ? '"$ssid"' : ssid;
+  final cmd = password.isEmpty ? 'wifi $net' : 'wifi $net $password';
   if (cmd.contains(RegExp(r'[\r\n]'))) return (command: null, problem: 'One line only.');
   if (cmd.length > maxCommandLength) return (command: null, problem: 'Name and password are too long.');
   return (command: cmd, problem: null);

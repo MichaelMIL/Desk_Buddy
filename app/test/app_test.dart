@@ -87,4 +87,56 @@ void main() {
     expect(find.text('> speed 200'), findsOneWidget);
     expect(find.text('speed 200%'), findsOneWidget);
   });
+
+  testWidgets('long-press a face to delete it, after a confirmation', (tester) async {
+    final (b, link) = await connected(tester);
+    await tester.longPress(find.text('sleepy'));
+    await settle(tester);
+    await tester.tap(find.text('Delete from the buddy'));
+    await settle(tester);
+    expect(find.text('Delete "sleepy"?'), findsOneWidget);
+    await tester.tap(find.widgetWithText(FilledButton, 'Delete'));
+    await settle(tester);
+    expect(b.commands, contains('delete face_sleepy'));
+    expect(link.names, isNot(contains('face_sleepy')));
+    expect(find.text('sleepy'), findsNothing);
+  });
+
+  testWidgets('settings: rename asks first, then sends the name', (tester) async {
+    final (b, _) = await connected(tester);
+    await tester.tap(find.byType(PopupMenuButton<String>));
+    await settle(tester);
+    await tester.tap(find.text('Buddy settings'));
+    await settle(tester);
+    expect(find.text('Now: connected, 192.168.1.20'), findsOneWidget);
+
+    await tester.enterText(find.widgetWithText(TextField, 'Device name'), 'Kitchen Buddy');
+    await tester.tap(find.widgetWithText(FilledButton, 'Rename'));
+    await settle(tester);
+    expect(find.text('Rename to "Kitchen Buddy"?'), findsOneWidget);
+    await tester.tap(find.widgetWithText(FilledButton, 'Rename').last);
+    // the buddy restarts: the "Reconnecting…" spinner never settles
+    await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 20)));
+    for (var i = 0; i < 5; i++) {
+      await tester.pump(const Duration(milliseconds: 200)); // dialog and page close
+    }
+    expect(b.commands, contains('name Kitchen Buddy'));
+    expect(find.text('Buddy settings'), findsNothing); // back on the remote
+    expect(find.text('The buddy is restarting. Reconnecting…'), findsOneWidget);
+    expect(find.text('Kitchen Buddy'), findsOneWidget);
+  });
+
+  testWidgets('settings: a password the buddy would mangle is explained, not sent', (tester) async {
+    final (b, _) = await connected(tester);
+    await tester.tap(find.byType(PopupMenuButton<String>));
+    await settle(tester);
+    await tester.tap(find.text('Buddy settings'));
+    await settle(tester);
+    await tester.enterText(find.widgetWithText(TextField, 'Network name (SSID)'), 'My Home');
+    await tester.enterText(find.widgetWithText(TextField, 'Password'), 'secret ');
+    await tester.tap(find.widgetWithText(FilledButton, 'Save and restart'));
+    await settle(tester);
+    expect(find.textContaining('ends with a space'), findsOneWidget);
+    expect(b.commands.where((c) => c.startsWith('wifi')), isEmpty);
+  });
 }

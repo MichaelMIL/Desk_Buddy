@@ -13,6 +13,8 @@ class FakeBuddy implements BuddyTransport {
     this.mtu = 185,
     this.readsBeforePaired = 0,
     this.dropWhilePairing = false,
+    this.fullAccess = true,
+    this.deviceName = 'Desk Buddy',
     List<String>? names,
   }) : names = names ??
             [
@@ -33,6 +35,13 @@ class FakeBuddy implements BuddyTransport {
 
   /// Hang up during pairing, as after a wrong code.
   bool dropWhilePairing;
+
+  /// Firmware that runs every console command for a paired device; false
+  /// is the older playback-only firmware that refuses settings commands.
+  bool fullAccess;
+
+  String deviceName;
+  String? wifi;
 
   List<String> names;
   String current = 'cycle';
@@ -144,7 +153,7 @@ class FakeBuddy implements BuddyTransport {
       case 'status':
         reply("animation: $current${cycling ? ' (cycling)' : ''}, theme '$theme', screen ${screen ? 'on' : 'off'}, "
             "brightness $brightness%, rotation $rotation, speed $speed%, loops $loops, cycle list '$cycleList', frames rendered 42");
-        reply('name: Desk Buddy (http://desk-buddy.local/), setup AP open');
+        reply('name: $deviceName (http://desk-buddy.local/), setup AP open');
         reply('wifi: connected, 192.168.1.20');
         reply('mqtt: disabled (:1883, prefix deskbuddy/abc123)');
         reply('bluetooth: connected, paired');
@@ -197,8 +206,25 @@ class FakeBuddy implements BuddyTransport {
       case 'next':
         notifyState();
         reply('ok');
-      case 'wifi' || 'delete' || 'reset' || 'reboot' || 'ble':
+      case 'wifi' || 'delete' || 'reset' || 'reboot' || 'ble' || 'name' when !fullAccess:
         reply('$cmd: not available over Bluetooth (use USB serial or the web page)');
+      case 'delete':
+        if (names.remove(arg)) {
+          reply('deleted');
+          notifyState();
+        } else {
+          reply('not found or built-in');
+        }
+      case 'name':
+        deviceName = arg;
+        reply('saved, rebooting');
+        drop();
+      case 'wifi':
+        wifi = arg;
+        reply('saved, rebooting');
+        drop();
+      case 'reboot':
+        drop();
       default:
         reply('commands: names | state | list | play <name>|cycle | next | ...');
     }

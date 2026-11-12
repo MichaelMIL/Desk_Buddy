@@ -6,6 +6,7 @@ import 'package:flutter/services.dart';
 import '../buddy_link.dart';
 import '../protocol.dart';
 import '../widgets/buddy_face.dart';
+import 'settings_screen.dart';
 
 /// Connected: the remote (faces, screen, brightness, theme, playback) and a
 /// console for any command.
@@ -64,12 +65,16 @@ class _ControlScreenState extends State<ControlScreen> {
           ),
           PopupMenuButton<String>(
             onSelected: (v) {
+              if (v == 'settings') {
+                Navigator.push(context, MaterialPageRoute<void>(builder: (_) => SettingsScreen(link: link)));
+              }
               if (v == 'disconnect') link.disconnect();
               if (v == 'forget') widget.onForget();
             },
-            itemBuilder: (context) => const [
-              PopupMenuItem(value: 'disconnect', child: Text('Disconnect')),
-              PopupMenuItem(value: 'forget', child: Text('Forget this buddy')),
+            itemBuilder: (context) => [
+              PopupMenuItem(value: 'settings', enabled: link.isReady, child: const Text('Buddy settings')),
+              const PopupMenuItem(value: 'disconnect', child: Text('Disconnect')),
+              const PopupMenuItem(value: 'forget', child: Text('Forget this buddy')),
             ],
           ),
         ],
@@ -112,7 +117,7 @@ class _LostBanner extends StatelessWidget {
           Expanded(
             child: Text(
               link.reconnecting
-                  ? 'Connection lost. Reconnecting…'
+                  ? (link.restarting ? 'The buddy is restarting. Reconnecting…' : 'Connection lost. Reconnecting…')
                   : 'Disconnected${link.error != null ? ': ${link.error}' : ''}',
               style: TextStyle(color: cs.onErrorContainer),
             ),
@@ -165,17 +170,23 @@ class _RemoteTab extends StatelessWidget {
                 names: ['cycle', ...faces.common],
                 st: st,
                 onTap: (n) => n == 'cycle' ? link.cycle() : link.play(n),
+                onLongPress: (n) => _faceActions(context, link, n),
               ),
             if (faces.themed.isNotEmpty) ...[
               _Section('${_cap(st.theme)} theme'),
-              _FaceWrap(names: faces.themed, st: st, onTap: link.play),
+              _FaceWrap(
+                names: faces.themed,
+                st: st,
+                onTap: link.play,
+                onLongPress: (n) => _faceActions(context, link, n),
+              ),
             ],
             if (themes.isNotEmpty) ...[
               const _Section('Theme'),
               Wrap(spacing: 8, runSpacing: 8, children: [
                 for (final t in ['', ...themes])
                   ChoiceChip(
-                    avatar: Text(t.isEmpty ? '⭕' : emojiFor(t)),
+                    avatar: t.isEmpty ? null : Text(emojiFor(t)),
                     label: Text(t.isEmpty ? 'None' : _cap(t)),
                     selected: st.theme == t,
                     onSelected: (_) {
@@ -194,7 +205,56 @@ class _RemoteTab extends StatelessWidget {
   }
 }
 
-String _cap(String s) => s.isEmpty ? s : s[0].toUpperCase() + s.substring(1);
+/// Long press on a face: play it, or delete it from the buddy.
+void _faceActions(BuildContext context, BuddyLink link, String name) {
+  if (name == 'cycle') return;
+  HapticFeedback.mediumImpact();
+  showModalBottomSheet<void>(
+    context: context,
+    showDragHandle: true,
+    builder: (sheet) => SafeArea(
+      child: Column(mainAxisSize: MainAxisSize.min, children: [
+        ListTile(
+          leading: Text(emojiFor(name), style: const TextStyle(fontSize: 28)),
+          title: Text(niceName(name)),
+          subtitle: Text(name),
+        ),
+        const Divider(),
+        ListTile(
+          leading: const Icon(Icons.play_arrow_rounded),
+          title: const Text('Play'),
+          onTap: () {
+            Navigator.pop(sheet);
+            link.play(name);
+          },
+        ),
+        ListTile(
+          leading: Icon(Icons.delete_outline_rounded, color: Theme.of(sheet).colorScheme.error),
+          title: const Text('Delete from the buddy'),
+          onTap: () async {
+            Navigator.pop(sheet);
+            final ok = await showDialog<bool>(
+              context: context,
+              builder: (d) => AlertDialog(
+                title: Text('Delete "${niceName(name)}"?'),
+                content: const Text('It is removed from the buddy\'s storage. Built-in animations stay. '
+                    'Push it again from the simulator to get it back.'),
+                actions: [
+                  TextButton(onPressed: () => Navigator.pop(d, false), child: const Text('Cancel')),
+                  FilledButton(onPressed: () => Navigator.pop(d, true), child: const Text('Delete')),
+                ],
+              ),
+            );
+            if (ok ?? false) link.deleteAnimation(name);
+          },
+        ),
+      ]),
+    ),
+  );
+}
+
+/// `xmas` → `Xmas`; short names are initials: `dj` → `DJ`.
+String _cap(String s) => s.length <= 2 ? s.toUpperCase() : s[0].toUpperCase() + s.substring(1);
 
 class _Section extends StatelessWidget {
   const _Section(this.title);
@@ -299,10 +359,11 @@ class _Action extends StatelessWidget {
 }
 
 class _FaceWrap extends StatelessWidget {
-  const _FaceWrap({required this.names, required this.st, required this.onTap});
+  const _FaceWrap({required this.names, required this.st, required this.onTap, this.onLongPress});
   final List<String> names;
   final BuddyState st;
   final void Function(String name) onTap;
+  final void Function(String name)? onLongPress;
 
   @override
   Widget build(BuildContext context) {
@@ -320,6 +381,7 @@ class _FaceWrap extends StatelessWidget {
                 HapticFeedback.selectionClick();
                 onTap(n);
               },
+              onLongPress: onLongPress == null ? null : () => onLongPress!(n),
               child: Padding(
                 padding: const EdgeInsets.fromLTRB(12, 10, 14, 10),
                 child: Row(mainAxisSize: MainAxisSize.min, children: [
