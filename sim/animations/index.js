@@ -3,6 +3,7 @@
 window.ANIMATION_FILES = [
   'face_lib.js',
   'face_rig.js',        // keyframed faces made with the animation editor (editor.html)
+  'claude_kit.js',      // shared drawing for the Claude theme files
   'face_angry.js',
   'face_happy.js',
   'face_in_love.js',
@@ -30,6 +31,7 @@ window.ANIMATION_FILES = [
   'theme_valentine.js',
   'theme_summer.js',
   'theme_claude.js',
+  'theme_claude_code.js',
   'eyes.js',
   'bouncing_ball.js',
   'spinner.js',

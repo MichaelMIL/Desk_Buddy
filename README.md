@@ -21,6 +21,9 @@ with swappable accessories.
   <img src="docs/images/claude_theme.png" alt="Claude theme: thinking, writing, hello, spark, pondering, coding, tests pass, debugging, ship it" width="700">
 </p>
 <p align="center">
+  <img src="docs/images/claude_code.png" alt="More Claude Code moments: reading, searching, editing, todo list, permission, build failed, merge conflict, code review, CI pipeline, subagents, compacting, rubber duck, infinite loop, git graph, plan mode, done" width="880">
+</p>
+<p align="center">
   <img src="docs/images/more_themes.png" alt="More themes: skeleton, gamer, bee, devil, dragon, robot, birthday, valentine, summer" width="880">
 </p>
 
@@ -87,10 +90,13 @@ and can push it straight to the board.
   `bee`, `devil`, `dragon`, `robot`) and seasonal or occasion ones
   (`halloween`, `xmas`, `space`, `ocean`, `birthday`, `valentine`,
   `summer`, `stpatricks`), plus a `claude` theme in Claude's coral and
-  cream, most of it about coding with Claude Code: the CLI spinner
-  "Pondering…", typing code in a terminal, `npm test` going green, hunting a
-  bug, and `git push` sending a rocket off. Every theme has at least three
-  animations.
+  cream, most of it about coding with Claude Code (25 animations): the CLI
+  spinner "Pondering…", reading and grepping files, a diff being edited, a
+  todo list ticking off, a permission prompt, a build that breaks and gets
+  fixed, a merge conflict, code review, CI going green, subagents fanning
+  out, context compacting, rubber‑duck debugging, an infinite loop, a git
+  graph, plan mode, `npm test`, `git push`, and "Done". Every theme has at
+  least three animations.
 
 ## Hardware
 

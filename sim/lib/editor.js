@@ -12,7 +12,7 @@
   'use strict';
 
   const $ = id => document.getElementById(id);
-  const LIB_FILES = ['index.js', 'face_lib.js', 'face_rig.js'];
+  const LIB_FILES = ['index.js', 'face_lib.js', 'face_rig.js', 'claude_kit.js'];
 
   // ---- Sim API (same contract as the simulator) --------------------------------
 

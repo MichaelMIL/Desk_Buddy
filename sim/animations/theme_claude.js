@@ -1,23 +1,7 @@
 /* Claude theme: warm coral and cream on a dark background, with a hand-drawn spark.
  * Thinking it over, writing something down, saying hello, and a big spark of an idea. */
-const CORAL = Sim.hex('#d97757'), CREAM = Sim.hex('#f0eee6'), INK = Sim.hex('#1f1e1d'), STONE = Sim.hex('#8c8a83');
-const COLORS = { bg: '#1f1e1d', iris: '#d97757', mouth: '#d97757', blush: '#e8a088', sclera: '#f0eee6' };
-
-/* Radial spark: tapered rays of slightly uneven length around a small core.
- * o: { vary (ray length variation, 0.3), width (ray base, fraction of r, 0.12), core (fraction of r, 0.2),
- *      inner (rays start at this fraction of r: a sunburst ring instead of a star, 0) } */
-function spark(g, x, y, r, rot, col, rays = 12, o = {}) {
-  const vary = o.vary ?? 0.3, wf = o.width ?? 0.12, core = o.core ?? 0.2, inner = (o.inner ?? 0) * r;
-  for (let k = 0; k < rays; k++) {
-    const a = rot + k * Math.PI * 2 / rays;
-    const len = inner + (r - inner) * (1 - vary + vary * (((k * 7) % 5) / 4));
-    const w = Math.max(1.5, r * wf);
-    const ca = Math.cos(a), sa = Math.sin(a), bx = x + ca * inner, by = y + sa * inner;
-    g.fillTriangle(Math.round(bx - sa * w), Math.round(by + ca * w), Math.round(bx + sa * w), Math.round(by - ca * w),
-                   Math.round(x + ca * len), Math.round(y + sa * len), col);
-  }
-  if (!inner) g.fillCircle(x, y, Math.max(2, Math.round(r * core)), col);
-}
+const { CORAL, CREAM, INK, STONE, COLORS, TERM, EDGE, GREEN, RED, YELLOW, BLUE, MONO, CODE_FACE,
+        spark, terminal, mono, check, cliSpinner } = ClaudeKit;
 
 Sim.register(FaceRig.animation({
   name: 'Claude: thinking', theme: 'claude', fps: 20, duration: 4500,
@@ -131,34 +115,6 @@ Sim.register(FaceRig.animation({
 }));
 
 /* ---- Claude Code: the terminal side ------------------------------------------------------ */
-
-const TERM = Sim.hex('#141413'), EDGE = Sim.hex('#3a3936');
-const GREEN = Sim.hex('#7ec98f'), RED = Sim.hex('#e06c6c'), YELLOW = Sim.hex('#e5c07b'), BLUE = Sim.hex('#7aa2f7');
-const MONO = 'Menlo, Monaco, Consolas, monospace';
-const CODE_FACE = { headY: [[0, -18]], eyeSize: [[0, 0.9]] };            // face up, terminal below
-
-function terminal(g, x, y, w, h) {
-  g.fillRoundRect(x, y, w, h, 7, TERM);
-  g.drawRoundRect(x, y, w, h, 7, EDGE);
-  for (let k = 0; k < 3; k++) g.fillCircle(x + 10 + k * 8, y + 7, 2, [RED, YELLOW, GREEN][k]);
-}
-function mono(g, x, y, s, col, size = 11, weight = 'normal') {
-  g.text(x, y, s, col, { size, font: MONO, weight, baseline: 'middle' });
-}
-function check(g, x, y, s, col) {                                          // a drawn ✓ (fonts vary)
-  for (let d = 0; d < 3; d++) {
-    g.drawLine(x - s, y + d - 1, x - Math.round(s / 3), y + Math.round(s * 0.6) + d - 1, col);
-    g.drawLine(x - Math.round(s / 3), y + Math.round(s * 0.6) + d - 1, x + s, y - Math.round(s * 0.7) + d - 1, col);
-  }
-}
-
-/* The CLI spinner: · ✢ ✳ ✶ ✻ ✽ back and forth. */
-const GLYPHS = [{ r: 3 }, { r: 9, rays: 4, w: 0.24 }, { r: 10, rays: 8, w: 0.1 }, { r: 10, rays: 6, w: 0.16 }, { r: 11, rays: 10, w: 0.12 }, { r: 10, rays: 8, w: 0.2 }];
-function cliSpinner(g, x, y, step, col) {
-  const n = GLYPHS.length, k = step % (2 * n - 2), s = GLYPHS[k < n ? k : 2 * n - 2 - k];
-  if (!s.rays) g.fillCircle(x, y, s.r, col);
-  else spark(g, x, y, s.r, Math.PI / 8, col, s.rays, { vary: 0.08, width: s.w, core: 0.16 });
-}
 
 Sim.register(FaceRig.animation({
   name: 'Claude: pondering', theme: 'claude', fps: 20, duration: 6000,

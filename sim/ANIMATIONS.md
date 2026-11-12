@@ -175,6 +175,11 @@ Sim.register(FaceRig.animation({ name: 'Devil: wink', theme: 'devil', fps: 24, d
 }));
 ```
 
+For the Claude theme, `animations/claude_kit.js` (window.ClaudeKit) has the
+shared pieces: the colours, `spark`, `terminal`, `mono`, `label`, `check`,
+`cross`, `codeBars` (syntax-coloured code lines), `cliSpinner` (the CLI's
+· ✢ ✳ ✶ ✻ ✽ spinner) and `miniBuddy`; see `theme_claude_code.js`.
+
 Or call `FaceRig.draw(g, values, f.t, spec, hooks, f)` from your own
 `frame()` with values from `FaceRig.valuesAt(spec, f.t)` that you adjust
 (e.g. make the eyes follow something). Many `theme_*.js` files do this.
