@@ -37,7 +37,9 @@ PlatformIO firmware that plays what the simulator exports.
   `hardware/BLE.md`. Two builds: `esp32s3_supermini` (Wi-Fi) and
   `esp32s3_supermini_ble` (`BUDDY_WIFI=0`: Bluetooth + USB only, 3.3 MB
   LittleFS; switching builds erases stored animations). The DBA1 decoder's
-  single source is `hardware/lib/dba_player/`. The ESP32 WebServer does not parse query
+  single source is `hardware/lib/dba_player/` (`lzma_dec.c` unpacks the DBAL
+  container; `sim/lib/lzma.js` mirrors it). `sim/lib/dba.js` and
+  `sim/tools/dba.py` must encode byte-identically (`run_tests.sh` checks). The ESP32 WebServer does not parse query
   arguments for raw-body (PUT) requests, so uploads carry the name in the
   `X-Anim-Name` header.
 - Phone app: `app/` is a Flutter app (iOS, Android, macOS) that controls the
@@ -47,8 +49,10 @@ PlatformIO firmware that plays what the simulator exports.
   exercised by `flutter test integration_test/device_test.dart -d macos`.
   It uses universal_ble, not flutter_blue_plus 2.x (license and build ping).
 - Claude Code integration: `claude_integration/buddy_bridge.py` (hooks →
-  local daemon → `POST /api/play`), docs in `claude_integration/README.md`,
+  local daemon → `play` over Bluetooth with bleak, or `POST /api/play` over
+  Wi-Fi), docs in `claude_integration/README.md`,
   tests `python3 claude_integration/test_bridge.py`. Its `ACTIVITIES` table
   names `claude__<slug>` animations, so renaming a `Claude: …` animation
   means updating it there. Once installed, this repo's own Claude sessions
-  drive the board too; run `buddy_bridge.py pause` while testing on it.
+  drive the board too and hold its one Bluetooth link while busy; run
+  `buddy_bridge.py pause` (or `hold <s>`) while testing on it.

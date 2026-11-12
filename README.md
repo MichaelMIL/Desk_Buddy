@@ -182,9 +182,11 @@ the Claude Code bridge has `python3 claude_integration/test_bridge.py`.
 
 ## Under the hood
 
-- **Animation format**: per‑frame dirty rectangle, run‑length encoded
-  RGB565, the whole stream deflated. A three‑second face is 10–25 KB; the
-  Wi‑Fi build holds about 65 faces, the build without Wi‑Fi about 115.
+- **Animation format**: the changed rectangles of each frame (several small
+  ones when the changes are far apart), run‑length encoded RGB565, the whole
+  stream LZMA‑compressed. A three‑second face is 4–12 KB; all of the
+  simulator's animations together come to 1.4 MB and fit on the Wi‑Fi build,
+  and the build without Wi‑Fi has room for about twice that.
 - **Firmware**: a render task on one core, networking on the other, so a
   slow upload or a Wi‑Fi scan never stalls the face. On the 4 MB flash the
   Wi‑Fi build has two 1 MB OTA slots and 1.9 MB of animation storage; the
