@@ -43,8 +43,8 @@ swappable accessories, and every theme has its own build.
 | Firmware | [`hardware/`](hardware/README.md) | PlatformIO project: Bluetooth LE control with pairing, Wi‑Fi, MQTT + Home Assistant, an HTTP API, animation storage, OTA updates, themes, brightness; a build without Wi‑Fi for more animation storage |
 | Phone app | [`app/`](app/README.md) | Flutter app for iOS and Android (also macOS): finds the buddy, pairs, and works as a remote over Bluetooth |
 | Claude Code | [`claude_integration/`](claude_integration/README.md) | Hooks that show what Claude Code is doing on the buddy, over Bluetooth or Wi‑Fi: reading, editing a Python or Rust file, running tests, waiting for your permission, done; a macOS menu bar app that shows the bridge's state |
-| Enclosure | [`3d/`](3d/) | OpenSCAD model of the RoundBot with ready STLs: the core parts, a body and band for each theme, ear cups, an assembly guide |
-| Screen docs | [`docs/`](docs/) | The display module's spec sheets and pinout |
+| Enclosure | [`3d/`](3d/README.md) | OpenSCAD model of the RoundBot with ready STLs: the core parts, a body and band for each theme, ear cups, an assembly guide |
+| Screen docs | [`docs/`](docs/README.md) | The display module's spec sheets and pinout |
 
 ## How a face gets from an idea to the desk
 
