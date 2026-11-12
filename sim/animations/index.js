@@ -32,6 +32,7 @@ window.ANIMATION_FILES = [
   'theme_summer.js',
   'theme_claude.js',
   'theme_claude_code.js',
+  'theme_claude_langs.js',
   'eyes.js',
   'bouncing_ball.js',
   'spinner.js',
