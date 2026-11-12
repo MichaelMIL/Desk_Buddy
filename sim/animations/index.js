@@ -37,6 +37,7 @@ window.ANIMATION_FILES = [
   'theme_builder.js',
   'theme_hacker.js',
   'theme_scientist.js',
+  'theme_scientist_famous.js',   // Einstein, Newton, Curie, Tesla, Darwin, Galileo
   'template_eyes.js',
   'template_bouncing_ball.js',
   'template_spinner.js',
