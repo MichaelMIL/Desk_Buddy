@@ -13,11 +13,13 @@
 //  Parts (set `part`, then F6 / export STL):
 //    core:        "head_shell" "head_cap" "neck_key" "base" "usb_cover"
 //    bodies:      "body_bare" "body_skeleton" "body_hoodie" "body_cat" "body_astro"
-//                 "body_claude" (all need supports)
+//                 "body_claude" and one per theme below (all need supports)
 //    side pieces: "plug" (x2, fits both sides) "cup_left" "cup_right" "cup_mic"
 //                 "cup_claude_left" "cup_claude_right" "pod_left" "pod_right"
 //    bands:       "band_plain" "band_cat" "band_bug" "band_bear" "band_bunny"
 //                 "band_devil" "band_crown" "band_dino" "band_unicorn" "band_claude"
+//    themes:      "body_<t>" for t in body_themes, "band_<t>" for t in band_themes
+//                 (gamer wears band_plain with cup_mic), "assembly_<t>" previews one
 //  Template = core + body_bare + 2 plugs. To add a theme, copy plug(),
 //  topper_2d() or body("bare") and keep their interfaces.
 //    "assembly" - coloured preview of the DJ theme, "assembly_claude" - the Claude theme
@@ -194,6 +196,9 @@ module spark_2d(r, n = 12, w = 0.12, vary = 0.3, core = 0.22, tip = 0.3, rot = 0
     for (k = [0 : n - 1]) let(len = r*(1 - vary + vary*(((k*7) % 5)/4)))
         rotate(rot + k*360/n) polygon([[0, -r*w], [len, -tip], [len, tip], [0, r*w]]);
 }
+
+// heart, point at the origin, lobes up: 1.71*s wide, 1.56*s tall
+module heart_2d(s) rotate(45) { square(s); translate([s, s/2]) circle(d = s, $fn = 48); translate([s/2, s]) circle(d = s, $fn = 48); }
 
 module rounded_puck(R, D, rf, rb) {
     rotate([-90, 0, 0]) rotate_extrude()
@@ -402,7 +407,9 @@ module band(style = "plain") {
     }
     if (style == "claude")   // Claude spark, 4 mm thick and flush with the back face (print side)
         band_ex(band_w/2 - 4, 4) translate([0, R_b + 7]) spark_2d(10, w = 0.15, rot = 30);
-    if (style != "plain" && style != "cat" && style != "bug" && style != "claude") difference() {
+    if (style == "xmas")     // reindeer antlers, 5 mm thick and flush with the back face
+        band_ex(band_w/2 - 5, 5) mir() antler_2d();
+    if (style != "plain" && style != "cat" && style != "bug" && style != "claude" && style != "xmas") difference() {
         band_ex() topper_2d(style);
         band_ex(-band_w/2 - 1, 2.0) topper_recess_2d(style);
     }
@@ -441,11 +448,54 @@ module topper_2d(style) {
         offset(r = 0.8) offset(delta = -0.8) polygon([[-3.8, r0], [3.8, r0], [0, R_b + 25]]);
         mir() rotate(-38) offset(r = 1.2) offset(delta = -1.2) polygon([[-6, r0], [6, r0], [0, R_b + 11]]);
     }
+    if (style == "robot") {        // antenna: a ball on a stalk, on a small base
+        translate([-4, r0]) offset(r = 1) offset(delta = -1) square([8, 4.5]);
+        translate([-1.3, r0]) square([2.6, 10]);
+        translate([0, R_b + 11.5]) circle(r = 3.3);
+    }
+    if (style == "halloween") translate([0, r0]) {   // witch hat with a bent tip
+        hull() for (sx = [-1, 1]) translate([sx*12, 1.2]) circle(r = 1.2);
+        offset(r = 0.8) offset(delta = -0.8) polygon([[-7, 1], [7, 1], [2.6, 11.5], [6.5, 19], [-0.5, 13]]);
+    }
+    if (style == "birthday") translate([0, r0]) rotate(-10) {   // party hat with a pom-pom
+        polygon([[-6.5, 0], [6.5, 0], [0, 17]]);
+        translate([0, 17.5]) circle(r = 2.8);
+    }
+    if (style == "valentine") translate([0, r0 - 1]) heart_2d(9);
+    if (style == "stpatricks") translate([0, R_b + 10]) {      // shamrock on a stem
+        for (a = [90, 210, 330]) rotate(a - 90) heart_2d(4.6);
+        hull() { circle(r = 1); translate([1.5, r0 - (R_b + 10)]) circle(r = 1.1); }
+    }
+    if (style == "ocean") translate([0, r0 - 0.5]) offset(r = 0.8) offset(delta = -0.8)   // shark fin
+        polygon([[-9, 0], [8, 0], [4.5, 5], [4, 9.5], [6, 16], [1, 12.5], [-4, 6.5]]);
+    if (style == "summer") translate([0, r0]) {                // sun hat: dome and a wide brim
+        intersection() { scale([1, 0.85]) circle(r = 8.5); translate([-10, 0]) square([20, 10]); }
+        hull() for (sx = [-1, 1]) translate([sx*14.5, 1.1]) circle(r = 1.1);
+    }
+}
+// reindeer antler, right-hand one: a beam of hulled circles with three tines
+module antler_2d() {
+    module seg(a, b, r1, r2) hull() { translate(a) circle(r = r1, $fn = 24); translate(b) circle(r = r2, $fn = 24); }
+    o = [0, R_b];
+    seg(o + [3, -1.5], o + [6, 5], 1.6, 1.4);
+    seg(o + [6, 5], o + [8.5, 11], 1.4, 1.2);
+    seg(o + [8.5, 11], o + [8, 17], 1.2, 0.9);
+    seg(o + [6, 5], o + [11.5, 8.5], 1.1, 0.8);
+    seg(o + [8.5, 11], o + [13.5, 14.5], 1.0, 0.75);
+    seg(o + [8.4, 12.5], o + [4.5, 16.5], 0.95, 0.75);
 }
 module topper_recess_2d(style) {
     if (style == "bear")  mir() rotate(-35) translate([0, R_b + 5]) circle(r = 4.5);
     if (style == "bunny") mir() rotate(-20) hull() { translate([0, R_b + 5]) circle(r = 2.8); translate([0, R_b + 22]) circle(r = 2.2); }
     if (style == "unicorn") for (k = [5, 10, 15, 20]) translate([-5, R_b + k]) rotate(18) square([10, 0.9]);
+    if (style == "robot") translate([0, R_b + 11.5]) difference() { circle(r = 2.2); circle(r = 1.2); }
+    if (style == "halloween") translate([0, R_b - 1]) polygon([[-6.6, 2.4], [6.6, 2.4], [6.1, 3.9], [-6.1, 3.9]]);
+    if (style == "birthday") translate([0, R_b - 1]) rotate(-10) intersection() {
+        polygon([[-6.5, 0], [6.5, 0], [0, 17]]);
+        for (k = [2.5, 7.5, 12.5]) translate([-10, k]) rotate(25) square([20, 1.4]);
+    }
+    if (style == "valentine") translate([0, R_b - 2]) offset(r = -2) heart_2d(9);
+    if (style == "summer") translate([-7.6, R_b - 1 + 2.4]) square([15.2, 1.4]);
 }
 
 module cat_ear_2d() {
@@ -759,20 +809,106 @@ module back_spark() intersection() {
     translate([0, 0, 21]) rotate([-90, 0, 0]) linear_extrude(40) spark_2d(8, w = 0.18, tip = 0.4, rot = -150);
 }
 
+// themes: each body holds something on its lap, in its hands, like the Claude laptop
+body_themes = ["gamer", "robot", "halloween", "xmas", "ocean", "birthday", "valentine", "summer", "stpatricks"];
+band_themes = ["robot", "halloween", "xmas", "ocean", "birthday", "valentine", "summer", "stpatricks"];
+module lap_item(style) {
+    if (style == "gamer")      gamepad();
+    if (style == "robot")      robot_panel();
+    if (style == "halloween")  pumpkin();
+    if (style == "xmas")       gift();
+    if (style == "ocean")      life_ring();
+    if (style == "birthday")   cake();
+    if (style == "valentine")  big_heart();
+    if (style == "summer")     beach_ball();
+    if (style == "stpatricks") pot_of_gold();
+}
+// a game controller held up in both hands, buttons towards the viewer
+module gamepad() translate([0, -28.5, 19.5]) rotate([70, 0, 0]) {
+    linear_extrude(3, center = true) hull() for (sx = [-1, 1]) {
+        translate([sx*6, 0.5]) circle(r = 3.2); translate([sx*7.5, -2.5]) circle(r = 3.2);
+    }
+    translate([-6.3, 0.2, 1.4]) linear_extrude(0.7) { square([4.2, 1.4], center = true); square([1.4, 4.2], center = true); }
+    for (b = [[6.5, 1.6], [6.5, -1.2], [5.1, 0.2], [7.9, 0.2]]) translate([b[0], b[1], 1.4]) cylinder(r = 0.7, h = 0.7, $fn = 16);
+}
+// relief on the torso's front, d proud of it, drawn in (x, z) round z = zc
+module front_relief(d, zc) intersection() {
+    difference() { torso(-d); torso(); }
+    translate([0, 0, zc]) rotate([90, 0, 0]) linear_extrude(40) children();
+}
+// robot: a chest panel with a grille and two buttons (no collar, so it shows)
+module robot_panel() {
+    difference() {
+        front_relief(0.7, 28) offset(r = 1.2) square([14, 7], center = true);
+        front_relief(0.8, 28) for (z = [-1.8, 0, 1.8]) translate([-3.5, z]) square([5, 0.8], center = true);
+    }
+    front_relief(1.4, 28) for (x = [2.6, 5.4]) translate([x, 0.3]) circle(r = 1.1, $fn = 24);
+}
+// jack-o'-lantern: ribbed pumpkin with a stem and a carved face
+module pumpkin() translate([0, -31, 21]) difference() {
+    union() {
+        for (a = [0 : 45 : 179]) rotate(a) scale([1, 0.62, 0.78]) sphere(r = 8, $fn = 48);
+        translate([0, 0, 5]) cylinder(r1 = 1.3, r2 = 0.9, h = 3.5, $fn = 16);
+    }
+    translate([0, -8.6, 0]) rotate([-90, 0, 0]) linear_extrude(3) scale([1, -1]) {
+        for (sx = [-1, 1]) translate([sx*3, 1.2]) polygon([[-1.6, 0], [1.6, 0], [0, 2.5]]);
+        polygon([[-5.2, -1.6], [-3.5, -2.2], [-2.6, -1.5], [-1.6, -2.3], [0, -2.1], [1.6, -2.3], [2.6, -1.5],
+                 [3.5, -2.2], [5.2, -1.6], [3.8, -4.2], [0, -5.2], [-3.8, -4.2]]);
+    }
+}
+// a present with a ribbon and a bow
+module gift() translate([0, -31, 14]) {
+    translate([-7, -6, 0]) cube([14, 12, 10]);
+    translate([-1.2, -6.5, 0]) cube([2.4, 13, 10.5]);
+    translate([-7.5, -1.2, 0]) cube([15, 2.4, 10.5]);
+    for (sx = [-1, 1]) translate([sx*2.4, 0, 11.4]) rotate([0, sx*30, 0]) scale([1.5, 0.8, 0.9]) sphere(r = 2.2, $fn = 32);
+    translate([0, 0, 10.8]) sphere(r = 1.3, $fn = 24);
+}
+// a life ring, held up, with four rope wraps
+module life_ring() translate([0, -31, 22.5]) rotate([78, 0, 0]) {
+    rotate_extrude($fn = 64) translate([6, 0]) circle(r = 2.3, $fn = 24);
+    for (a = [45 : 90 : 359]) rotate(a) translate([6, 0, 0]) rotate([90, 0, 0]) cylinder(r = 2.6, h = 2.2, center = true, $fn = 24);
+}
+// a birthday cake with a candle
+module cake() translate([0, -31, 13.5]) {
+    cylinder(r = 7.5, h = 7, $fn = 64);
+    translate([0, 0, 7]) rotate_extrude($fn = 64) translate([6.6, 0]) circle(r = 1, $fn = 16);
+    for (a = [0 : 30 : 359]) rotate(a) translate([7.5, 0, 6]) scale([1, 1, 1.6]) sphere(r = 0.9, $fn = 12);
+    translate([0, 0, 7]) cylinder(r = 0.9, h = 5, $fn = 16);
+    translate([0, 0, 12.6]) scale([1, 1, 1.6]) sphere(r = 1.1, $fn = 24);
+}
+// a big heart, held up like the laptop's lid
+module big_heart() translate([0, -31.5, 14]) rotate([-10, 0, 0]) rotate([90, 0, 0]) linear_extrude(3.5, center = true) heart_2d(9);
+// a beach ball with six panels
+module beach_ball() translate([0, -31, 22]) difference() {
+    sphere(r = 7.5, $fn = 64);
+    for (a = [0 : 60 : 179]) rotate(a) difference() { cube([0.7, 20, 20], center = true); sphere(r = 7.0, $fn = 64); }
+    translate([0, 0, 6.6]) difference() { cylinder(r = 2.6, h = 2); translate([0, 0, -1]) cylinder(r = 1.9, h = 4); }
+}
+// a pot of gold
+module pot_of_gold() translate([0, -31, 14]) {
+    intersection() { translate([0, 0, 4.5]) sphere(r = 6.5, $fn = 48); cylinder(r = 10, h = 8.2); }
+    translate([0, 0, 8.2]) rotate_extrude($fn = 64) translate([5.4, 0]) circle(r = 0.9, $fn = 16);
+    translate([0, 0, 8.2]) scale([1, 1, 0.45]) sphere(r = 5, $fn = 48);
+    for (c = [[-2, 1, 10.2, 20], [2.4, -1.5, 10, -25], [0.5, 2.5, 10.4, 10]])
+        translate([c[0], c[1], c[2]]) rotate([c[3], 15, 0]) cylinder(r = 1.6, h = 0.6, $fn = 24);
+}
+
 // style: "bare" (template), "hoodie", "cat" (hoodie + tail),
 //        "astro" (suit collar + backpack), "skeleton" (bones + rib relief),
 //        "claude" (laptop on the lap, spark on the back)
 module body(style = "hoodie") {
-    plain = style == "bare" || style == "skeleton";
+    plain = style == "bare" || style == "skeleton" || style == "robot" || style == "summer";
     difference() {
         union() {
             torso();
             if (style == "skeleton") { bone_limbs(); rib_relief(); } else limbs();
             if (!plain) collar();
-            if (style == "hoodie" || style == "cat") hood_bag();
+            if (style == "hoodie" || style == "cat" || style == "gamer") hood_bag();
             if (style == "cat") cat_tail();
             if (style == "astro") backpack();
             if (style == "claude") { laptop(); back_spark(); }
+            lap_item(style);
             neck_box(neck_wall, body_h - 6, head_bottom_z + neck_plug);
             neck_box(neck_wall + neck_fit, head_bottom_z - 2, head_bottom_z + neck_plug);   // snug plug
             // rest block behind the neck: the rear of the head's flat floor sits on it
@@ -913,6 +1049,23 @@ module screen_dummy() {
 }
 
 module show(print_rot = [0, 0, 0]) { if (placed) children(); else rotate(print_rot) children(); }
+// the theme t that part p names after prefix pre, or undef
+function themed(p, pre, ts) = let(m = [for (t = ts) if (p == str(pre, t)) t]) len(m) ? m[0] : undef;
+// preview colours: [body, band]
+theme_col = [["gamer", "#3a3f58", "#151515"], ["robot", "#9aa5b1", "#5c6670"], ["halloween", "#ff8c1a", "#2b2b2b"],
+             ["xmas", "#c0392b", "#8b5a2b"], ["ocean", "#2e86c1", "#7f8c8d"], ["birthday", "#f4d03f", "#e84393"],
+             ["valentine", "#e84393", "#c0392b"], ["summer", "#f39c12", "#e8d3a0"], ["stpatricks", "#27ae60", "#1e8449"]];
+module theme_preview(t) {
+    c = [for (e = theme_col) if (e[0] == t) e][0];
+    color("#f2f0ea") place_head() head_shell();
+    color("#e6e4de") place_head() head_cap();
+    place_head() screen_dummy();
+    color(c[2]) band(t == "gamer" ? "plain" : t);
+    color("#e6e4de") { cup(1); if (t == "gamer") cup_mic(); else cup(-1); }
+    color(c[1]) body(t);
+    color(c[1]) usb_cover();
+    color("#444") base_plate();
+}
 
 if (part == "assembly") {
     color("#f2f0ea") place_head() head_shell();
@@ -953,6 +1106,9 @@ else if (part == "body_claude") body("claude");
 else if (part == "band_claude")      show([-90, 0, 0]) band("claude");
 else if (part == "cup_claude_right") show([0, 90, 0])  cup(1, true);
 else if (part == "cup_claude_left")  show([0, -90, 0]) cup(-1, true);
+else if (!is_undef(themed(part, "body_", body_themes))) body(themed(part, "body_", body_themes));
+else if (!is_undef(themed(part, "band_", band_themes))) show([-90, 0, 0]) band(themed(part, "band_", band_themes));
+else if (!is_undef(themed(part, "assembly_", body_themes))) theme_preview(themed(part, "assembly_", body_themes));
 else if (part == "assembly_claude") {
     color("#f0eee6") place_head() head_shell();
     color("#e6e4de") place_head() head_cap();
