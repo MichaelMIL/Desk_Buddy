@@ -35,7 +35,7 @@ document.getElementById('f').onload = async () => {
   out.push(...bubbles().slice(1).map(t => 'sys: ' + t.split('\n').slice(0, 3).join(' / ')));
   out.push('cli info: ' + d.getElementById('chat-cli-info').textContent);
   const loaded = bubbles().find(t => t.startsWith('Loaded "' + want + '"')) || '';
-  out.push(`in list: ${[...d.querySelectorAll('#anim-list li')].some(li => li.textContent === want)}, frame: ${d.getElementById('hud-frame').textContent}`);
+  out.push(`in list: ${[...d.querySelectorAll('#anim-list li.item')].some(li => li.dataset.name === want)}, frame: ${d.getElementById('hud-frame').textContent}`);
   const saved = /Saved as animations\//.test(loaded);
   const pushed = !q.get('push') || bubbles().some(t => /^Pushed/.test(t));
   report(!!loaded && saved && pushed);

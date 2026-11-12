@@ -64,10 +64,26 @@
 
   // ---- loading animation scripts -----------------------------------------
 
-  function loadScript(src) {
+  /* Load an animation file. Each file runs in its own function scope, so top-level
+   * `const`/`let` helpers in different files (or in the same file on reload) never
+   * collide, and syntax or runtime errors end up in the log with the file name.
+   * Opening index.html from file:// cannot fetch(), so that falls back to a <script> tag. */
+  async function loadScript(src) {
+    const url = src + (src.includes('?') ? '&' : '?') + 'v=' + Date.now();
+    let code = null;
+    try { const r = await fetch(url, { cache: 'no-store' }); if (r.ok) code = await r.text(); } catch (e) { /* file:// */ }
+    if (code === null) return loadScriptTag(url, src);
+    try {
+      new Function(code + '\n//# sourceURL=' + src)();
+    } catch (e) {
+      throw new Error(`${src}: ${e.message}`);
+    }
+  }
+
+  function loadScriptTag(url, src) {
     return new Promise((resolve, reject) => {
       const s = document.createElement('script');
-      s.src = src + (src.includes('?') ? '&' : '?') + 'v=' + Date.now();
+      s.src = url;
       s.onload = () => resolve(s);
       s.onerror = () => reject(new Error('could not load ' + src));
       document.head.appendChild(s);
@@ -96,17 +112,63 @@
     say(`loaded ${registry.length} animation(s)`);
   }
 
+  /* Categories: an explicit `category`, else the name prefix before ":" ("Face: angry" ->
+   * "Faces", "Halloween: bat" -> "Halloween"), else the theme, else "Other".
+   * Groups appear in manifest order; collapsed groups are remembered per browser. */
+  const COLLAPSE_KEY = 'sim.list.collapsed';
+  let collapsed = new Set();
+  try { collapsed = new Set(JSON.parse(localStorage.getItem(COLLAPSE_KEY) || '[]')); } catch (e) { /* storage unavailable */ }
+  function saveCollapsed() { try { localStorage.setItem(COLLAPSE_KEY, JSON.stringify([...collapsed])); } catch (e) { /* ignore */ } }
+
+  function categoryOf(a) {
+    if (a.category) return String(a.category);
+    const m = a.name.match(/^([^:]+):\s*\S/);
+    if (m) return m[1].trim() === 'Face' ? 'Faces' : m[1].trim();
+    if (a.theme) return String(a.theme).charAt(0).toUpperCase() + String(a.theme).slice(1);
+    return 'Other';
+  }
+  function shortName(a) { return a.name.replace(/^[^:]+:\s*(?=\S)/, ''); }
+
   function buildList() {
-    animList.innerHTML = '';
+    const groups = new Map();
     for (const a of registry) {
-      const li = document.createElement('li');
-      li.textContent = a.name;
-      li.title = `${a.frames} frames @ ${a.fps} fps` + (a.theme ? `, theme "${a.theme}" (board name ${symbolName(a).slice(5)})` : '');
-      li.onclick = () => selectAnimation(a);
-      if (S.anim && S.anim.name === a.name) li.className = 'active';
-      animList.appendChild(li);
+      const c = categoryOf(a);
+      if (!groups.has(c)) groups.set(c, []);
+      groups.get(c).push(a);
     }
-    const active = animList.querySelector('li.active');
+    if (groups.has('Other')) { const o = groups.get('Other'); groups.delete('Other'); groups.set('Other', o); }   // always last
+    animList.innerHTML = '';
+    for (const [cat, anims] of groups) {
+      const theme = anims.find(a => a.theme);
+      const box = document.createElement('li');
+      box.className = 'cat' + (collapsed.has(cat) ? ' collapsed' : '');
+      const head = document.createElement('div');
+      head.className = 'cat-head';
+      head.innerHTML = '<span class="caret"></span><span class="cat-name"></span><span class="cat-tag"></span><span class="cat-count"></span>';
+      head.querySelector('.cat-name').textContent = cat;
+      head.querySelector('.cat-tag').textContent = theme ? 'theme' : '';
+      head.querySelector('.cat-count').textContent = anims.length;
+      head.title = theme ? `theme "${theme.theme}": on the board these play only when that theme is selected` : '';
+      head.onclick = () => {
+        if (collapsed.has(cat)) collapsed.delete(cat); else collapsed.add(cat);
+        box.classList.toggle('collapsed');
+        saveCollapsed();
+      };
+      const ul = document.createElement('ul');
+      for (const a of anims) {
+        const li = document.createElement('li');
+        li.className = 'item' + (S.anim && S.anim.name === a.name ? ' active' : '');
+        li.dataset.name = a.name;
+        li.textContent = shortName(a);
+        li.title = `${a.name}: ${a.frames} frames @ ${a.fps} fps` + (a.theme ? `, board name ${symbolName(a).slice(5)}` : '');
+        li.onclick = () => selectAnimation(a);
+        ul.appendChild(li);
+      }
+      box.appendChild(head);
+      box.appendChild(ul);
+      animList.appendChild(box);
+    }
+    const active = animList.querySelector('li.item.active');
     if (active) active.scrollIntoView({ block: 'nearest' });   // keep the selection visible in the scrolled list
   }
 
@@ -209,7 +271,9 @@
   }
 
   async function selectAnimation(anim, silent) {
+    const changed = !S.anim || S.anim.name !== anim.name;
     S.anim = anim;
+    if (changed && collapsed.delete(categoryOf(anim))) saveCollapsed();
     S.acc = 0;
     S.busy = true;
     await renderTo(anim, 0);

@@ -39,6 +39,8 @@ Sim.register({
   duration: 2500,          // ms per loop  (or frames: 75)
   loop: true,              // default; false = play once on the device
   theme: 'xmas',           // optional: themed animation, only cycled when this theme is selected on the device
+  category: 'Faces',       // optional: group in the simulator's list (default: the name prefix before ":",
+                           // "Face" -> "Faces", else the theme, else "Other")
 
   setup(g, state) {        // optional, runs once before frame 0. May be async.
     state.seed = 1;        // put anything you need across frames in `state`

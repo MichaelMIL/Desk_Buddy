@@ -22,13 +22,13 @@ grid.style.gridTemplateColumns = `repeat(${cols}, 180px)`;
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 document.getElementById('f').onload = async () => {
   const d = document.getElementById('f').contentDocument;
-  for (let i = 0; i < 50 && !d.querySelectorAll('#anim-list li').length; i++) await sleep(100);
-  const items = [...d.querySelectorAll('#anim-list li')];
-  const li = items.find(l => l.textContent === want) || items[0];
+  for (let i = 0; i < 50 && !d.querySelectorAll('#anim-list li.item').length; i++) await sleep(100);
+  const items = [...d.querySelectorAll('#anim-list li.item')];
+  const li = items.find(l => l.dataset.name === want) || items[0];
   li.click();
   await sleep(300);
   const total = +d.getElementById('scrub').max + 1;
-  document.getElementById('title').textContent = `${li.textContent} - ${total} frames`;
+  document.getElementById('title').textContent = `${li.dataset.name} - ${total} frames`;
   const scrub = d.getElementById('scrub');
   for (let k = 0; k < n; k++) {
     const idx = Math.round(k * (total - 1) / Math.max(1, n - 1));

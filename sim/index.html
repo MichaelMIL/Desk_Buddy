@@ -22,9 +22,20 @@
   #anim-list { list-style: none; padding: 0 4px 0 0; margin: 0; flex: 1 1 auto !important; min-height: 80px; overflow-y: auto; }
   #anim-list::-webkit-scrollbar { width: 8px; }
   #anim-list::-webkit-scrollbar-thumb { background: #3a3f47; border-radius: 4px; }
-  #anim-list li { padding: 6px 8px; border-radius: 4px; cursor: pointer; }
-  #anim-list li:hover { background: #2a2e35; }
-  #anim-list li.active { background: var(--accent); color: #000; }
+  #anim-list ul { list-style: none; padding: 0; margin: 0 0 6px; }
+  #anim-list li.item { padding: 5px 8px 5px 22px; border-radius: 4px; cursor: pointer; }
+  #anim-list li.item:hover { background: #2a2e35; }
+  #anim-list li.item.active { background: var(--accent); color: #000; }
+  #anim-list .cat-head { position: sticky; top: 0; z-index: 1; background: var(--panel); display: flex; align-items: center; gap: 6px;
+                         padding: 6px 4px; cursor: pointer; user-select: none; font-weight: 600; }
+  #anim-list .cat-head:hover .cat-name { color: var(--accent); }
+  #anim-list .caret { width: 10px; color: var(--dim); font-size: 10px; }
+  #anim-list .caret::before { content: "▾"; }
+  #anim-list .cat.collapsed .caret::before { content: "▸"; }
+  #anim-list .cat.collapsed ul { display: none; }
+  #anim-list .cat-tag { font-size: 10px; font-weight: 400; color: var(--dim); border: 1px solid #3a3f47; border-radius: 3px; padding: 0 4px; }
+  #anim-list .cat-tag:empty { display: none; }
+  #anim-list .cat-count { margin-left: auto; font-weight: 400; color: var(--dim); font-size: 11px; }
   #center { display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 24px; gap: 16px; }
   #stage { position: relative; background: #000; box-shadow: 0 0 0 10px #0a0a0a, 0 0 0 12px #2b2b2b, 0 20px 60px rgba(0,0,0,.6); }
   #stage.round { border-radius: 50%; overflow: hidden; }
