@@ -108,7 +108,7 @@ final class BuddyBarCoreTests: XCTestCase {
         symbols += ["dot.radiowaves.left.and.right", "wifi", "hand.raised", "hand.raised.slash", "pause.circle",
                     "play.circle", "stop.circle", "doc.text.magnifyingglass", "power",   // PanelView
                     "repeat", "play.fill", "forward.end.fill", "sun.min", "display", "moon",
-                    "square.grid.2x2", "slider.horizontal.3"]                              // BuddyControls
+                    "square.grid.2x2", "slider.horizontal.3", "rectangle.stack"]           // BuddyControls
         for s in Set(symbols) {
             XCTAssertNotNil(NSImage(systemSymbolName: s, accessibilityDescription: nil), s)
         }
@@ -147,6 +147,22 @@ final class BuddyBarCoreTests: XCTestCase {
         XCTAssertEqual(BuddyState.displayName("bear__honey"), "Honey")
         XCTAssertEqual(BuddyState.displayName("face_happy"), "Face happy")
         XCTAssertEqual(BuddyState.displayName("cycle"), "Cycling")
+    }
+
+    func testModes() {
+        let cycling = BuddyState(current: "cycle", animations: ["face_happy", "spinner", "xmas__santa"])
+        var still = cycling
+        still.current = "xmas__santa"
+        XCTAssertEqual(BuddyMode.of(paused: false, buddy: cycling), .follow)    // following Claude, whatever plays
+        XCTAssertEqual(BuddyMode.of(paused: true, buddy: cycling), .cycle)
+        XCTAssertEqual(BuddyMode.of(paused: true, buddy: still), .manual)
+        XCTAssertEqual(BuddyMode.of(paused: true, buddy: nil), .manual)         // not read yet
+        // Manual after cycling goes back to the last pick, if it is still stored
+        XCTAssertEqual(cycling.manualFace(last: "xmas__santa"), "xmas__santa")
+        XCTAssertEqual(cycling.manualFace(last: "gone__face"), "face_happy")
+        XCTAssertEqual(cycling.manualFace(last: nil), "face_happy")
+        XCTAssertEqual(BuddyState(animations: ["spinner", "bear__honey"]).manualFace(last: "cycle"), "spinner")
+        XCTAssertNil(BuddyState(animations: []).manualFace(last: nil))
     }
 
     func testInvocation() {

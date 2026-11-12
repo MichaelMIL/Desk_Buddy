@@ -106,7 +106,16 @@ LANGS.update((ext, 'polyglot') for ext in (
     '.groovy', '.ps1', '.asm', '.s'))
 for _lang in sorted(set(LANGS.values())):
     ACTIVITIES[_lang] = ['claude__' + _lang, 'claude__editing', 'claude__coding']
-OPTIONAL = set(LANGS.values())          # not part of the core theme; `status` does not ask to push them
+# 3D models and design files (sim/animations/theme_claude_studio.js); without them on the buddy, as above.
+STUDIO = {ext: '3d_modeling' for ext in (
+    '.scad', '.stl', '.3mf', '.obj', '.step', '.stp', '.blend', '.fcstd', '.gltf', '.glb', '.ply', '.dxf')}
+STUDIO.update((ext, 'designing') for ext in (
+    '.css', '.scss', '.sass', '.less', '.styl', '.pcss', '.svg', '.fig', '.sketch'))
+ACTIVITIES['3d_modeling'] = ['claude__3d_modeling', 'claude__editing', 'claude__coding']
+ACTIVITIES['designing'] = ['claude__designing', 'claude__editing', 'claude__writing']
+FILE_KINDS = dict(LANGS, **STUDIO)
+# not part of the core theme; `status` does not ask to push them
+OPTIONAL = set(LANGS.values()) | set(STUDIO.values())
 # Activities that alternate between animations when they last (every rotate_seconds).
 ROTATE = {'thinking': ['claude__pondering', 'claude__thinking'],
           'debugging': ['claude__debugging', 'claude__rubber_duck']}
@@ -156,6 +165,9 @@ def log(msg):
 # ---------------------------------------------------------------------------- hook event -> message
 
 DOC_EXT = ('.md', '.markdown', '.txt', '.rst', '.adoc', '.org', '.tex')
+# renders, exports or slices a 3D model
+MODEL_CMDS = {'openscad', 'blender', 'freecad', 'freecadcmd', 'prusa-slicer', 'prusaslicer', 'orca-slicer',
+              'orcaslicer', 'meshlab', 'meshlabserver'}
 READ_CMDS = {'cat', 'head', 'tail', 'less', 'more', 'bat', 'sed', 'awk', 'jq', 'wc', 'file', 'xxd',
              'hexdump', 'strings', 'diff', 'cmp', 'stat', 'du', 'df', 'readlink', 'realpath'}
 SEARCH_CMDS = {'grep', 'egrep', 'rg', 'ag', 'ack', 'find', 'fd', 'ls', 'tree', 'which', 'whereis',
@@ -216,6 +228,8 @@ def bash_activity(cmd):
         return 'git', 'query' if sub in ('status', 'log', 'branch', 'rev-parse', 'ls-files') else None
     if first == 'gh' and re.search(r'\bpr\s+(view|diff|review)\b', seg):
         return 'reviewing', 'query'
+    if first.lower() in MODEL_CMDS:
+        return '3d_modeling', 'build'
     if BUILD_RE.search(low):
         return 'running', 'build'
     if first in READ_CMDS:
@@ -236,8 +250,8 @@ def tool_activity(tool, tin, plan=False):
     if tool in ('Edit', 'MultiEdit', 'NotebookEdit', 'Write'):
         path = str(tin.get('file_path') or tin.get('notebook_path') or '').lower()
         ext = os.path.splitext(path)[1]
-        if ext in LANGS:
-            return LANGS[ext]
+        if ext in FILE_KINDS:
+            return FILE_KINDS[ext]
         if tool == 'Write':
             return 'writing' if path.endswith(DOC_EXT) else 'coding'
         return 'editing'
@@ -1343,10 +1357,11 @@ def _report_board(cfg):
         got = ctl.resolve(act)
         note = '' if got == first(act) else ('(stand-in for %s)' % first(act) if got else '(nothing on the buddy)')
         print('  %-11s %-24s %s' % (act, got or '-', note))
-    langs = sorted(OPTIONAL)
-    have = [l for l in langs if first(l) in names]
-    print('  %-11s %s' % ('languages', ', '.join(have) if have else
-                          'none on the buddy, edits show as editing (optional: %s)' % ', '.join(langs)))
+    for label, group in (('languages', LANGS), ('studio', STUDIO)):
+        acts = sorted(set(group.values()))
+        have = [a for a in acts if first(a) in names]
+        print('  %-11s %s' % (label, ', '.join(have) if have else
+                              'none on the buddy, edits show as editing (optional: %s)' % ', '.join(acts)))
     if missing:
         print()
         print('%d of the claude theme animations are not on the buddy; push them with:' % len(missing))

@@ -91,6 +91,7 @@ public enum Activity {
         "rust": ("Rust", code), "javascript": ("JavaScript", code), "typescript": ("TypeScript", code),
         "java": ("Java", code), "sql": ("SQL", code), "bash": ("Shell script", code),
         "polyglot": ("Coding", code),
+        "3d_modeling": ("3D modeling", "cube"), "designing": ("Designing", "paintpalette"),
     ]
 
     public static func label(_ act: String?) -> String {

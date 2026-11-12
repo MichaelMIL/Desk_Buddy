@@ -61,6 +61,27 @@ public struct BuddyState: Decodable, Equatable {
     }
 }
 
+/// The panel's three ways to run the buddy. Manual and Cycle both pause the bridge (Claude Code
+/// leaves the buddy alone); the buddy itself tells them apart: it cycles, or it stays on one face.
+public enum BuddyMode: String, CaseIterable {
+    case follow, manual, cycle
+
+    public static func of(paused: Bool, buddy: BuddyState?) -> BuddyMode {
+        guard paused else { return .follow }
+        return buddy?.isCycling == true ? .cycle : .manual
+    }
+}
+
+extension BuddyState {
+    /// The face Manual settles on when the buddy is cycling: the last one picked if it is still
+    /// stored, else the happy face, else the first face of no theme.
+    public func manualFace(last: String?) -> String? {
+        if let last, last != "cycle", animations.contains(last) { return last }
+        if animations.contains("face_happy") { return "face_happy" }
+        return commonFaces.first ?? animations.first
+    }
+}
+
 /// The daemon's reply to GET / POST /buddy.
 public struct BuddyReply: Decodable, Equatable {
     public var ok: Bool

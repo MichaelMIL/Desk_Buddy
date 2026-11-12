@@ -63,6 +63,9 @@ class Classify(unittest.TestCase):
         self.assertEqual(self.act(pre('Write', file_path='/x/App.TSX')), 'typescript')
         self.assertEqual(self.act(pre('NotebookEdit', notebook_path='/n.ipynb')), 'python')
         self.assertEqual(self.act(pre('Edit', file_path='/app/Main.kt')), 'polyglot')
+        self.assertEqual(self.act(pre('Edit', file_path='/3d/round_bot.scad')), '3d_modeling')
+        self.assertEqual(self.act(pre('Write', file_path='/web/site.SCSS')), 'designing')
+        self.assertEqual(self.act(pre('Write', file_path='/docs/logo.svg')), 'designing')
         self.assertEqual(self.act(pre('Agent', prompt='x')), 'subagents')
         self.assertEqual(self.act(pre('TodoWrite')), 'todo')
         self.assertEqual(self.act(pre('AskUserQuestion')), 'attention')
@@ -73,6 +76,9 @@ class Classify(unittest.TestCase):
     def test_bash(self):
         b = bb.bash_activity
         self.assertEqual(b('ls -la'), ('searching', 'query'))
+        self.assertEqual(b('/Applications/OpenSCAD-2021.01.app/Contents/MacOS/OpenSCAD -o x.png -D part=1 a.scad'),
+                         ('3d_modeling', 'build'))
+        self.assertEqual(b('cat 3d/round_bot.scad'), ('reading', 'query'))
         self.assertEqual(b('cd sim && grep -rn foo .'), ('searching', 'query'))
         self.assertEqual(b('head -50 x.c'), ('reading', 'query'))
         self.assertEqual(b('git add -A && git commit -m x && git push'), ('shipping', 'push'))

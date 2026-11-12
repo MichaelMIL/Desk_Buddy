@@ -24,15 +24,17 @@ struct PanelView: View {
                 Spacer(minLength: 0)
             }
 
-            Picker("Animations", selection: Binding(get: { monitor.manual }, set: { monitor.setManual($0) })) {
-                Text("Follow Claude").tag(false)
-                Text("Manual").tag(true)
+            Picker("Animations", selection: Binding(get: { monitor.mode }, set: { monitor.setMode($0) })) {
+                Text("Follow Claude").tag(BuddyMode.follow)
+                Text("Manual").tag(BuddyMode.manual)
+                Text("Cycle").tag(BuddyMode.cycle)
             }
             .pickerStyle(.segmented)
             .labelsHidden()
             .disabled(!monitor.hooks.installed || monitor.working)
             .help("Follow Claude: the buddy shows what Claude Code is doing. "
-                  + "Manual: Claude Code leaves it alone and you pick the animation.")
+                  + "Manual: Claude Code leaves it alone and the face you pick stays. "
+                  + "Cycle: Claude Code leaves it alone and the buddy goes through its faces, plus the theme's.")
 
             buddy(state)
             if let s = monitor.snapshot {
@@ -80,7 +82,7 @@ struct PanelView: View {
                 }
             }
             .font(.callout)
-            BuddyControls(monitor: monitor, claudeBusy: state.isRunning && s?.active == true)
+            BuddyControls(monitor: monitor)
             if let s, s.active, let prev = s.previous {
                 Text("Goes back to \(BuddyState.displayName(prev).lowercased()) when Claude is idle")
                     .font(.caption).foregroundStyle(.secondary)
@@ -173,10 +175,10 @@ struct PanelView: View {
     }
 }
 
-/// Face, next, brightness, screen and theme, through the bridge daemon's link to the buddy.
+/// What plays, brightness and screen, through the bridge daemon's link to the buddy; in Manual and
+/// Cycle also next and the faces menu, and in Cycle the theme (Claude Code picks faces while followed).
 struct BuddyControls: View {
     @ObservedObject var monitor: Monitor
-    let claudeBusy: Bool
     @State private var brightness = 100.0
     @State private var dragging = false
 
@@ -224,11 +226,13 @@ struct BuddyControls: View {
                 .lineLimit(1).truncationMode(.middle).help(b.current)
             if monitor.buddyBusy { ProgressView().controlSize(.mini) }
             Spacer(minLength: 4)
-            if monitor.buddyCommands.contains("next") {
-                Button { monitor.send("next") } label: { Image(systemName: "forward.end.fill") }
-                    .buttonStyle(.borderless).help("Next face")
+            if monitor.mode != .follow {                  // following Claude: its next step would override a pick
+                if monitor.buddyCommands.contains("next") {
+                    Button { monitor.send("next") } label: { Image(systemName: "forward.end.fill") }
+                        .buttonStyle(.borderless).help("Next face")
+                }
+                facesMenu(b)
             }
-            facesMenu(b)
         }
         HStack(spacing: 6) {
             Image(systemName: "sun.min").foregroundStyle(.secondary).frame(width: 16)
@@ -252,19 +256,19 @@ struct BuddyControls: View {
             Toggle("Screen", isOn: Binding(get: { b.screen }, set: { monitor.send("screen \($0 ? "on" : "off")") }))
                 .toggleStyle(.switch).controlSize(.mini)
             Spacer(minLength: 4)
-            themePicker(b)
         }
-        if claudeBusy {
-            Text("Claude Code's next step takes the screen back; switch to Manual to keep your pick.")
-                .font(.caption).foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
+        if monitor.mode == .cycle {                     // the theme only decides which faces cycle
+            HStack(spacing: 6) {
+                Image(systemName: "rectangle.stack").foregroundStyle(.secondary).frame(width: 16)
+                Text("Faces in the cycle")
+                Spacer(minLength: 4)
+                themePicker(b)
+            }
         }
     }
 
     private func facesMenu(_ b: BuddyState) -> some View {
         Menu {
-            Button("Cycle all faces") { monitor.send("cycle") }
-            Divider()
             ForEach(b.commonFaces, id: \.self) { n in
                 Button(BuddyState.displayName(n)) { monitor.send("play \(n)") }
             }
@@ -282,21 +286,21 @@ struct BuddyControls: View {
         .menuStyle(.borderlessButton)
         .menuIndicator(.hidden)
         .fixedSize()
-        .help("Play a face")
+        .help(monitor.mode == .cycle ? "Play a face (switches to Manual)" : "Play a face")
     }
 
     private func themePicker(_ b: BuddyState) -> some View {
         let themes = b.themes + (b.theme.isEmpty || b.themes.contains(b.theme) ? [] : [b.theme])
         return Picker("Theme", selection: Binding(get: { b.theme },
                                                    set: { monitor.send("theme \($0.isEmpty ? "none" : $0)") })) {
-            Text("No theme").tag("")
+            Text("Common faces").tag("")
             Divider()
-            ForEach(themes, id: \.self) { Text($0.capitalized).tag($0) }
+            ForEach(themes, id: \.self) { Text("+ " + $0.capitalized).tag($0) }
         }
         .pickerStyle(.menu)
         .labelsHidden()
         .fixedSize()
-        .help("Theme: its faces join the cycle")
+        .help("Common faces always cycle; a theme adds its own faces")
     }
 }
 

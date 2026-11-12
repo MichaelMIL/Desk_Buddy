@@ -74,6 +74,8 @@ command, or "done", it is free, and the phone app, the remote page or
 | Write a code file / a `.md` or `.txt` | coding / writing | `claude__coding` / `claude__writing` |
 | Edit or Write a `.py`, `.c`/`.h`, `.cpp`, `.go`, `.rs`, `.js`, `.ts`, `.java`, `.sql` or `.sh` file | python, c, cpp, go, rust, javascript, typescript, java, sql, bash | `claude__python` etc. if that animation is on the buddy, otherwise as above |
 | Edit or Write code in another language (`.rb`, `.swift`, `.kt`, `.php`, `.lua`, `.cs`…) | polyglot | `claude__polyglot` if on the buddy, otherwise as above |
+| Edit or Write a 3D model (`.scad`, `.stl`, `.3mf`, `.step`, `.blend`…), or run `openscad`, `blender`, a slicer | 3d_modeling | `claude__3d_modeling` if on the buddy, otherwise as above |
+| Edit or Write a stylesheet or design file (`.css`, `.scss`, `.less`, `.svg`…) | designing | `claude__designing` if on the buddy, otherwise as above |
 | any other shell command, builds | running | `claude__coding` |
 | a test command (`pytest`, `npm test`, `go test`, `run_tests.sh`…) | testing | `claude__ci_pipeline` |
 | … and it passes | passed | `claude__tests_pass` (once) |
@@ -201,14 +203,17 @@ the buddy does not answer. Click the icon for a panel with:
 - the state and the animation on the buddy;
 - the link (Bluetooth or Wi-Fi), whether it is connected, and what the buddy
   goes back to;
-- buddy controls: what it plays, next face (Bluetooth), a menu of every face
-  by theme, brightness, screen on/off, and the theme (one per `<theme>__`
-  prefix among the stored animations);
+- buddy controls: what it plays, brightness and screen on/off; in Manual and
+  Cycle also next face (Bluetooth) and a menu of every face by theme, and in
+  Cycle which theme's faces join the cycle (one per `<theme>__` prefix among
+  the stored animations);
 - each session: project folder, activity, subagents, last event;
 - the last few animations shown;
-- a **Follow Claude / Manual** switch. In Manual, Claude Code stops changing
-  the animation (`pause`): the buddy goes back to what it played before
-  Claude, and you pick faces with the controls above;
+- a **Follow Claude / Manual / Cycle** switch. Manual and Cycle both stop
+  Claude Code changing the animation (`pause`). In Manual the face you pick
+  stays; coming from Cycle it goes back to the last face you picked. In Cycle
+  the buddy goes through the common faces plus the selected theme's, and
+  picking a face switches to Manual;
 - "Leave the buddy alone for 2 min" (`hold`), Stop, Open log, and Open at
   login.
 
@@ -222,8 +227,9 @@ The app reads the buddy only while its panel is open, so the link is free
 otherwise. If the daemon is not running, "Show buddy controls" starts it
 (`buddy_bridge.py start`) with the Python it last ran with, recorded in
 `~/.config/desk-buddy/claude-python`, because a GUI app's `python3` may lack
-bleak. A face picked while following Claude lasts until Claude's next step;
-Manual keeps it (opening the panel in Manual connects to the buddy at once).
+bleak. Faces are picked in Manual or Cycle; while following Claude, Claude
+Code picks them, so the panel shows only what plays, brightness and screen
+(opening the panel in Manual or Cycle connects to the buddy at once).
 
 ```sh
 claude_integration/menubar/build.sh --install   # builds, copies to ~/Applications, starts it
@@ -233,8 +239,10 @@ It needs only the Swift toolchain that comes with Xcode or the Command Line
 Tools; `build.sh` without `--install` leaves the app in `menubar/build/`. It
 polls `GET /status` on the daemon (`127.0.0.1:47615`, header `X-Desk-Buddy:
 1`) every 1.5 s, and reads `claude.json` and `~/.claude/settings.json`. The
-Follow Claude / Manual switch runs `buddy_bridge.py resume` / `pause`. The app
-keeps no state of its own. Tests: `cd claude_integration/menubar && swift
+Follow Claude / Manual / Cycle switch runs `buddy_bridge.py resume` / `pause`,
+then for Manual and Cycle sends `play <face>` or `cycle`; which of the two is
+showing comes from the buddy (cycling or not). The app keeps no state of its
+own beyond the last face picked, in memory. Tests: `cd claude_integration/menubar && swift
 test` (status parsing, state rules, and that every icon exists).
 
 ## Troubleshooting

@@ -133,6 +133,7 @@ final class Monitor: ObservableObject {
     /// One console command: play <name>, cycle, next, brightness <n>, screen on|off, theme <t>|none.
     /// While another is in flight, the latest one waits and goes next (a slider sends many).
     func send(_ command: String) {
+        if command.hasPrefix("play "), command != "play cycle" { lastFace = String(command.dropFirst(5)) }
         optimistic(command)
         if buddyBusy || buddyLoading {
             pending = command
@@ -150,6 +151,7 @@ final class Monitor: ObservableObject {
     }
 
     private var pending: String?
+    private var lastFace: String?                          // what Manual goes back to after cycling
 
     private func flushPending() {
         if let p = pending, !buddyBusy, !buddyLoading {
@@ -201,8 +203,8 @@ final class Monitor: ObservableObject {
 
     var manual: Bool { manualPending ?? !config.enabled }
 
-    func setManual(_ manual: Bool) {
-        guard manual != self.manual else { return }
+    func setManual(_ manual: Bool, then: ((Bool) -> Void)? = nil) {
+        guard manual != self.manual else { then?(true); return }
         manualPending = manual
         working = true
         Task {
@@ -212,6 +214,37 @@ final class Monitor: ObservableObject {
             manualPending = nil
             say(ok ? out : "Failed: \(out)")
             if ok, manual, panelOpen, buddy == nil { connectBuddy() }   // the controls are the point
+            then?(ok)
+        }
+    }
+
+    /// Follow Claude, Manual (one face stays) or Cycle (the buddy goes through its faces, plus the
+    /// selected theme's). Manual and Cycle both pause the bridge and differ only in what the buddy
+    /// plays, so the switch shows the buddy's own state; a choice in flight shows at once.
+    @Published private(set) var modePending: BuddyMode?
+
+    var mode: BuddyMode { modePending ?? BuddyMode.of(paused: manual, buddy: buddy) }
+
+    func setMode(_ m: BuddyMode) {
+        guard m != mode else { return }
+        if m == .follow { setManual(false); return }
+        modePending = m
+        let wasFollowing = !manual
+        setManual(true) { [weak self] ok in
+            guard let self else { return }
+            guard ok else { self.modePending = nil; return }
+            Task {
+                // just paused: the daemon first puts back what played before Claude (next tick);
+                // after that it leaves a face picked here alone
+                if wasFollowing { try? await Task.sleep(nanoseconds: 1_500_000_000) }
+                self.modePending = nil
+                if m == .cycle {
+                    self.send("cycle")
+                } else if self.buddy?.isCycling ?? true,
+                          let face = self.buddy?.manualFace(last: self.lastFace) ?? self.lastFace {
+                    self.send("play \(face)")
+                }
+            }
         }
     }
 
