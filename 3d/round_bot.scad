@@ -401,7 +401,7 @@ module band(style = "plain") {
             translate([0, band_r_in + band_t + 1.5]) offset(r = 1) offset(delta = -4.2) translate([0, -(band_r_in + band_t + 1.5)]) cat_ear_2d();
     }
     if (style == "claude")   // Claude spark, 4 mm thick and flush with the back face (print side)
-        band_ex(band_w/2 - 4, 4) translate([0, R_b + 7]) spark_2d(10, rot = 30);
+        band_ex(band_w/2 - 4, 4) translate([0, R_b + 7]) spark_2d(10, w = 0.15, rot = 30);
     if (style != "plain" && style != "cat" && style != "bug" && style != "claude") difference() {
         band_ex() topper_2d(style);
         band_ex(-band_w/2 - 1, 2.0) topper_recess_2d(style);
@@ -501,7 +501,7 @@ module cup(side = 1, spark = false) {
         // Claude theme: a spark engraved 0.6 mm into the outer face (it prints on the bed,
         // so its rays are short gaps the next layers close over)
         if (spark) translate([0, band_y, head_cz + cup_z]) rotate([0, 90*side, 0])
-            translate([0, 0, cup_x1 - 0.6]) linear_extrude(1) spark_2d(5, w = 0.16, tip = 0.3, rot = 15);
+            translate([0, 0, cup_x1 - 0.6]) linear_extrude(1) spark_2d(5, w = 0.2, tip = 0.35, rot = 15);
         // slot for the band's tab: open at the top and towards the head
         translate([0, 0, head_cz]) mirror([side < 0 ? 1 : 0, 0, 0])
             xz_extrude(band_y - band_w/2 - btab_clr_y, band_w + 2*btab_clr_y) btab_slot_2d();
@@ -751,12 +751,12 @@ module laptop() {
     translate([-lap_w/2, lap_y, lap_z]) cube([lap_w, lap_d, lap_t]);
     translate([0, lap_y, lap_z]) rotate([-lid_tilt, 0, 0]) {
         translate([-lap_w/2, 0, 0]) cube([lap_w, lid_t, lid_h]);
-        translate([0, 0.01, lid_h/2 + 0.6]) rotate([90, 0, 0]) linear_extrude(0.6) spark_2d(5.5, rot = 30);
+        translate([0, 0.01, lid_h/2 + 0.6]) rotate([90, 0, 0]) linear_extrude(0.6) spark_2d(5.5, w = 0.2, tip = 0.35, rot = 30);
     }
 }
 module back_spark() intersection() {
     difference() { torso(-0.7); torso(); }
-    translate([0, 0, 21]) rotate([-90, 0, 0]) linear_extrude(40) spark_2d(8, rot = -150);
+    translate([0, 0, 21]) rotate([-90, 0, 0]) linear_extrude(40) spark_2d(8, w = 0.18, tip = 0.4, rot = -150);
 }
 
 // style: "bare" (template), "hoodie", "cat" (hoodie + tail),
