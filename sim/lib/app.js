@@ -106,6 +106,8 @@
       if (S.anim && S.anim.name === a.name) li.className = 'active';
       animList.appendChild(li);
     }
+    const active = animList.querySelector('li.active');
+    if (active) active.scrollIntoView({ block: 'nearest' });   // keep the selection visible in the scrolled list
   }
 
   // ---- rendering ----------------------------------------------------------

@@ -7,14 +7,21 @@
 <style>
   :root { --bg: #15171a; --panel: #1f2227; --fg: #e6e6e6; --dim: #8a919c; --accent: #4fb3ff; }
   * { box-sizing: border-box; }
-  body { margin: 0; background: var(--bg); color: var(--fg); font: 13px/1.4 -apple-system, "Segoe UI", Helvetica, Arial, sans-serif; }
+  body { margin: 0; background: var(--bg); color: var(--fg); font: 13px/1.4 -apple-system, "Segoe UI", Helvetica, Arial, sans-serif;
+         height: 100vh; display: flex; flex-direction: column; overflow: hidden; }
   header { padding: 10px 16px; border-bottom: 1px solid #000; display: flex; align-items: baseline; gap: 12px; }
   header h1 { font-size: 15px; margin: 0; }
   header span { color: var(--dim); }
-  main { display: grid; grid-template-columns: 200px 1fr 360px; gap: 0; min-height: calc(100vh - 42px); }
-  aside { background: var(--panel); padding: 12px; overflow: auto; }
+  main { display: grid; grid-template-columns: 200px 1fr 360px; gap: 0; flex: 1; min-height: 0; }
+  aside { background: var(--panel); padding: 12px; overflow: auto; min-height: 0; }
+  #center { overflow: auto; }
+  /* left sidebar: the animation list scrolls, the reload button and hints stay put */
+  #left { display: flex; flex-direction: column; overflow: hidden; }
+  #left > * { flex: none; }
   aside h2 { font-size: 11px; text-transform: uppercase; letter-spacing: .08em; color: var(--dim); margin: 8px 0 6px; }
-  #anim-list { list-style: none; padding: 0; margin: 0; }
+  #anim-list { list-style: none; padding: 0 4px 0 0; margin: 0; flex: 1 1 auto !important; min-height: 80px; overflow-y: auto; }
+  #anim-list::-webkit-scrollbar { width: 8px; }
+  #anim-list::-webkit-scrollbar-thumb { background: #3a3f47; border-radius: 4px; }
   #anim-list li { padding: 6px 8px; border-radius: 4px; cursor: pointer; }
   #anim-list li:hover { background: #2a2e35; }
   #anim-list li.active { background: var(--accent); color: #000; }
@@ -60,7 +67,7 @@
   <span>1.28" round · 240×240 · GC9A01 · RGB565</span>
 </header>
 <main>
-  <aside>
+  <aside id="left">
     <h2>Animations</h2>
     <ul id="anim-list"></ul>
     <div class="row" style="margin-top:12px"><button id="btn-reload" title="Re-read animations/*.js (R)">Reload</button></div>
