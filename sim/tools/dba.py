@@ -10,6 +10,7 @@ the desk buddy firmware can play.
   python3 dba.py gif anim.dba -o preview.gif
   python3 dba.py info anim.dba
   python3 dba.py push anim.dba --host 192.168.50.99 --name face_wave --play   # to a running board
+  python3 dba.py push anim.dba --host usb --name face_wave      # over USB serial (or --host ble: Bluetooth)
 
 Needs Pillow:  pip install pillow
 """
@@ -256,9 +257,9 @@ def main(argv=None):
     inf = sub.add_parser("info", help="print header and per-frame sizes")
     inf.add_argument("input")
 
-    pu = sub.add_parser("push", help="upload a .dba to a desk buddy over Wi-Fi")
+    pu = sub.add_parser("push", help="upload a .dba to a desk buddy (Wi-Fi, USB serial or Bluetooth)")
     pu.add_argument("input")
-    pu.add_argument("--host", required=True, help="board address, e.g. 192.168.50.99 or desk-buddy.local")
+    pu.add_argument("--host", required=True, help="board address (192.168.50.99, desk-buddy.local), usb[:<port>] or ble[:<name>]")
     pu.add_argument("--name", help="name on the board (default: file name without extension / anim_ prefix)")
     pu.add_argument("--play", action="store_true", help="start playing it after the upload")
 

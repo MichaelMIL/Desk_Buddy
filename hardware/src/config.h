@@ -2,6 +2,16 @@
 #pragma once
 #include <Arduino.h>
 
+/* Build variant: -DBUDDY_WIFI=0 (env:esp32s3_supermini_ble in platformio.ini)
+ * leaves out Wi-Fi, MQTT, the HTTP API and OTA; Bluetooth and USB serial
+ * remain, and the file system gets the freed flash. */
+#ifndef BUDDY_WIFI
+#define BUDDY_WIFI 1
+#endif
+#ifndef FW_VERSION
+#define FW_VERSION "dev"
+#endif
+
 struct Config {
   // network
   String ssid, pass;

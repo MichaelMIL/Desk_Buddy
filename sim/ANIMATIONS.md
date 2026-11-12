@@ -68,7 +68,7 @@ depend on wall-clock time, only on `f`.
 
 An animation with `theme: 'halloween'` (lower-case, letters/digits) is stored
 on the device as `halloween__<name>` and plays only while that theme is
-selected on the device's settings page (common animations, without a theme,
+selected on the device (`theme <name>` over Bluetooth or serial, MQTT, or the API; common animations, without a theme,
 play in every theme). Name themed animations `'Halloween: pumpkin'`: the
 theme prefix is dropped from the board name. Existing themes: the build variants `dj`,
 `cat`, `bear`, `bunny`, `king`, `unicorn`, `skeleton`, `gamer`, `bee`,

@@ -21,17 +21,34 @@ PlatformIO firmware that plays what the simulator exports.
   local `claude -p` CLI through `sim/serve.py` with `sim/ANIMATIONS.md` as
   the system prompt; `sim/test/chat_smoke.html` exercises that end to end.
 - Getting animations onto the device: the sim's "→ board" button or
-  `sim/test/push_all.sh <address>` upload to the running board over Wi-Fi
-  (stored on LittleFS, no reflash). `sim/test/export_all.sh` + `pio run -t
+  `sim/test/push_all.sh <address>` upload to the running board over Wi-Fi,
+  or with `usb` / `ble` as the address over USB serial / Bluetooth (stored on
+  LittleFS, no reflash). `sim/test/export_all.sh` + `pio run -t
   upload` compiles them in instead (built-in fallback, limited space).
 - Firmware: `cd hardware && pio run -t upload` over USB, or
   `hardware/ota.sh <address>` over Wi-Fi. The OTA app slots are 1 MB and the
-  firmware is ~935 KB with Bluetooth, so watch the "Flash:" line when adding
+  firmware is ~960 KB with Bluetooth, so watch the "Flash:" line when adding
   libraries; do not compile animations in (they live on LittleFS). It only
   fits because of the trims in `hardware/slim.py` and `platformio.ini` (table
   in `hardware/README.md`); among them printf is newlib-nano from the ROM, so
-  no `%f` / `%ll` in printf formats. Web pages live in `hardware/web/` (gzipped
-  into the firmware at build time). The DBA1 decoder's single source is
-  `hardware/lib/dba_player/`. The ESP32 WebServer does not parse query
+  no `%f` / `%ll` in printf formats. There are no web pages on the device:
+  the HTTP API is documented in `hardware/API.md`, Bluetooth LE (pairing
+  code on the screen, every console command, the upload protocol) in
+  `hardware/BLE.md`. Two builds: `esp32s3_supermini` (Wi-Fi) and
+  `esp32s3_supermini_ble` (`BUDDY_WIFI=0`: Bluetooth + USB only, 3.3 MB
+  LittleFS; switching builds erases stored animations). The DBA1 decoder's
+  single source is `hardware/lib/dba_player/`. The ESP32 WebServer does not parse query
   arguments for raw-body (PUT) requests, so uploads carry the name in the
   `X-Anim-Name` header.
+- Phone app: `app/` is a Flutter app (iOS, Android, macOS) that controls the
+  buddy over Bluetooth LE with the `hardware/BLE.md` protocol; see
+  `app/README.md`. Verify with `cd app && flutter analyze && flutter test`
+  (a fake buddy in `test/fake_buddy.dart`, no hardware); the real board is
+  exercised by `flutter test integration_test/device_test.dart -d macos`.
+  It uses universal_ble, not flutter_blue_plus 2.x (license and build ping).
+- Claude Code integration: `claude_integration/buddy_bridge.py` (hooks →
+  local daemon → `POST /api/play`), docs in `claude_integration/README.md`,
+  tests `python3 claude_integration/test_bridge.py`. Its `ACTIVITIES` table
+  names `claude__<slug>` animations, so renaming a `Claude: …` animation
+  means updating it there. Once installed, this repo's own Claude sessions
+  drive the board too; run `buddy_bridge.py pause` while testing on it.

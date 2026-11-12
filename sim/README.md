@@ -37,7 +37,7 @@ Opening `sim/index.html` straight from disk also works for everything except
 The Bluetooth remote is at http://localhost:8080/remote.html (Web Bluetooth
 needs Chrome or Edge and localhost or https, so open it through `serve.sh`).
 It lists the faces on the device and sets face, screen, brightness and theme;
-the protocol is in `hardware/README.md` (Bluetooth LE).
+the protocol is in `hardware/BLE.md`.
 
 Keys: `Space` play/pause, `←` `→` step one frame, `R` reload animation files.
 Hover the screen to read a pixel's coordinates and RGB565 value. Pixels outside
@@ -146,9 +146,9 @@ Colours: `Sim.C.RED` (TFT_eSPI names), `Sim.hex('#ff8800')`,
 The firmware lives in `../hardware/` (PlatformIO, ESP32-S3 SuperMini); see its
 README for wiring, first flash and Wi-Fi setup.
 
-With `./serve.sh` running and the buddy on your network, type its address
-next to **→ board** (e.g. `192.168.50.99` or `desk-buddy.local`) and press
-it. The animation is rendered, diffed frame-to-frame, RLE-compressed and
+With `./serve.sh` running, type the buddy's address next to **→ board**
+(`192.168.50.99` or `desk-buddy.local` over Wi-Fi, `usb` for USB serial, `ble`
+for Bluetooth, which needs the buddy paired) and press it. The animation is rendered, diffed frame-to-frame, RLE-compressed and
 uploaded to the device's flash file system, where it stays across reboots and
 firmware updates; with "play" ticked it starts right away. `test/push_all.sh
 <address>` pushes every animation. **Estimate size** shows the size first;
@@ -204,7 +204,7 @@ The full description is at the top of `lib/dba.js`.
 sim/test/run_tests.sh   # JS encoder == Python encoder byte-for-byte, Python and C decoders round-trip, PNG round-trip
 sim/test/smoke.sh       # headless Chrome: loads the UI, renders and exports every animation
 sim/test/sheet.html     # contact sheet of one animation: ?anim=Face:%20happy&n=12
-sim/test/push_all.sh <address>  # uploads every animation to a running board over Wi-Fi (drives Chrome via test/headless.mjs)
+sim/test/push_all.sh <address>  # uploads every animation to a running board (address, usb or ble) (drives Chrome via test/headless.mjs)
 sim/test/export_all.sh  # compiles every animation into hardware/src/animations/ (built-in fallback)
 sim/test/chat_smoke.html  # with ./serve.sh: one real generation through the Claude Code backend, then Save
 ```

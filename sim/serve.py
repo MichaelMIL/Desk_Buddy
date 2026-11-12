@@ -7,8 +7,10 @@ Claude chat so generated animations can be saved straight into animations/:
 
   GET  /api/ping                 -> {"ok": true, "firmware": <dir or null>, "claude": <cli path or null>}
   POST /api/push  {host, name, data_base64, play?}
-                                 -> uploads the animation to a running desk buddy over HTTP
-                                    (PUT http://<host>/api/anim with X-Anim-Name) and optionally plays it.
+                                 -> uploads the animation to a running desk buddy and optionally plays it.
+                                    host = an address (HTTP: PUT http://<host>/api/anim with X-Anim-Name),
+                                    "usb" / "usb:<port>" (USB serial) or "ble" / "ble:<name>" (Bluetooth,
+                                    paired; the first time the OS asks for the code on the buddy's screen).
                                     Streams NDJSON progress: {"type":"progress","sent","total"} ... {"type":"done",...}
   POST /api/claude {prompt, system, model?, session_id?}
                                  -> runs the Claude Code CLI (`claude -p`, your Claude Code
@@ -31,6 +33,7 @@ import socket
 import subprocess
 import sys
 import threading
+import time
 import urllib.error
 import urllib.request
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
@@ -41,7 +44,7 @@ FIRMWARE_DIR = os.environ.get("SIM_FIRMWARE_DIR") or os.path.normpath(os.path.jo
 FILE_RE = re.compile(r"^[a-z0-9][a-z0-9_\-]*\.js$")
 SYM_RE = re.compile(r"^anim_[a-z0-9_]+$")
 SESSION_RE = re.compile(r"^[0-9a-f\-]{36}$")
-HOST_RE = re.compile(r"^[A-Za-z0-9.\-]+(:\d+)?$")
+HOST_RE = re.compile(r"^(?:usb(?::[\w./\-]+)?|ble(?::[\w .\-]{1,29})?|[A-Za-z0-9.\-]+(?::\d+)?)$")
 NAME_RE = re.compile(r"^[a-z0-9_]{1,31}$")
 MODEL_RE = re.compile(r"^[a-z0-9][a-z0-9.\-]*$")
 REPO_ROOT = os.path.normpath(os.path.join(ROOT, ".."))
@@ -317,9 +320,138 @@ class BoardError(Exception):
     pass
 
 
+# Byte-stream upload protocol of the firmware (hardware/src/upload.h), used over USB serial and Bluetooth:
+#   > upload <name> <bytes>   < ready <window>   > window bytes   < ack <n>  ...   < stored <name> <kb> KB free
+REPLY_RE = re.compile(r"^(ready|ack|stored|error)\b ?(.*)$")
+NUS_SERVICE = "6e400001-b5a3-f393-e0a9-e50e24dcca9e"
+NUS_RX = "6e400002-b5a3-f393-e0a9-e50e24dcca9e"
+NUS_TX = "6e400003-b5a3-f393-e0a9-e50e24dcca9e"
+
+
+def _stream_upload(send_line, send_bytes, next_reply, name, data, play, progress):
+    """The protocol, transport-agnostic. next_reply(timeout) -> (kind, rest) of the next
+    ready/ack/stored/error line, other lines (logs on USB serial) skipped."""
+    total = len(data)
+    send_line("upload %s %d" % (name, total))
+    kind, rest = next_reply(60)              # Bluetooth: the first write may wait for pairing
+    if kind != "ready":
+        raise BoardError(rest or "board did not accept the upload")
+    window = int(rest.split()[0])
+    sent = 0
+    if progress:
+        progress(0, total)
+    while sent < total:
+        part = data[sent:sent + window]
+        send_bytes(part)
+        sent += len(part)
+        if progress:
+            progress(sent, total)
+        kind, rest = next_reply(20)
+        if kind != "ack":
+            raise BoardError(rest or "upload failed")
+    kind, rest = next_reply(20)
+    if kind != "stored":
+        raise BoardError(rest or "board did not store the animation")
+    m = re.search(r"(\d+) KB free", rest)
+    result = {"ok": True, "name": name, "free_kb": int(m.group(1)) if m else None}
+    if play:
+        send_line("play " + name)
+        result["play"] = {"ok": True}
+    return result
+
+
+def _push_serial(port, name, data, play, progress):
+    try:
+        import serial
+        from serial.tools import list_ports
+    except ImportError:
+        raise BoardError("USB push needs pyserial: pip install pyserial")
+    if not port:   # the ESP32-S3's own USB serial (Espressif vendor id)
+        ports = [p.device for p in list_ports.comports() if p.vid == 0x303A]
+        if not ports:
+            raise BoardError("no desk buddy on USB (looked for an Espressif USB serial port)")
+        port = ports[0]
+    try:
+        ser = serial.Serial(port, 115200, timeout=0.2)
+    except serial.SerialException as e:
+        raise BoardError("cannot open %s (is a serial monitor open?): %s" % (port, e))
+    buf = bytearray()
+
+    def next_reply(timeout):
+        nonlocal buf
+        end = time.time() + timeout
+        while time.time() < end:
+            while b"\n" in buf:
+                line, _, rest = bytes(buf).partition(b"\n")
+                buf = bytearray(rest)
+                m = REPLY_RE.match(line.decode(errors="replace").strip())
+                if m:
+                    return m.group(1), m.group(2)
+            buf += ser.read(512)
+        raise BoardError("no answer from the board on %s" % port)
+    try:
+        ser.reset_input_buffer()
+        return _stream_upload(lambda t: ser.write((t + "\n").encode()), ser.write, next_reply, name, data, play, progress)
+    finally:
+        ser.close()
+
+
+def _push_ble(device_name, name, data, play, progress):
+    try:
+        import asyncio
+        from bleak import BleakClient, BleakScanner
+    except ImportError:
+        raise BoardError("Bluetooth push needs bleak: pip install bleak")
+
+    async def run():
+        def match(d, ad):
+            if NUS_SERVICE not in [u.lower() for u in ad.service_uuids]:
+                return False
+            return not device_name or device_name in (ad.local_name, d.name)
+        dev = await BleakScanner.find_device_by_filter(match, timeout=10)
+        if not dev:
+            raise BoardError("no desk buddy advertising over Bluetooth (is another phone or tab connected to it?)")
+        replies, text = asyncio.Queue(), [""]
+
+        def on_tx(_, d):
+            text[0] += d.decode(errors="replace")
+            while "\n" in text[0]:
+                line, text[0] = text[0].split("\n", 1)
+                m = REPLY_RE.match(line.strip())
+                if m:
+                    replies.put_nowait((m.group(1), m.group(2)))
+        async with BleakClient(dev, timeout=20) as c:
+            await c.start_notify(NUS_TX, on_tx)
+            mtu = max(20, c.mtu_size - 3)
+            loop = asyncio.get_running_loop()
+            # _stream_upload is synchronous; run it in a thread and bridge its calls into this loop
+            def call(coro, timeout=60):
+                return asyncio.run_coroutine_threadsafe(coro, loop).result(timeout)
+
+            def send_line(t):
+                call(c.write_gatt_char(NUS_RX, (t + "\n").encode(), response=True))
+
+            async def write_chunks(b):
+                for i in range(0, len(b), mtu):
+                    await c.write_gatt_char(NUS_RX, b[i:i + mtu], response=False)
+
+            def next_reply(timeout):
+                try:
+                    return call(asyncio.wait_for(replies.get(), timeout), timeout + 5)
+                except Exception:  # noqa: BLE001
+                    raise BoardError("no answer from the board over Bluetooth (paired? the code is on its screen)")
+            return await loop.run_in_executor(None, lambda: _stream_upload(
+                send_line, lambda b: call(write_chunks(b)), next_reply, name, data, play, progress))
+    return asyncio.run(run())
+
+
 def push_to_board(host, name, data, play=False, timeout=60, progress=None, chunk=4096):
-    """Upload a DBA1 animation to a desk buddy at host (ip[:port]) in chunks,
-    calling progress(sent, total) along the way; returns the board's reply."""
+    """Upload a DBA1/DBAZ animation to a desk buddy, calling progress(sent, total) along the way;
+    returns the board's reply. host = ip[:port] (HTTP), "usb[:<port>]" or "ble[:<name>]"."""
+    if host == "usb" or host.startswith("usb:"):
+        return _push_serial(host[4:], name, data, play, progress)
+    if host == "ble" or host.startswith("ble:"):
+        return _push_ble(host[4:], name, data, play, progress)
     h, _, port = host.partition(":")
     conn = http.client.HTTPConnection(h, int(port) if port else 80, timeout=timeout)
     try:

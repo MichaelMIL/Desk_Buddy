@@ -13,8 +13,14 @@
  *
  * The commands are the serial console's playback commands (see remote_ok() in
  * main.cpp): names, state, list, play, next, cycle, screen, brightness,
- * theme, speed, loops, rotation, status. There is no pairing, so Wi-Fi,
- * passwords, delete and reset are not reachable over Bluetooth.
+ * theme, speed, loops, rotation, status. Wi-Fi, passwords, delete and reset
+ * are not reachable over Bluetooth.
+ *
+ * Security: only a paired device can use the service. On connect the buddy
+ * asks for pairing (LE Secure Connections, MITM): it shows a random 6-digit
+ * code on its screen and the other device types it in. Bonds are kept in NVS,
+ * so a paired device reconnects without the code. RX writes and state reads
+ * need an authenticated link; notifications are sent only on one.
  *
  * Commands are queued by the NimBLE task and run from bleLoop() in the
  * Arduino loop (core 1), like serial and web requests. */
@@ -24,4 +30,6 @@
 void bleBegin();          // starts advertising if cfg.ble is on
 void bleLoop();           // runs received commands, sends replies and state
 void bleStateChanged();   // from any task: refresh + notify the state characteristic
-String bleStatus();       // "off" | "advertising as '<name>'" | "connected"
+String bleStatus();       // "off" | "advertising as '<name>', <n> paired" | "connected, paired" | "connected, not paired"
+int bleBondCount();       // paired (bonded) devices, -1 when Bluetooth is off
+void bleForgetAll();      // delete every bond (also works with Bluetooth off)

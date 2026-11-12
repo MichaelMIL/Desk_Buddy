@@ -1,4 +1,5 @@
 #include "mqtt.h"
+#if BUDDY_WIFI   // the whole file; config.h
 #include "app.h"
 #include "config.h"
 #include "net.h"
@@ -130,7 +131,7 @@ void mqttBegin() {
   if (!enabled) return;
   mq.setServer(cfg.mqttHost.c_str(), cfg.mqttPort);
   mq.setCallback(onMessage);
-  mq.setBufferSize(2048);
+  mq.setBufferSize(8192);    // the discovery message lists every face name (~20 bytes each)
   mq.setSocketTimeout(3);    // seconds; keeps a dead broker from stalling the animation for long
   mq.setKeepAlive(30);
 }
@@ -145,3 +146,5 @@ void mqttLoop() {
   if (animsDirty) { animsDirty = false; publishAnimationsNow(); }
   if (stateDirty) { stateDirty = false; publishStateNow(); }
 }
+
+#endif  // BUDDY_WIFI

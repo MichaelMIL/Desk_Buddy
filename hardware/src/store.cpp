@@ -6,7 +6,7 @@
 #include "rom/miniz.h"      // inflate from ROM: no flash cost
 
 static const char *DIR = "/a";
-static const size_t MAX_ENTRIES = 64;
+static const size_t MAX_ENTRIES = 256;   // ~6 KB; the BLE-only build's 3.3 MB holds ~150-300 faces
 static AnimEntry entries[MAX_ENTRIES];
 static size_t count = 0;
 static bool fsOk = false;
@@ -14,6 +14,11 @@ static bool fsOk = false;
 static File upFile;
 static String upName, upTmp;
 static size_t upBytes = 0, upBudget = 0;
+// One upload at a time (HTTP, USB serial and Bluetooth share the temp file): busy from
+// begin until commit/abort; an upload with no data for 15 s may be taken over.
+static bool upBusy = false;
+static uint32_t upLastAt = 0;
+static const uint32_t UP_STALE_MS = 15000;
 static uint8_t upHead[16];
 static const size_t FS_MARGIN = 16 * 1024;   // LittleFS needs headroom; writing it completely full crashes it
 
@@ -69,14 +74,17 @@ void storeScan() {
   if (fsOk) {
     File d = LittleFS.open(DIR);
     if (d && d.isDirectory()) {
-      for (File f = d.openNextFile(); f && count < MAX_ENTRIES; f = d.openNextFile()) {
+      size_t skipped = 0;
+      for (File f = d.openNextFile(); f; f = d.openNextFile()) {
         String n = f.name();
         int slash = n.lastIndexOf('/'); if (slash >= 0) n = n.substring(slash + 1);
         if (!n.endsWith(".dba")) continue;
         n.remove(n.length() - 4);
         if (!storeValidName(n)) continue;
+        if (count >= MAX_ENTRIES) { skipped++; continue; }
         entries[count++] = { n, NULL, (size_t)f.size(), false };
       }
+      if (skipped) Serial.printf("store: %u animations over the limit of %u are ignored\n", (unsigned)skipped, (unsigned)MAX_ENTRIES);
     }
   }
   for (size_t i = 0; i < ANIMATIONS_COUNT && count < MAX_ENTRIES; i++) {
@@ -132,6 +140,9 @@ void storeRelease(size_t i, const uint8_t *buf) {
 
 bool storeUploadBegin(size_t expectedBytes, String &err) {
   if (!fsOk) { err = "file system not mounted"; return false; }
+  if (upBusy && millis() - upLastAt < UP_STALE_MS) { err = "busy: another upload is in progress, try again in a moment"; return false; }
+  if (upFile) upFile.close();                 // a stale upload: take over
+  upBusy = false;
   upTmp = String(DIR) + "/upload.tmp";
   removeIfExists(upTmp);
   size_t freeB = storeFreeBytes();
@@ -143,12 +154,14 @@ bool storeUploadBegin(size_t expectedBytes, String &err) {
   upFile = LittleFS.open(upTmp, "w");
   if (!upFile) { err = "cannot create file"; return false; }
   upBytes = 0;
+  upBusy = true; upLastAt = millis();
   return true;
 }
 
 bool storeUploadWrite(const uint8_t *data, size_t n) {
   if (!upFile) return false;
   if (upBytes + n > upBudget) return false;   // never fill the file system completely
+  upLastAt = millis();
   for (size_t k = 0; k < n && upBytes + k < sizeof(upHead); k++) upHead[upBytes + k] = data[k];
   size_t w = upFile.write(data, n);
   upBytes += w;
@@ -160,8 +173,12 @@ void storeUploadClose() {
 }
 
 bool storeUploadCommit(const String &name, String &err) {
+  upBusy = false;                             // (runs in the loop task, so nothing starts in between)
   if (upFile) upFile.close();
   if (!storeValidName(name)) { removeIfExists(upTmp); err = "bad name (a-z, 0-9, _ ; max 31 chars)"; return false; }
+  if (count >= MAX_ENTRIES && storeFind(name.c_str()) < 0) {   // a new name would be stored but never listed
+    removeIfExists(upTmp); err = "too many animations (" + String(MAX_ENTRIES) + "); delete one first"; return false;
+  }
   upName = name;
   bool ok = validDba1(upHead, upBytes);
   if (!ok && isDbaz(upHead, upBytes)) {
@@ -187,6 +204,7 @@ bool storeUploadCommit(const String &name, String &err) {
 }
 
 void storeUploadAbort() {
+  upBusy = false;
   if (upFile) upFile.close();
   if (upTmp.length()) removeIfExists(upTmp);
 }

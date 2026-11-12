@@ -22,11 +22,12 @@ void app_apply_settings();            // re-apply rotation after a config change
 void app_set_theme(const char *theme); // select a theme (saved); "" = none
 void app_animations_changed(const char *name); // registry changed (upload/delete); name = affected animation
 void app_message(const char *l1, const char *l2); // show text on the screen and pause playback
+void app_message_big(const char *l1, const char *big, const char *l2); // same, with a large middle line; turns the display on if off
 void app_loading(const char *label, int percent); // loading ring (percent -1 = indeterminate) and pause playback
 void app_resume();                    // back to the animation after app_message / app_loading
 uint32_t app_frames_rendered();       // counter, for diagnostics
 
 /* Run one console command ("play face_happy", "brightness 40", ...) and write
- * the reply to `out`. remote = from Bluetooth: playback commands only. */
-void app_command(const String &line, Print &out, bool remote);
-String app_state_json();              // {"current","cycling","screen","brightness","theme","themes","count"}
+ * the reply to `out` (USB serial, or a paired Bluetooth device). */
+void app_command(const String &line, Print &out);
+String app_state_json();              // {"current","cycling","screen","brightness","theme","count"}

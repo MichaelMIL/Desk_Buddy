@@ -1,11 +1,12 @@
 /*
  * Desk buddy firmware: plays DBA1 animations (exported from sim/) on the
- * round GC9A01 display. Faces are chosen from the web page (setup AP or LAN),
- * over MQTT, over Bluetooth LE (ble.cpp) or on the serial console; new faces
- * are uploaded over Wi-Fi.
+ * round GC9A01 display. Faces are chosen over Bluetooth LE (ble.cpp), MQTT,
+ * the HTTP API (net.cpp, hardware/API.md) or the serial console; new faces
+ * arrive over the HTTP API, Bluetooth or USB serial (upload.cpp).
+ * Built with -DBUDDY_WIFI=0 there is no Wi-Fi, MQTT or HTTP API (see config.h).
  *
  * Tasks: a render task pinned to core 0 draws frames; the Arduino loop
- * (core 1) runs Wi-Fi, the web server, uploads, OTA, MQTT, Bluetooth commands
+ * (core 1) runs Wi-Fi, the API server, uploads, OTA, MQTT, Bluetooth commands
  * and the serial console. The player lock guards the shared state; only this file draws.
  *
  * Serial (115200):
@@ -18,7 +19,7 @@
  *   wifi <ssid> <password>  save Wi-Fi credentials and reboot
  *   mqtt <host> [port] [user] [password]   save broker settings and reboot
  *   prefix <topic prefix>   MQTT topic prefix (default deskbuddy/<id>)
- *   name <device name>      device name (web page, Home Assistant, mDNS host)
+ *   name <device name>      device name (Bluetooth, Home Assistant, mDNS host)
  *   rotation 0|1|2|3        display rotation (x 90 degrees)
  *   loops <n>               loops per face when cycling
  *   speed <percent>         playback speed, 25..400
@@ -26,13 +27,14 @@
  *   screen on|off           display on/off
  *   brightness <10-100>     software dimming (the backlight is hard-wired)
  *   ble on|off              Bluetooth LE control (saved, reboots)
+ *   ble forget              forget every paired Bluetooth device
  *   appass <password>       setup AP password (empty = open)
  *   ap                      start the setup access point now
  *   reset                   erase all settings and reboot
+ *   upload <name> <bytes>   receive an animation on this channel (protocol in upload.h)
  *   reboot
  *
- * Bluetooth runs the same commands (app_command), limited to the ones that
- * steer playback; see remote_ok().
+ * A paired Bluetooth device runs the same commands (app_command).
  */
 #include <Arduino.h>
 #include <TFT_eSPI.h>
@@ -43,6 +45,7 @@
 #include "net.h"
 #include "mqtt.h"
 #include "ble.h"
+#include "upload.h"
 
 TFT_eSPI tft;
 
@@ -63,7 +66,7 @@ static uint32_t next_frame_at = 0;
 static bool screen_on = true;
 static Mode mode = MODE_ANIM;
 static bool mode_dirty = false;          // the mode's static parts need drawing
-static String msg1, msg2, load_label;
+static String msg1, msg2, msg_big, load_label;   // msg_big: large centre line (pairing code)
 static volatile int load_pct = -1;
 static uint32_t frames_rendered = 0;
 
@@ -103,6 +106,15 @@ static void draw_message() {
   tft.setTextColor(TFT_WHITE, TFT_BLACK);
   tft.setTextDatum(MC_DATUM);
   tft.setTextPadding(0);
+  if (msg_big.length()) {                 // e.g. a pairing code: font 4 at double size, ~52 px tall
+    tft.drawString(msg1, 120, 72, 2);
+    tft.setTextSize(2);
+    tft.drawString(msg_big, 120, 122, 4);
+    tft.setTextSize(1);
+    tft.setTextColor(TFT_LIGHTGREY, TFT_BLACK);
+    tft.drawString(msg2, 120, 170, 2);
+    return;
+  }
   tft.drawString(msg1, 120, 108, 2);
   tft.drawString(msg2, 120, 132, 2);
 }
@@ -305,7 +317,14 @@ void app_animations_changed(const char *name) {
 
 void app_message(const char *l1, const char *l2) {
   Lock l;
-  msg1 = l1; msg2 = l2;
+  msg1 = l1; msg2 = l2; msg_big = "";
+  mode = MODE_MESSAGE; mode_dirty = true;
+}
+
+void app_message_big(const char *l1, const char *big, const char *l2) {
+  Lock l;
+  msg1 = l1; msg_big = big; msg2 = l2;
+  if (!screen_on) tft.writecommand(0x29);          // must be seen even with the screen switched off; app_resume() turns it off again
   mode = MODE_MESSAGE; mode_dirty = true;
 }
 
@@ -319,6 +338,7 @@ void app_loading(const char *label, int percent) {
 
 void app_resume() {
   Lock l;
+  if (!screen_on) { tft.fillScreen(TFT_BLACK); tft.writecommand(0x28); }   // undo app_message_big's display-on
   if (have_anim) start_animation(current);
   else { msg1 = "no animations"; msg2 = "push one from the sim"; mode = MODE_MESSAGE; mode_dirty = true; }
 }
@@ -329,40 +349,46 @@ static void print_status(Print &out) {
   Lock l;
   out.printf("animation: %s%s, theme '%s', screen %s, brightness %u%%, rotation %u, speed %u%%, loops %u, cycle list '%s', frames rendered %lu\n", app_current(), cycling ? " (cycling)" : "",
                 cfg.theme.c_str(), screen_on ? "on" : "off", brightness, cfg.rotation, cfg.speed, cfg.loops, cfg.cycleList.c_str(), (unsigned long)frames_rendered);
+#if BUDDY_WIFI
   out.printf("name: %s (http://%s.local/), setup AP %s\n", cfg.name.c_str(), hostName().c_str(), cfg.apPass.length() ? "password-protected" : "open");
   out.printf("wifi: %s%s\n", netConnected() ? ("connected, " + netIp()).c_str() : "not connected",
                 netApActive() ? (" | setup AP " + netApSsid() + " at " + netIp()).c_str() : "");
   out.printf("mqtt: %s (%s:%u, prefix %s)\n", mqttStatus().c_str(), cfg.mqttHost.c_str(), cfg.mqttPort, cfg.mqttPrefix.c_str());
+#else
+  out.printf("name: %s, build without Wi-Fi (Bluetooth + USB only), firmware " FW_VERSION "\n", cfg.name.c_str());
+#endif
   out.printf("bluetooth: %s\n", bleStatus().c_str());
   out.printf("device id: %s, free heap: %u, store: %u animations, %u KB free\n", deviceId().c_str(), ESP.getFreeHeap(), (unsigned)storeCount(), (unsigned)(storeFreeBytes() / 1024));
 }
 
-/* Machine-readable state, one line of JSON (Bluetooth state characteristic, "state" command). */
+/* Machine-readable state, one line of JSON (Bluetooth state characteristic, "state" command).
+ * Kept short so a notification carries all of it; themes come from "names". */
 String app_state_json() {
   Lock l;
   String s = "{\"current\":\"" + String(app_current()) + "\",\"cycling\":" + (cycling ? "true" : "false");
   s += ",\"screen\":" + String(screen_on ? "true" : "false") + ",\"brightness\":" + String(brightness);
-  s += ",\"theme\":\"" + cfg.theme + "\",\"themes\":" + storeThemesJson() + ",\"count\":" + String(storeCount()) + "}";
+  s += ",\"theme\":\"" + cfg.theme + "\",\"count\":" + String(storeCount()) + "}";   // ~110 bytes: one notification at MTU 185
   return s;
 }
 
-/* Commands that only steer playback. Over Bluetooth (no pairing, anyone in
- * range can connect) only these are accepted; settings that could lock the
- * owner out (Wi-Fi, passwords, reset, delete) need USB serial or the web page. */
-static bool remote_ok(const String &cmd) {
-  static const char *ok[] = { "list", "names", "state", "play", "next", "cycle", "status", "screen", "brightness", "theme", "speed", "loops", "rotation", "help" };
-  for (const char *c : ok) if (cmd == c) return true;
+#if !BUDDY_WIFI
+static bool wifi_only(const String &cmd) {
+  static const char *w[] = { "wifi", "mqtt", "prefix", "appass", "ap" };
+  for (const char *c : w) if (cmd == c) return true;
   return false;
 }
+#endif
 
-void app_command(const String &line, Print &out, bool remote) {
+void app_command(const String &line, Print &out) {
   String cmd = line, arg;
   cmd.trim();
   int sp = cmd.indexOf(' ');
   if (sp > 0) { arg = cmd.substring(sp + 1); cmd = cmd.substring(0, sp); }
   arg.trim();
   if (cmd.isEmpty()) return;
-  if (remote && !remote_ok(cmd)) { out.printf("%s: not available over Bluetooth (use USB serial or the web page)\n", cmd.c_str()); return; }
+#if !BUDDY_WIFI
+  if (wifi_only(cmd)) { out.printf("%s: this build has no Wi-Fi\n", cmd.c_str()); return; }
+#endif
   if (cmd == "list") {
     Lock l;
     for (size_t i = 0; i < storeCount(); i++) out.printf("  %s (%u bytes%s)\n", storeEntry(i).name.c_str(), (unsigned)storeEntry(i).len, storeEntry(i).builtin ? ", built-in" : "");
@@ -389,7 +415,10 @@ void app_command(const String &line, Print &out, bool remote) {
     app_play("cycle");
   } else if (cmd == "status") {
     print_status(out);
+  } else if (cmd == "ble" && arg == "forget") {
+    bleForgetAll(); out.println("forgot all paired Bluetooth devices (remove the buddy on those devices too)");
   } else if (cmd == "ble") {
+    if (!BUDDY_WIFI && arg != "on") { out.println("bluetooth stays on: this build has no Wi-Fi"); return; }
     cfg.ble = (arg == "on" || arg == "1"); configSave(); out.printf("bluetooth %s, rebooting\n", cfg.ble ? "on" : "off"); delay(200); ESP.restart();
   } else if (cmd == "wifi") {
     int s2 = arg.indexOf(' ');
@@ -426,25 +455,38 @@ void app_command(const String &line, Print &out, bool remote) {
   } else if (cmd == "ap") {
     netStartAp();
   } else if (cmd == "reset") {
-    configClear(); out.println("settings erased, rebooting"); delay(200); ESP.restart();
+    configClear(); bleForgetAll(); out.println("settings erased, rebooting"); delay(200); ESP.restart();
+  } else if (cmd == "upload") {
+    int s2 = arg.indexOf(' ');
+    long bytes = s2 > 0 ? arg.substring(s2 + 1).toInt() : 0;
+    uploadStart(s2 > 0 ? arg.substring(0, s2) : arg, bytes > 0 ? (size_t)bytes : 0, out);
   } else if (cmd == "reboot") {
-    ESP.restart();
-  } else if (remote) {
-    out.println("commands: names | state | list | play <name>|cycle | next | cycle [a,b|all] | screen on|off | brightness <10-100> | theme <t>|none | speed <pct> | loops <n> | rotation 0-3 | status");
+    out.println("rebooting"); delay(200); ESP.restart();
   } else {
-    out.println("commands: list | names | state | delete <n> | play <name> | next | cycle [a,b|all] | status | wifi <ssid> <pass> | mqtt <host> [port] [user] [pass] | prefix <p> | name <n> | rotation 0-3 | loops <n> | speed <pct> | theme <t>|none | screen on|off | brightness <pct> | ble on|off | appass <p> | ap | reset | reboot");
+    out.println("commands: list | names | state | delete <n> | play <name> | next | cycle [a,b|all] | status | "
+#if BUDDY_WIFI
+                "wifi <ssid> <pass> | mqtt <host> [port] [user] [pass] | prefix <p> | appass <p> | ap | "
+#endif
+                "name <n> | rotation 0-3 | loops <n> | speed <pct> | theme <t>|none | screen on|off | brightness <pct> | ble on|off|forget | upload <name> <bytes> | reset | reboot");
   }
 }
 
 static void handle_serial() {
   static char line[160];
   static size_t n = 0;
+  uint8_t buf[256];
   while (Serial.available()) {
+    if (uploadActive(Serial)) {            // mid-upload: the bytes are animation data
+      size_t k = Serial.read(buf, min((size_t)Serial.available(), sizeof(buf)));
+      uploadFeed(buf, k);
+      continue;
+    }
     char c = (char)Serial.read();
     if (c == '\r') continue;
     if (c != '\n') { if (n < sizeof(line) - 1) line[n++] = c; continue; }
     line[n] = 0; n = 0;
-    app_command(String(line), Serial, false);
+    app_command(String(line), Serial);
+    Serial.flush();                        // send the reply now, not when a 64-byte USB packet fills
   }
 }
 
@@ -471,6 +513,7 @@ static void render_task(void *) {
 }
 
 void setup() {
+  Serial.setRxBufferSize(4096);   // > one upload window (upload.h); the USB driver drops bytes when it is full
   Serial.begin(115200);
   mx = xSemaphoreCreateRecursiveMutex();
   tft.init();
@@ -506,5 +549,6 @@ void loop() {
   netLoop();
   mqttLoop();
   bleLoop();
+  uploadPoll();
   delay(1);
 }

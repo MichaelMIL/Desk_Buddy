@@ -7,6 +7,8 @@
   Web Bluetooth needs Chrome or Edge (desktop or Android) and a secure origin:
   http://localhost via ./sim/serve.sh is fine. Safari / iOS have no Web
   Bluetooth; use a "BLE UART" app there (commands as in the log box below).
+  The first connection pairs: the buddy shows a 6-digit code, the system's
+  pairing prompt asks for it; after that the device reconnects without it.
 -->
 <style>
 :root{--bg:#15171a;--card:#1f2227;--line:#3a3f47;--btn:#2a2e35;--fg:#e6e6e6;--dim:#8a919c;--accent:#4fb3ff}
@@ -46,7 +48,7 @@ const NUS = '6e400001-b5a3-f393-e0a9-e50e24dcca9e', RX = '6e400002-b5a3-f393-e0a
 const $ = s => document.querySelector(s);
 const nice = n => n.replace(/^[a-z0-9]+__/, '').replace(/^face_/, '').replace(/_/g, ' ');
 const themeOf = n => { const m = n.match(/^([a-z0-9]+)__/); return m ? m[1] : ''; };
-let dev = null, rxChr = null, stateChr = null, names = [], namesPending = false, st = null, rxText = '', writes = Promise.resolve();
+let dev = null, rxChr = null, stateChr = null, names = [], namesPending = false, st = null, rxText = '', writes = Promise.resolve(), stateReading = false;
 
 if (!navigator.bluetooth) {
   $('#conn').disabled = true;
@@ -67,7 +69,16 @@ function onLine(line) {
   else if (line !== 'ok') log(line);
 }
 
-function setState(json) { try { st = JSON.parse(json); render(); } catch (e) { /* truncated notification: the read below fixes it */ } }
+function setState(json) { try { st = JSON.parse(json); render(); return true; } catch (e) { return false; } }
+
+/* State characteristic changed. A notification carries at most MTU-3 bytes;
+ * if the JSON is cut off, read the characteristic once. Note readValue() fires
+ * this same event with the full value, so never read from a read's own event. */
+function onState(e) {
+  if (setState(new TextDecoder().decode(e.target.value)) || stateReading) return;
+  stateReading = true;
+  writes = writes.then(() => stateChr.readValue()).catch(err => log('! ' + err.message)).finally(() => { stateReading = false; });
+}
 
 function render() {
   if (!st) return;
@@ -83,7 +94,7 @@ function render() {
   }
   $('#scr').textContent = 'Screen: ' + (st.screen ? 'on' : 'off'); $('#scr').className = st.screen ? 'on' : '';
   if (document.activeElement !== $('#bri')) { $('#bri').value = st.brightness; $('#bv').textContent = st.brightness; }
-  const ts = $('#theme'), opts = ['', ...st.themes];
+  const ts = $('#theme'), opts = ['', ...new Set(names.map(themeOf).filter(Boolean))].sort();
   if (ts.options.length !== opts.length) { ts.innerHTML = ''; for (const t of opts) ts.add(new Option(t || 'none', t)); }
   ts.value = st.theme;
   $('#st').textContent = 'Bluetooth LE · ' + dev.name + ' · ' + (st.cycling ? 'cycling' : nice(st.current)) + ' · ' + st.count + ' animations';
@@ -104,11 +115,19 @@ async function connect() {
       let i; while ((i = rxText.indexOf('\n')) >= 0) { onLine(rxText.slice(0, i)); rxText = rxText.slice(i + 1); }
     });
     // a notification carries at most MTU-3 bytes; read the characteristic for the whole JSON
-    stateChr.addEventListener('characteristicvaluechanged', () => { writes = writes.then(async () => setState(new TextDecoder().decode(await stateChr.readValue()))).catch(e => log('! ' + e.message)); });
+    stateChr.addEventListener('characteristicvaluechanged', onState);
+    names = []; namesPending = true;   // requested below, once the state is in
     await tx.startNotifications();
     await stateChr.startNotifications();
-    st = JSON.parse(new TextDecoder().decode(await stateChr.readValue()));
-    names = []; namesPending = true;
+    // The buddy asks to pair on connect. Until the 6-digit code from its screen is typed
+    // into the system's pairing prompt, reads are refused: keep trying for a minute.
+    $('#st').textContent = 'pairing: type the 6-digit code shown on the buddy into the pairing prompt (first time only)';
+    stateReading = true;
+    for (let i = 0; ; i++) {
+      try { st = JSON.parse(new TextDecoder().decode(await stateChr.readValue())); break; }
+      catch (e) { if (i >= 60 || !dev.gatt.connected) throw new Error('not paired: ' + e.message); await new Promise(r => setTimeout(r, 1000)); }
+    }
+    stateReading = false;
     $('#title').textContent = dev.name; $('#conn').textContent = 'Disconnect'; $('#conn').className = ''; $('#ctl').hidden = false;
     await send('names');
   } catch (e) { $('#st').textContent = e.message; if (dev && dev.gatt.connected) dev.gatt.disconnect(); }
