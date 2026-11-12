@@ -6,10 +6,13 @@ in a browser simulator (or asked from Claude in plain words), pushed to the
 buddy over Wi‑Fi, Bluetooth or USB, and stored on it. A phone app, Home
 Assistant or the simulator picks what plays, and it can follow along with
 Claude Code while you work. The body is a snap‑together 3D print with
-swappable accessories.
+swappable accessories, and every theme has its own build.
 
 <p align="center">
   <img src="3d/images/c_themes_front.png" alt="RoundBot body variants" width="900">
+</p>
+<p align="center">
+  <img src="3d/images/c_themes_lap.png" alt="Theme builds holding something on their lap: Claude, gamer, robot, halloween, xmas, ocean, birthday, valentine, summer, stpatricks" width="900">
 </p>
 
 <p align="center">
@@ -39,8 +42,8 @@ swappable accessories.
 | Simulator | [`sim/`](sim/README.md) | Pixel‑exact simulator of the screen in the browser, an animation API, a chat panel that gets Claude to write animations, one‑click push to the buddy |
 | Firmware | [`hardware/`](hardware/README.md) | PlatformIO project: Bluetooth LE control with pairing, Wi‑Fi, MQTT + Home Assistant, an HTTP API, animation storage, OTA updates, themes, brightness; a build without Wi‑Fi for more animation storage |
 | Phone app | [`app/`](app/README.md) | Flutter app for iOS and Android (also macOS): finds the buddy, pairs, and works as a remote over Bluetooth |
-| Claude Code | [`claude_integration/`](claude_integration/README.md) | Hooks that show what Claude Code is doing on the buddy: reading, editing a Python or Rust file, running tests, waiting for your permission, done |
-| Enclosure | [`3d/`](3d/) | OpenSCAD model of the RoundBot body and accessories, with an assembly guide |
+| Claude Code | [`claude_integration/`](claude_integration/README.md) | Hooks that show what Claude Code is doing on the buddy, over Bluetooth or Wi‑Fi: reading, editing a Python or Rust file, running tests, waiting for your permission, done; a macOS menu bar app that shows the bridge's state |
+| Enclosure | [`3d/`](3d/) | OpenSCAD model of the RoundBot with ready STLs: the core parts, a body and band for each theme, ear cups, an assembly guide |
 | Screen docs | [`docs/`](docs/) | The display module's spec sheets and pinout |
 
 ## How a face gets from an idea to the desk
@@ -120,25 +123,31 @@ sessions: it reads while Claude reads, types while Claude edits (in the
 file's language when that animation is on the buddy: Python, C, C++, Go,
 Rust, JavaScript, TypeScript, Java, SQL, bash), watches CI while tests run,
 holds up a prompt when Claude needs your permission, and says "Done" when the
-turn ends. It needs only Python 3 and the HTTP API of the Wi‑Fi build.
+turn ends. It talks to the buddy over Bluetooth LE or Wi‑Fi, and there is
+nothing to flash. Over Wi‑Fi it needs only Python 3; over Bluetooth it also
+needs `bleak` (`python3 -m pip install bleak`).
 
 ```sh
-sim/test/push_all.sh 192.168.50.99 '^Claude'                       # the animations, once
-python3 claude_integration/buddy_bridge.py install --host 192.168.50.99
+sim/test/push_all.sh ble '^Claude'                                  # the animations, once
+python3 claude_integration/buddy_bridge.py install --host ble       # or --host 192.168.50.99 for Wi‑Fi
 python3 claude_integration/buddy_bridge.py demo                     # every activity, 5 s each
 ```
+
+The first Bluetooth connection pairs with the code on the buddy's screen.
+The bridge lets go of the link 20 s after its last command, so the phone
+app and uploads can still connect. On macOS, the Buddy Bridge menu bar app
+(`claude_integration/menubar/build.sh --install`) shows what the buddy is
+showing and for which session, with buddy controls (face, next,
+brightness, screen, theme), a Manual mode in which Claude Code leaves the
+animation to you, and "leave the buddy alone for 2 min".
 
 The 3D model has a matching Claude build: a coral body with an open laptop
 on its lap and the spark on its back, a band with the spark, and ear cups
 with the spark engraved (`body_claude`, `band_claude`, `cup_claude_left` /
 `cup_claude_right` in `3d/round_bot.scad`; `assembly_claude` previews it).
+The other themes have builds too, see [The body](#the-body).
 
 ## Hardware
-
-<p align="center">
-  <img src="3d/images/c_x_dj.png" alt="Exploded view" width="300">
-  <img src="3d/images/c_skeleton.png" alt="Front and back" width="520">
-</p>
 
 | Display pin | ESP32‑S3 SuperMini |
 |---|---|
@@ -150,9 +159,53 @@ with the spark engraved (`body_claude`, `band_claude`, `cup_claude_left` /
 | CS | GPIO 10 |
 | RST | GPIO 8 |
 
-The body prints without glue or screws: a wedge key locks the head onto the
-neck, the back cap snaps in, side pieces twist‑lock on a sprung peg, and the
-base plate traps the USB cover. See `3d/RoundBot_v8_Assembly_Guide.pdf`.
+## The body
+
+<p align="center">
+  <img src="3d/images/c_x_dj.png" alt="Exploded view" width="300">
+  <img src="3d/images/c_skeleton.png" alt="Front and back" width="520">
+</p>
+
+Every printed part comes from one OpenSCAD file,
+[`3d/round_bot.scad`](3d/round_bot.scad): set `part` to a name and export
+it, or print the ready STLs in `3d/stl/` (`core/`, `bodies/`,
+`accessories/`). A buddy is the core (`head_shell`, `head_cap`, `neck_key`,
+`base`, `usb_cover`), one body, and either two `plug`s or a band with a pair
+of ear cups. The first lineup at the top of this page mixes `body_bare`,
+`body_skeleton`, `body_hoodie`, `body_cat` and `body_astro` with the bands
+`plain`, `cat`, `bug`, `bear`, `bunny`, `devil`, `crown`, `dino` and
+`unicorn`. The theme builds in the second lineup hold something on their
+lap and wear a band with a topper:
+
+| Theme | On its lap | Band |
+|---|---|---|
+| `claude` | an open laptop, with the spark on its back | spark |
+| `gamer` | a game controller, in a hoodie | plain, with `cup_mic` as a headset |
+| `robot` | a chest panel with a grille and buttons | antenna |
+| `halloween` | a jack‑o'‑lantern | witch hat |
+| `xmas` | a present with a bow | reindeer antlers |
+| `ocean` | a life ring | shark fin |
+| `birthday` | a cake with a candle | party hat |
+| `valentine` | a big heart | heart |
+| `summer` | a beach ball | sun hat |
+| `stpatricks` | a pot of gold | shamrock |
+
+The parts are `body_<theme>` and `band_<theme>`, and `assembly_<theme>`
+shows a coloured preview of the whole build. The bands click into the
+plain `cup_left` and `cup_right`; Claude has its own cups with the spark
+engraved (`cup_claude_left`, `cup_claude_right`).
+
+Nothing is glued or screwed: a wedge key locks the head onto the neck, the
+back cap snaps in, side pieces twist‑lock into the head on a sprung peg,
+the band's ends hook into a slot on top of each cup (push an end in toward
+the head to unhook it), the ESP32 slides into a cradle on the base plate
+from the back, the plate snaps into the body, and the USB cover clicks into
+its notch from outside. The bodies need supports; the bands print flat on
+their back face. [`3d/RoundBot_v8_Assembly_Guide.pdf`](3d/RoundBot_v8_Assembly_Guide.pdf)
+walks through the build, band hook, ESP32 cradle and USB cover included, and
+lists every body and accessory with what to print for each theme. Its
+source is `3d/guide/assembly_guide.html` (`node 3d/guide/build_pdf.mjs`
+rebuilds the PDF).
 
 ## Quick start
 
@@ -178,7 +231,8 @@ also what Claude is given). Tests: `sim/test/run_tests.sh` checks the
 animation format across the JavaScript, Python and C implementations;
 `sim/test/smoke.sh` renders every animation in headless Chrome. The app has
 `flutter analyze && flutter test` (against a fake buddy) and a device test;
-the Claude Code bridge has `python3 claude_integration/test_bridge.py`.
+the Claude Code bridge has `python3 claude_integration/test_bridge.py`, and
+its menu bar app `cd claude_integration/menubar && swift test`.
 
 ## Under the hood
 

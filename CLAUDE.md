@@ -48,6 +48,11 @@ PlatformIO firmware that plays what the simulator exports.
   (a fake buddy in `test/fake_buddy.dart`, no hardware); the real board is
   exercised by `flutter test integration_test/device_test.dart -d macos`.
   It uses universal_ble, not flutter_blue_plus 2.x (license and build ping).
+- 3D model: `3d/round_bot.scad`, STLs in `3d/stl/`. The assembly guide PDF is
+  built from `3d/guide/assembly_guide.html` with `node 3d/guide/build_pdf.mjs`
+  (headless Chrome); when you add a body, band or side piece, add it to the
+  guide's tables and rebuild. OpenSCAD's CLI renders previews headless:
+  `/Applications/OpenSCAD-2021.01.app/Contents/MacOS/OpenSCAD -o x.png -D 'part="assembly_claude"' ...`.
 - Claude Code integration: `claude_integration/buddy_bridge.py` (hooks →
   local daemon → `play` over Bluetooth with bleak, or `POST /api/play` over
   Wi-Fi), docs in `claude_integration/README.md`,

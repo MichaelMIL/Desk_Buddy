@@ -1,0 +1,362 @@
+<!doctype html>
+<html lang="en">
+<!-- Source of 3d/RoundBot_v8_Assembly_Guide.pdf. Edit this file, then run
+     node 3d/guide/build_pdf.mjs   (needs Google Chrome). Images are in 3d/images/. -->
+<head>
+<meta charset="utf-8">
+<title>RoundBot – Assembly Guide</title>
+<style>
+  @page { size: A4; margin: 20mm 16mm 18mm 16mm; }
+  :root { --ink: #1d1d1b; --muted: #6b6a66; --line: #e3e1dc; --head: #f4f3ef; --panel: #f7f7f5; --blue: #2f7ee6; }
+  html { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  body { margin: 0; color: var(--ink); background: #fff; font: 10.5pt/1.5 -apple-system, "Helvetica Neue", Helvetica, Arial, sans-serif; }
+  main { max-width: 178mm; margin: 0 auto; }
+  h1, h2, h3 { font-family: "Iowan Old Style", "Palatino", Georgia, serif; font-weight: 500; line-height: 1.2; break-after: avoid; }
+  h1 { font-size: 26pt; margin: 0 0 6pt; }
+  h2 { font-size: 16pt; margin: 22pt 0 6pt; }
+  h3 { font-size: 12.5pt; margin: 16pt 0 4pt; }
+  p { margin: 0 0 7pt; }
+  .meta { margin: 0 0 18pt; }
+  .meta span { display: inline-block; background: var(--head); border-radius: 4px; padding: 1pt 7pt; color: var(--muted); font-size: 10pt; }
+  figure { margin: 8pt 0 10pt; background: var(--panel); border-radius: 6px; padding: 8pt; text-align: center; break-inside: avoid; }
+  figure img { max-width: 100%; max-height: 105mm; object-fit: contain; vertical-align: middle; }
+  figure.tall img { max-height: 140mm; }
+  figure.pair { display: flex; gap: 8pt; justify-content: center; align-items: center; }
+  figure.pair img { max-width: 49%; max-height: 80mm; }
+  figure.white { background: #fff; border: 1px solid var(--line); }
+  figcaption { color: var(--muted); font-size: 9pt; margin-top: 5pt; }
+  figure.pair figcaption { display: none; }
+  .cap { color: var(--muted); font-size: 9pt; text-align: center; margin: -6pt 0 10pt; }
+  table { width: 100%; border-collapse: collapse; margin: 6pt 0 12pt; font-size: 9.5pt; }
+  thead { display: table-header-group; }
+  tr { break-inside: avoid; }
+  th, td { border: 1px solid var(--line); padding: 4pt 6pt; text-align: left; vertical-align: top; }
+  th { background: var(--head); font-weight: 500; color: #4a4945; }
+  td.new::after { content: "new"; margin-left: 5pt; font-size: 7.5pt; color: var(--blue); border: 1px solid var(--blue); border-radius: 3px; padding: 0 3pt; }
+  code { font: 9pt Menlo, Monaco, monospace; background: var(--head); border-radius: 3px; padding: 0 2pt; }
+  pre { font: 8.4pt/1.45 Menlo, Monaco, monospace; background: var(--panel); border-radius: 6px; padding: 8pt 10pt; white-space: pre; break-inside: avoid; }
+  ol { margin: 0 0 8pt; padding-left: 18pt; }
+  li { margin-bottom: 3pt; }
+  .step { break-before: auto; }
+  .page { break-before: page; }
+  .note { background: var(--panel); border-left: 3px solid var(--blue); padding: 5pt 8pt; margin: 6pt 0 10pt; font-size: 9.5pt; }
+</style>
+</head>
+<body>
+<main>
+
+<h1>RoundBot – Assembly Guide</h1>
+<p class="meta"><span>Nov 8, 2026 · updated Nov 12, 2026</span> · <span>@michael</span></p>
+
+<h2>Overview</h2>
+<p>RoundBot is a 92 mm tall desk companion. Its face is the 1.28″ GC9A01 round display: the white bezel
+shows only the 33 mm active area, so the eyes you draw in firmware are the face. An ESP32-S3 SuperMini sits
+in the base, and its USB-C port opens through a notch low on the back, behind a removable cover.</p>
+<p>It needs no glue and no screws. A wedge key locks the head onto the neck, and the back cap snaps in behind
+it. The side pieces twist-lock into the head on a sprung peg, and the band's ends hook into a slot on top of
+each cup. The SuperMini slides into a cradle on the base plate, and the USB cover clicks into its notch from
+outside. A bare template and twenty-one themes share one core, and their head accessories swap freely.</p>
+
+<figure><img src="../images/c_themes_front.png" alt="The template and the first twelve themes, front">
+<img src="../images/c_themes_back.png" alt="The same, back"><figcaption>The template and the first twelve themes, front and back</figcaption></figure>
+
+<figure><img src="../images/c_themes_lap.png" alt="Ten themes with something on the lap, front">
+<img src="../images/c_themes_lap_back.png" alt="The same, back">
+<figcaption>Ten themes hold something on their lap: Claude, Gamer, Robot, Halloween, Christmas, Ocean,
+Birthday, Valentine's, Summer and St. Patrick's (front and back)</figcaption></figure>
+
+<figure class="tall"><img src="../images/c_x_dj.png" alt="Exploded view of the DJ theme"><figcaption>Exploded view (DJ theme)</figcaption></figure>
+
+<h2>Core parts (every theme)</h2>
+<table>
+<thead><tr><th>File</th><th>Colour</th><th>What it does</th></tr></thead>
+<tr><td>core/head_shell.stl</td><td>White</td><td>Face bezel, display pocket, keyhole sockets on both sides</td></tr>
+<tr><td>core/head_cap.stl</td><td>White</td><td>Back of head; posts clamp the display, and it closes behind the neck key</td></tr>
+<tr><td>core/neck_key.stl</td><td>Any</td><td>Wedge that slides in behind the display and locks the head onto the neck</td></tr>
+<tr><td>core/base.stl</td><td>Any</td><td>Bottom plate that snaps into the body, with a cradle the SuperMini slides into from the back</td></tr>
+<tr><td>core/usb_cover.stl</td><td>Body colour</td><td>Cover that clicks into the USB-C notch from outside</td></tr>
+</table>
+
+<h2>Themes</h2>
+<p>Print the core once, then one body and one set of head accessories. Bodies are in <code>stl/bodies/</code>,
+side pieces and bands in <code>stl/accessories/</code>. Colours are only suggestions.</p>
+<table>
+<thead><tr><th>Version</th><th>Body</th><th>Head accessories</th><th>Colour idea</th></tr></thead>
+<tr><td>Template (bare)</td><td>body_bare</td><td>plug x2</td><td>Any single colour</td></tr>
+<tr><td>Skeleton</td><td>body_skeleton (rib relief, bone limbs)</td><td>plug x2</td><td>Bone white or glow-in-the-dark</td></tr>
+<tr><td>DJ</td><td>body_hoodie</td><td>cup_left, cup_right, band_plain</td><td>Orange hoodie, black headphones</td></tr>
+<tr><td>Gamer</td><td>body_gamer (hoodie, a game controller in both hands); body_hoodie also works</td><td>cup_mic (left), cup_right, band_plain</td><td>Navy hoodie, black headset</td></tr>
+<tr><td>Cat</td><td>body_cat (hoodie with tail)</td><td>cup_left, cup_right, band_cat</td><td>Grey body, pink headset</td></tr>
+<tr><td>Bear</td><td>body_hoodie</td><td>cup_left, cup_right, band_bear</td><td>Brown</td></tr>
+<tr><td>Bunny</td><td>body_bare</td><td>cup_left, cup_right, band_bunny</td><td>White, pink cups</td></tr>
+<tr><td>Bug</td><td>body_hoodie</td><td>cup_left, cup_right, band_bug</td><td>Yellow body, black headset</td></tr>
+<tr><td>Devil</td><td>body_cat (the tail again)</td><td>cup_left, cup_right, band_devil</td><td>Red body, dark red horns</td></tr>
+<tr><td>King</td><td>body_hoodie</td><td>cup_left, cup_right, band_crown</td><td>Purple body, gold crown</td></tr>
+<tr><td>Dino</td><td>body_cat (the tail again)</td><td>cup_left, cup_right, band_dino</td><td>Green body, orange plates</td></tr>
+<tr><td>Unicorn</td><td>body_bare</td><td>cup_left, cup_right, band_unicorn</td><td>White body, lilac headset</td></tr>
+<tr><td>Astronaut</td><td>body_astro (suit collar, backpack)</td><td>pod_left, pod_right (antenna)</td><td>White body, silver pods</td></tr>
+<tr><td class="new">Claude</td><td>body_claude (open laptop on the lap, spark on the back)</td><td>cup_claude_left, cup_claude_right (spark engraved), band_claude (spark)</td><td>Coral body, cream cups, black band</td></tr>
+<tr><td class="new">Robot</td><td>body_robot (no collar, chest panel with a grille and two buttons)</td><td>cup_left, cup_right, band_robot (antenna)</td><td>Light grey body, dark grey band</td></tr>
+<tr><td class="new">Halloween</td><td>body_halloween (jack-o'-lantern)</td><td>cup_left, cup_right, band_halloween (witch hat)</td><td>Orange body, black hat</td></tr>
+<tr><td class="new">Christmas</td><td>body_xmas (present with a bow)</td><td>cup_left, cup_right, band_xmas (antlers)</td><td>Red body, brown antlers</td></tr>
+<tr><td class="new">Ocean</td><td>body_ocean (life ring)</td><td>cup_left, cup_right, band_ocean (shark fin)</td><td>Blue body, grey fin</td></tr>
+<tr><td class="new">Birthday</td><td>body_birthday (cake with a candle)</td><td>cup_left, cup_right, band_birthday (party hat)</td><td>Yellow body, pink hat</td></tr>
+<tr><td class="new">Valentine's</td><td>body_valentine (big heart)</td><td>cup_left, cup_right, band_valentine (heart)</td><td>Pink body, red heart</td></tr>
+<tr><td class="new">Summer</td><td>body_summer (no collar, beach ball)</td><td>cup_left, cup_right, band_summer (sun hat)</td><td>Orange body, straw-coloured hat</td></tr>
+<tr><td class="new">St. Patrick's</td><td>body_stpatricks (pot of gold)</td><td>cup_left, cup_right, band_stpatricks (shamrock)</td><td>Green body, dark green shamrock</td></tr>
+</table>
+
+<h3>Template (bare kit)</h3>
+<p>The template is the robot with nothing themed on it: the five core parts, body_bare, and two plugs that close
+the keyholes on the head. One plug STL fits both sides. It works as a finished robot and as the base for your
+own theme.</p>
+<figure class="tall"><img src="../images/c_x_bare.png" alt="Exploded view of the template"><figcaption>The template, exploded</figcaption></figure>
+
+<h3>Skeleton</h3>
+<p>The skeleton body has raised ribs, a sternum and a spine on the torso, and thin bones with knobby joints for
+arms and legs. The electronics stay enclosed. Draw skull eyes on the display to finish it.</p>
+<figure><img src="../images/c_skeleton.png" alt="Skeleton, front and back"></figure>
+
+<h3>Claude</h3>
+<p>The Claude build sits with an open laptop on its lap, a spark on the lid, and a larger spark in relief on
+its back. Its band carries a spark on top, and its two cups, cup_claude_left and cup_claude_right, have a
+spark engraved 0.6 mm into the outer face. A coral body, cream cups and a black band match the
+<code>claude</code> theme's animations on the screen. The cups fit like any other cup: dot up, push in,
+quarter turn, then the band hooks in.</p>
+
+<h3>Theme bodies with something on the lap</h3>
+<p>Nine more themes follow the Claude idea: the body holds something in front of it, and the band carries a
+matching topper. The lap item is part of the body STL, so it prints with it. Robot and Summer have no collar so
+their item shows; Gamer keeps the hoodie's hood.</p>
+<table>
+<thead><tr><th>Theme</th><th>On the body</th><th>On the band</th></tr></thead>
+<tr><td>Gamer</td><td>A game controller held up in both hands</td><td>band_plain, with cup_mic on the left</td></tr>
+<tr><td>Robot</td><td>A chest panel with a grille and two buttons</td><td>An antenna: a ball on a stalk</td></tr>
+<tr><td>Halloween</td><td>A jack-o'-lantern with a carved face</td><td>A witch hat with a bent tip</td></tr>
+<tr><td>Christmas</td><td>A present with a ribbon and a bow</td><td>Reindeer antlers</td></tr>
+<tr><td>Ocean</td><td>A life ring with rope wraps</td><td>A shark fin</td></tr>
+<tr><td>Birthday</td><td>A cake with a candle</td><td>A party hat with a pom-pom</td></tr>
+<tr><td>Valentine's</td><td>A big heart, held up</td><td>A heart</td></tr>
+<tr><td>Summer</td><td>A beach ball</td><td>A sun hat with a wide brim</td></tr>
+<tr><td>St. Patrick's</td><td>A pot of gold</td><td>A shamrock on a stem</td></tr>
+</table>
+<figure><img src="../images/c_bands_lap.png" alt="The new bands and the Claude cups">
+<figcaption>The new bands: Claude, Robot, Halloween, Christmas, Ocean, Birthday, Valentine's, Summer and
+St. Patrick's, and the Claude cups seen from their engraved outer face</figcaption></figure>
+
+<h2>Hardware</h2>
+<table>
+<thead><tr><th>Item</th><th>Qty</th><th>Notes</th></tr></thead>
+<tr><td>GC9A01 1.28″ round TFT module (38 mm round PCB, 7-pin)</td><td>1</td><td>The AITEXM-style module with onboard 3.3 V LDO</td></tr>
+<tr><td>ESP32-S3 SuperMini</td><td>1</td><td>23.5 x 18 mm incl. USB-C</td></tr>
+<tr><td>Silicone wire, 28–30 AWG, ~10 cm</td><td>7</td><td>Display to MCU</td></tr>
+<tr><td>Heat-shrink, small</td><td>7</td><td>Insulate the solder joints on the display header</td></tr>
+</table>
+<p>No screws and no glue are needed: every joint is a snap, a twist-lock, a hook or a key.</p>
+
+<h2 class="page">Printing</h2>
+<p>The STLs are already in print orientation. Load them as-is. Only the bodies need supports.</p>
+<figure><img src="../images/c_plate.png" alt="Parts in print orientation"></figure>
+<figure><img src="../images/c_plate2.png" alt="More parts in print orientation">
+<figcaption>Some of the parts as exported. The newer bodies and bands print the same way as these.</figcaption></figure>
+<table>
+<thead><tr><th>Part</th><th>Orientation (as exported)</th><th>Supports</th><th>Notes</th></tr></thead>
+<tr><td>head_shell</td><td>Face down</td><td>None</td><td>Use 0.12–0.16 mm layers for a cleaner bezel. The side keyholes bridge 3 mm</td></tr>
+<tr><td>head_cap</td><td>Back face down</td><td>None</td><td>Four posts stand up; print slowly or enable minimum layer time</td></tr>
+<tr><td>neck_key</td><td>Flat, as exported</td><td>None</td><td>Small and loaded: use 4 walls or 100% infill</td></tr>
+<tr><td>cup_left / cup_right / cup_mic / cup_claude_left / cup_claude_right</td><td>Outer face down</td><td>None</td><td>Peg and lugs point up. The spring beam under the peg (20 mm) prints as a bridge, so keep the part fan on. The band slot is open towards the head and needs no support. The mic boom lies flat on the bed. The Claude cups' spark is engraved into the face on the bed: its rays print as short gaps that the next layers close over</td></tr>
+<tr><td>plug / pod_left / pod_right</td><td>Outer face down</td><td>None</td><td>Print the plug twice. Same 20 mm spring-beam bridge. The antenna lies flat on the bed</td></tr>
+<tr><td>All bands</td><td>Flat, back face down</td><td>None</td><td>Ears, horns, crown, plates, hats, antennae, antlers, fins, hearts, the shamrock and the spark are part of the flat outline, and so are the two end tabs with their hooks</td></tr>
+<tr><td>body_bare / body_hoodie / body_cat / body_astro / body_claude and the theme bodies (body_gamer … body_stpatricks)</td><td>Upright</td><td>Tree, build plate only</td><td>Supports go under the arms, legs, collar, hood bag, tail, backpack and whatever the body holds on its lap. The two neck posts and the catch ribs inside need none</td></tr>
+<tr><td>body_skeleton</td><td>Upright</td><td>Tree, build plate only</td><td>The thin arm bones need support along their length; remove it gently</td></tr>
+<tr><td>base</td><td>Flat, cradle up</td><td>None</td><td>The cradle's sprung fingers stand on the bed and the hooks' undersides are 45°, so there are no bridges</td></tr>
+<tr><td>usb_cover</td><td>Outer face down</td><td>None</td><td>Only the two teeth have (45°) undersides</td></tr>
+</table>
+<p>Suggested settings for PLA: 0.2 mm layers, 3 walls, 15% infill, no brim. One robot is about 70 cm³ of solid
+model, roughly 40–55 g of filament.</p>
+
+<h2>Wiring</h2>
+<p>Seven wires run from the display header down the neck to the SuperMini. The GPIOs below are the S3's default
+FSPI pins, and all of them sit on the board's top pin row next to 5V and GND.</p>
+<table>
+<thead><tr><th>Display pin</th><th>SuperMini pin</th><th>Function</th></tr></thead>
+<tr><td>VCC</td><td>5V</td><td>Feeds the display's onboard 3.3 V regulator</td></tr>
+<tr><td>GND</td><td>GND</td><td></td></tr>
+<tr><td>SCL</td><td>GPIO 12</td><td>SPI clock</td></tr>
+<tr><td>SDA</td><td>GPIO 11</td><td>SPI MOSI (write-only, no MISO)</td></tr>
+<tr><td>CS</td><td>GPIO 10</td><td>Chip select</td></tr>
+<tr><td>DC</td><td>GPIO 9</td><td>Data / command</td></tr>
+<tr><td>RST</td><td>GPIO 8</td><td>Reset</td></tr>
+</table>
+<p>Keep the wires about 10 cm long. That is enough to solder the MCU outside the body, then fold the slack into
+the cavity. The backlight is hard-wired on, so no pin is needed for it.</p>
+
+<h2>Assembly</h2>
+<p>No glue is used anywhere. The order matters: the head goes onto the neck, then the wedge key, then the back
+cap, because the cap closes behind the key. Every motion below was collision-checked in CAD, so if a part binds,
+it is a print tolerance issue (see Fit tuning).</p>
+
+<h3>Step 1 — Wire the display</h3>
+<ol>
+<li>Solder the seven wires straight onto the display's header pins, close to the plastic spacer. Don't use Dupont plugs: they're too long for the neck.</li>
+<li>Slide heat-shrink over each joint and let the wires hang straight down from the tab. Keep them at or below the pin row: the neck key later slides in just above it.</li>
+<li>Check the back of the round PCB at the 45° diagonals, 17 mm from centre. The four cap posts press there. If a tall component sits under one, snip that post shorter.</li>
+</ol>
+
+<h3>Step 2 — Slide the display into the head</h3>
+<ol>
+<li>Hold the head shell face down. Feed the display in from the open back, glass first.</li>
+<li>The tab and its wires drop through the slot in the head's floor as the display slides forward.</li>
+<li>Push until the glass sits flat against the bezel lip, with the tab pointing straight down.</li>
+</ol>
+<figure><img src="../images/c_s2.png" alt="The display slides into the head shell"></figure>
+
+<h3>Step 3 — Seat the head on the neck</h3>
+<ol>
+<li>Feed the seven wires down through the square neck opening until they come out of the open bottom of the body.</li>
+<li>Lower the head shell, with the display inside and the cap still off, onto the neck.</li>
+<li>The two posts on top of the neck come up through the socket in the head's floor, one on each side, behind the display. The head now rests on the neck's top at the front and on the flat rest block behind the neck. It still lifts off freely: the key in the next step is what locks it.</li>
+</ol>
+<figure class="tall"><img src="../images/c_g3.png" alt="The head is lowered onto the neck"></figure>
+
+<h3>Step 4 — Lock the head with the wedge key</h3>
+<ol>
+<li>Hold the key flat, forked end first, and feed it into the open back of the head along the floor.</li>
+<li>The wide middle tongue goes between the two neck posts, and the two outer prongs pass outside them. Let the forked end ride over the rim of the opening: it has to sit about 1 mm high there, then it drops down inside.</li>
+<li>Push the key forward with a fingertip until it stops firmly. Its bevelled edges run under the ribs on the posts. The ribs get deeper towards the front, so the last millimetres pull the neck up into the head and clamp the head onto its rests. The head should now have no play at all.</li>
+<li>To release it later, hook a small screwdriver into the slot in the key and pull it straight back.</li>
+</ol>
+<p>The key normally stops with its back edge 0–4 mm inside the rim of the opening. If it goes in until it touches
+the posts and the head is still loose, or it goes tight while its back edge is still outside the rim, see Fit tuning.</p>
+<figure class="pair"><img src="../images/c_g4a.png" alt="The key slides in"><img src="../images/c_g4b.png" alt="The key in place"></figure>
+<figure class="white"><img src="../images/c_diag_neck.png" alt="Neck lock sections"></figure>
+
+<h3>Step 5 — Close the back cap</h3>
+<ol>
+<li>Press the back cap straight in from behind until the three teeth on its rim click in behind the lip of the shell opening.</li>
+<li>The four posts clamp the display against the bezel. A block at the bottom of the cap sits right behind the key, so the key cannot work its way out while the cap is on.</li>
+<li>To take the head off later: pull the cap firmly straight back, draw the key out, then lift the head.</li>
+</ol>
+<figure class="pair"><img src="../images/c_g5.png" alt="The back cap goes on"><img src="../images/c_g5b.png" alt="The cap's posts and teeth"></figure>
+
+<h3>Step 6 — Twist-lock the side pieces, hook on the band</h3>
+<ol>
+<li>Every side piece has a small dot on its outer face. Hold the piece so the dot points up, and push its peg into the keyhole on the side of the head until the piece sits flat against the head.</li>
+<li>Twist it a quarter turn so the dot moves to the back: a cup until its band slot faces up, a pod until its antenna points up. The twist is firm from the start. The peg stands on a spring beam, and turning it winds the two lugs in behind the wall, so the piece ends up pulled tight against the head.</li>
+<li>Do the same on the other side. Then hold the band over the head and set its two ends into the slots on top of the cups. Each end is a flat tab with a hook on its tip. Press both ends down until the hooks click in at the bottom of the slots. The band itself is the spring: it flexes in while the hooks pass.</li>
+<li>The band now also stops the cups from turning back. Pulling on the band does not unhook it, because the catch is nearly flat. To take it off, push one end in towards the head and lift it out of its slot, then do the other end.</li>
+<li>Plugs (Template, Skeleton) have no fixed angle: dot up, push in, quarter turn either way.</li>
+<li>Gamer theme: the mic cup goes on the robot's left. Claude theme: the engraved cups are a left and a right one, with the spark facing out.</li>
+</ol>
+<p>The dot matters because the head's inner wall is curved. The lug on the dot side is the tight one and must travel
+through the upper half of the keyhole; the other lug is cut 0.24 mm deeper to clear the lower half.</p>
+<figure class="pair"><img src="../images/c_g6a.png" alt="Side pieces: plug and cup"><img src="../images/c_g6b.png" alt="Fitting the cups and the band"></figure>
+<figure class="pair white"><img src="../images/c_diag_band_hook.svg" alt="Band hook section"><img src="../images/c_diag_twist.png" alt="Ear twist-lock section"></figure>
+<p class="cap">Left: the band's end in its cup, cut through the middle. Right: the twist-lock, seen from above.</p>
+
+<h3>Step 7 — Mount the SuperMini</h3>
+<ol>
+<li>Solder the wires to the SuperMini (see Wiring), from the top side of the board. The cradle only touches the board's end faces and the outer 0.7 mm of its long edges, so every pin stays free.</li>
+<li>Slide the board into the cradle on the base plate from the back: components up, antenna end first, so the USB-C port ends up at the open end. Its long edges run in a groove on each side, under a 45° roof, so it cannot lift out.</li>
+<li>Push until it stops against the front stop, which takes the push when you plug a cable in. The sprung fingers at the back snap in behind the board's corners and hold it when you unplug. To take the board out, spread the fingers and slide it back.</li>
+<li>If your board is thicker than 1.0 mm and won't slide in, set <code>mcu_t</code> to your board's thickness and reprint the base.</li>
+</ol>
+<figure class="pair"><img src="../images/c_cradle_in.png" alt="The board slides into the cradle from the back"><img src="../images/c_cradle.png" alt="The board in the cradle"></figure>
+
+<h3>Step 8 — Close the base</h3>
+<ol>
+<li>Fold the wire slack into the body. Push the base plate up from below, with the USB-C end toward the back of the robot.</li>
+<li>The receptacle slides up through the open-bottom notch in the back wall. The plate's sloped edge seats in the matching cone in the body rim, flush with the bottom.</li>
+<li>Press until the two side teeth click over the ribs inside the body. The snap beams stay slightly bent, so the plate is pulled up into its seat and does not rattle. To open it again, hook a fingertip or a small tool in the pull slot and pull the plate straight down.</li>
+</ol>
+<figure class="tall"><img src="../images/c_base2.png" alt="The base plate goes into the body"></figure>
+
+<h3>Step 9 — Finish</h3>
+<ol>
+<li>Plug a USB-C cable in through the notch on the lower back and flash the test sketch below.</li>
+<li>Whenever no cable is connected, press the USB cover into the notch from outside, after the base plate is in. It clicks in: a spring strip on each side has a tooth that catches behind the wall beside the notch. To take it out, pull at the nail slot in its bottom edge.</li>
+<li>To change theme, unhook the band (push each end in towards the head and lift), twist the side pieces back a quarter turn and pull them off, then fit another set.</li>
+</ol>
+<figure class="tall"><img src="../images/c_s8.png" alt="Finished, with the USB cover in place"></figure>
+
+<h2>First power-up</h2>
+<p>The sketch below draws two happy amber eyes and blinks every few seconds. If you see them, the wiring is right.
+It uses the Arduino_GFX library (moononournation), installed from the Arduino Library Manager. Select board
+"ESP32S3 Dev Module" with "USB CDC On Boot: Enabled".</p>
+<pre>#include &lt;Arduino_GFX_Library.h&gt;
+// DC, CS, SCK, MOSI, MISO
+Arduino_DataBus *bus = new Arduino_ESP32SPI(9, 10, 12, 11, GFX_NOT_DEFINED);
+// RST, rotation, IPS panel
+Arduino_GFX *gfx = new Arduino_GC9A01(bus, 8, 0, true);
+const uint16_t AMBER = 0xFD20, BG = 0x0000;
+void eyes(bool open) {
+  gfx-&gt;fillRect(40, 70, 160, 60, BG);
+  for (int x : {82, 158}) {
+    if (open) gfx-&gt;fillArc(x, 120, 32, 22, 180, 360, AMBER);  // ^ ^
+    else      gfx-&gt;fillRect(x - 32, 112, 64, 8, AMBER);       // - -
+  }
+}
+void setup() {
+  gfx-&gt;begin(40000000);  // 40 MHz SPI
+  gfx-&gt;fillScreen(BG);
+  eyes(true);
+}
+void loop() {
+  delay(random(2500, 5000));
+  eyes(false); delay(120);
+  eyes(true);
+}</pre>
+<p>If the screen stays black, check RST and CS first. If the image is mirrored or the colours are inverted,
+change the rotation or the IPS flag in the constructor. The desk buddy firmware in <code>hardware/</code> uses
+the same pins.</p>
+
+<h2>Fit tuning</h2>
+<p>All fits come from parameters at the top of <code>round_bot.scad</code>. Change one, set <code>part</code>
+to the piece you need, and export again with F6 then F7 in OpenSCAD.</p>
+<p>If the head shell still slides off the cap, raise <code>snap_bite</code> from 0.42 to 0.55 mm and reprint the
+cap. If the cap is too hard to push in, lower it to 0.3 mm.</p>
+<table>
+<thead><tr><th>Symptom</th><th>Parameter</th><th>Default</th><th>Change</th></tr></thead>
+<tr><td>Back cap too tight / loose</td><td>spigot_clr</td><td>0.15 mm</td><td>Raise / lower in 0.05 steps</td></tr>
+<tr><td>Display rattles, or cap won't seat</td><td>post_gap</td><td>0.2 mm</td><td>Lower to clamp harder / raise to relieve</td></tr>
+<tr><td>Display doesn't drop into the pocket</td><td>clr</td><td>0.3 mm</td><td>Raise to 0.4 (also loosens neck and plate)</td></tr>
+<tr><td>Black circle off-centre in the bezel</td><td>screen_off_z</td><td>0 mm</td><td>+ moves the window up</td></tr>
+<tr><td>Side piece still has play when locked</td><td>ear_tension</td><td>0.15 mm</td><td>Raise to 0.25</td></tr>
+<tr><td>Side piece is too stiff to twist, or its spring beam cracks</td><td>ear_tension</td><td>0.15 mm</td><td>Lower to 0.05, or set beam_t to 0.6 for a softer spring</td></tr>
+<tr><td>Side piece jams as the twist starts, dot side up</td><td>lug_relief</td><td>0.24 mm</td><td>Raise to 0.35</td></tr>
+<tr><td class="new">Band is too hard to take off</td><td>btab_catch</td><td>15°</td><td>Raise to 20: above about 17° a firm pull unhooks it</td></tr>
+<tr><td class="new">Band hook won't click in, or the band is very stiff to press on</td><td>btab_hook</td><td>0.8 mm</td><td>Lower to 0.6. It cannot go higher than 0.1 mm below the 0.9 mm gap between the tab and the head</td></tr>
+<tr><td class="new">Band end is tight in its slot</td><td>btab_clr</td><td>0.05 mm</td><td>Raise to 0.1 (btab_clr_y, 0.08 mm, is the same at the front and back)</td></tr>
+<tr><td class="new">Band rattles on the cups</td><td>btab_pre</td><td>0.1 mm</td><td>Raise to 0.2</td></tr>
+<tr><td>SuperMini won't slide in / is loose</td><td>mcu_t, mcu_clr</td><td>1.0 mm, 0.1 mm</td><td>Set mcu_t to your measured PCB thickness; raise mcu_clr to 0.15 if it is still tight</td></tr>
+<tr><td class="new">SuperMini comes out with the cable</td><td>mcu_hook</td><td>0.6 mm</td><td>Raise to 0.8</td></tr>
+<tr><td>Cable plug won't reach the port</td><td>usb_w, usb_h</td><td>12.5 x 7.5 mm</td><td>Widen for chunky cable overmolds</td></tr>
+<tr><td class="new">USB cover falls out / is too hard to press in</td><td>ucv_bite</td><td>0.3 mm</td><td>Raise to 0.4 / lower to 0.2</td></tr>
+</table>
+<p>Head and base fit. The first two rows need only the small key reprinted:</p>
+<table>
+<thead><tr><th>Symptom</th><th>Parameter</th><th>Default</th><th>Change</th></tr></thead>
+<tr><td>Key goes in until it touches the posts and the head is still loose</td><td>key_fat</td><td>0 mm</td><td>Set to 0.15. Each 0.1 makes the key go tight 0.8 mm earlier</td></tr>
+<tr><td>Key goes tight too early: its back edge stays outside the rim and the cap won't close</td><td>key_fat</td><td>0 mm</td><td>Set to -0.15</td></tr>
+<tr><td>Head rocks front to back even with the key tight</td><td>neck_plug</td><td>1.95 mm</td><td>Raise to 2.05 so the neck top reaches the socket ceiling (reprint the body)</td></tr>
+<tr><td>Neck plug too tight / loose in the head socket</td><td>neck_fit</td><td>0.15 mm</td><td>Lower / raise in 0.05 steps (reprint the body)</td></tr>
+<tr><td>Base plate drops out / too hard to click in</td><td>base_bite</td><td>0.5 mm</td><td>Raise to 0.65 / lower to 0.35</td></tr>
+<tr><td>Base plate rattles sideways / won't enter</td><td>base_clr</td><td>0.12 mm</td><td>Lower to 0.08 / raise to 0.2</td></tr>
+<tr><td>Base plate moves up and down when clicked in</td><td>base_play</td><td>-0.3 mm</td><td>Lower to -0.4: the snap beams stay bent further and pull the plate up harder</td></tr>
+</table>
+
+<h2>Make your own theme</h2>
+<p>Start from the template and change only the accessories; the core never needs reprinting. In
+<code>round_bot.scad</code>, copy one of these modules and edit its outline. Every band needs the two cups,
+because the cups hold its ends.</p>
+<table>
+<thead><tr><th>To add</th><th>Start from</th><th>Interface to keep</th></tr></thead>
+<tr><td>A side piece (ears, horns, bolts)</td><td>plug()</td><td>Keep ear_lock(): the peg, its two lugs and the spring beam. Cut ear_cut() from your shape so the beam is free to move. Stay outside 26.3 mm from the head axis so it can twist</td></tr>
+<tr><td>A headband topper</td><td>topper_2d()</td><td>Draw a flat outline above the band (radius 31 mm). It is extruded to the 9 mm band width and prints flat. Leave the band's end tabs alone: their hooks are what hold it on the cups</td></tr>
+<tr><td>A body</td><td>body("bare")</td><td>Add shapes to the union. Keep the neck, neck_posts(), the rest block, the cavity and the USB notch</td></tr>
+<tr><td>Something on the lap</td><td>lap_item()</td><td>Add a module and a line for your style in lap_item(), then add the name to body_themes (body_&lt;name&gt;), band_themes if it has a topper (band_&lt;name&gt;), and theme_col for the preview colours. assembly_&lt;name&gt; previews the whole robot</td></tr>
+</table>
+
+</main>
+</body>
+</html>
