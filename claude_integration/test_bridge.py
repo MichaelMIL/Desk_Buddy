@@ -62,6 +62,7 @@ class Classify(unittest.TestCase):
         self.assertEqual(self.act(pre('Edit', file_path='/src/main.cpp')), 'cpp')
         self.assertEqual(self.act(pre('Write', file_path='/x/App.TSX')), 'typescript')
         self.assertEqual(self.act(pre('NotebookEdit', notebook_path='/n.ipynb')), 'python')
+        self.assertEqual(self.act(pre('Edit', file_path='/app/Main.kt')), 'polyglot')
         self.assertEqual(self.act(pre('Agent', prompt='x')), 'subagents')
         self.assertEqual(self.act(pre('TodoWrite')), 'todo')
         self.assertEqual(self.act(pre('AskUserQuestion')), 'attention')
@@ -131,6 +132,16 @@ class Clock:
 class FakeBoard:
     def __init__(self, names, current='cycle'):
         self.names, self.current, self.plays, self.up = set(names), current, [], True
+        self.releases = 0
+
+    def describe(self):
+        return 'fake'
+
+    def release(self):
+        self.releases += 1
+
+    def close(self):
+        pass
 
     def status(self):
         return {'current': self.current, 'animations': sorted(self.names)} if self.up else None
@@ -196,6 +207,7 @@ class Display(unittest.TestCase):
         self.assertEqual(self.board.current, 'cycle')          # put back to what it was doing
         self.assertFalse(self.ctl.active)
         self.assertEqual(self.board.plays[-1], 'cycle')
+        self.assertEqual(self.board.releases, len(self.board.plays))   # Bluetooth: each command lets go later
 
     def test_done_survives_session_end(self):
         self.send(pre('Read'))
@@ -334,6 +346,25 @@ class Display(unittest.TestCase):
         self.run_for(4)
         self.assertEqual(self.board.current, 'claude__python')
 
+    def test_hold_for_another_program(self):
+        closes = []
+        self.board.close = lambda: closes.append(1)
+        self.send(pre('Read'))
+        self.run_for(1)
+        self.ctl.hold(30)                                        # e.g. the simulator uploads over Bluetooth
+        self.assertEqual(closes, [1])
+        self.board.current = 'face_wave'                         # the upload played its animation
+        self.send(pre('Edit', tid='e'))
+        self.run_for(20)
+        self.assertEqual(self.board.current, 'face_wave')        # hands off while holding
+        self.run_for(12)
+        self.assertEqual(self.board.current, 'claude__editing')  # and back afterwards
+        self.ctl.hold(60)
+        self.ctl.hold(0)                                         # ended early
+        self.send(pre('Read', tid='r2'))
+        self.run_for(4)                                          # after min_seconds of editing
+        self.assertEqual(self.board.current, 'claude__reading')
+
     def test_overrides(self):
         self.ctl.cfg['animations'] = {'reading': 'face_happy', 'thinking': ['nope', 'claude__spark']}
         self.send(pre('Read'))
@@ -342,6 +373,125 @@ class Display(unittest.TestCase):
         self.send(ev('UserPromptSubmit', prompt='x'))
         self.run_for(4)
         self.assertEqual(self.board.current, 'claude__spark')
+
+
+class FakeBleClient:
+    """Stands in for bleak's client: answers console commands like hardware/src/ble.cpp, as
+    20-byte notifications on TX."""
+
+    def __init__(self, names, current='cycle'):
+        self.names, self.current, self.commands = list(names), current, []
+        self.is_connected, self.silent, self.board = True, False, None
+
+    async def write_gatt_char(self, char, data, response=None):
+        cmd = bytes(data).decode().strip()
+        self.commands.append(cmd)
+        if self.silent:
+            return
+        if cmd == 'state':
+            reply = 'state ' + json.dumps({'current': self.current, 'cycling': self.current == 'cycle', 'count': len(self.names)})
+        elif cmd == 'names':
+            reply = 'names ' + ','.join(self.names)
+        elif cmd.startswith('play '):
+            n = cmd[5:]
+            if n == 'cycle' or n in self.names:
+                self.current, reply = n, 'ok'
+            else:
+                reply = "no animation named '%s' (try: list)" % n
+        else:
+            reply = 'commands: ...'
+        out = (reply + '\n').encode()
+        for i in range(0, len(out), 20):
+            self.board._on_tx(None, bytearray(out[i:i + 20]))
+
+    async def disconnect(self):
+        self.is_connected = False
+
+
+class TestBleBoard(bb.BleBoard):
+    def __init__(self, fake, **kw):
+        super().__init__('', **kw)
+        self.fake, self.connects, fake.board = fake, 0, self
+
+    async def _ensure(self):
+        if self.client is not None and self.client.is_connected:
+            return
+        self.connects += 1
+        self.fake.is_connected = True
+        self.lines, self.buf = bb.asyncio.Queue(), ''
+        self.client, self.fresh = self.fake, True
+
+
+class Bluetooth(unittest.TestCase):
+    """BleBoard's console protocol over a fake link (the real one is checked on the board)."""
+
+    def setUp(self):
+        self.fake = FakeBleClient(CLAUDE + ['face_happy'] * 3)       # long enough to span many notifications
+        self.board = TestBleBoard(self.fake, timeout=0.5, linger=0.3, pair_timeout=0.5)
+
+    def tearDown(self):
+        self.board.close()
+
+    def test_status_and_names_cache(self):
+        st = self.board.status()
+        self.assertEqual(st['current'], 'cycle')
+        self.assertIn('claude__done', bb.anim_names(st))
+        self.board.status()
+        self.assertEqual(self.fake.commands, ['state', 'names', 'state'])   # names only when count changes
+        self.fake.names.append('claude__python')
+        self.assertIn('claude__python', bb.anim_names(self.board.status()))
+        self.assertEqual(self.fake.commands[-2:], ['state', 'names'])
+
+    def test_play(self):
+        self.assertEqual(self.board.play('claude__reading'), 'ok')
+        self.assertEqual(self.fake.current, 'claude__reading')
+        self.assertEqual(self.board.play('claude__nope'), 'missing')
+        self.assertEqual(self.board.play('cycle'), 'ok')
+        self.assertEqual(self.board.connects, 1)                          # one link for all of them
+
+    def test_stale_reply_is_not_taken(self):
+        self.board.status()
+        self.board._on_tx(None, bytearray(b'ok\n'))                        # left over from a timed-out command
+        self.assertEqual(self.board.play('claude__nope'), 'missing')
+
+    def test_no_answer_drops_the_link(self):
+        self.fake.silent = True
+        t0 = time.time()
+        self.assertEqual(self.board.play('claude__reading'), 'down')
+        self.assertLess(time.time() - t0, 3)
+        self.assertIsNone(self.board.client)
+        self.fake.silent = False
+        self.assertEqual(self.board.play('claude__reading'), 'ok')          # reconnects
+        self.assertEqual(self.board.connects, 2)
+
+    def test_release_after_linger_unless_used(self):
+        self.board.play('claude__reading')
+        self.board.release()
+        time.sleep(0.1)
+        self.board.play('claude__editing')                                  # used again: stays connected
+        time.sleep(0.4)
+        self.assertTrue(self.fake.is_connected)
+        self.board.release()
+        time.sleep(0.6)
+        self.assertFalse(self.fake.is_connected)
+        self.assertIsNone(self.board.client)
+
+    def test_controller_over_bluetooth(self):
+        home = tempfile.TemporaryDirectory()
+        bb.STATE_FILE, bb.LOG_FILE = os.path.join(home.name, 's'), os.path.join(home.name, 'l')
+        clock = Clock()
+        ctl = bb.Controller(dict(bb.DEFAULTS), self.board, clock)
+        ctl.apply(bb.classify(pre('Edit', file_path='/x.py')))
+        ctl.tick()
+        self.assertEqual(self.fake.current, 'claude__editing')
+        ctl.apply(bb.classify(ev('Stop')))
+        for _ in range(300):
+            clock.t += 0.25
+            ctl.tick()
+        self.assertEqual(self.fake.current, 'cycle')
+        time.sleep(0.6)
+        self.assertFalse(self.fake.is_connected)                             # released once idle
+        home.cleanup()
 
 
 class FakeBuddy(BaseHTTPRequestHandler):

@@ -20,6 +20,7 @@ and exits after half an hour of quiet.
 Python 3.8+, standard library only. See README.md next to this file.
 """
 import argparse
+import asyncio
 import collections
 import http.client
 import json
@@ -45,7 +46,8 @@ HOOK_MARK = 'buddy_bridge.py'            # how install/uninstall recognise our h
 HEADER = 'X-Desk-Buddy'                  # required on daemon requests (keeps web pages from posting to it)
 
 DEFAULTS = {
-    'host': 'desk-buddy.local',          # the buddy: IP address or mDNS name
+    'host': 'desk-buddy.local',          # the buddy: IP address or mDNS name (Wi-Fi), or 'ble' / 'ble:<name>'
+    'ble_linger_seconds': 20,            # Bluetooth: disconnect this long after Claude goes idle
     'port': 47615,                       # the local daemon (127.0.0.1)
     'enabled': True,                     # false = hooks do nothing (buddy_bridge.py pause)
     'min_seconds': 3.0,                  # an activity stays on screen at least this long
@@ -96,6 +98,11 @@ LANGS = {'.py': 'python', '.pyi': 'python', '.ipynb': 'python',
          '.js': 'javascript', '.mjs': 'javascript', '.cjs': 'javascript', '.jsx': 'javascript',
          '.ts': 'typescript', '.tsx': 'typescript', '.mts': 'typescript',
          '.sh': 'bash', '.bash': 'bash', '.zsh': 'bash'}
+# code in a language without its own animation
+LANGS.update((ext, 'polyglot') for ext in (
+    '.rb', '.php', '.swift', '.kt', '.kts', '.scala', '.cs', '.fs', '.dart', '.lua', '.pl', '.r', '.jl',
+    '.ex', '.exs', '.erl', '.hs', '.ml', '.clj', '.elm', '.nim', '.zig', '.m', '.mm', '.vue', '.svelte',
+    '.groovy', '.ps1', '.asm', '.s'))
 for _lang in sorted(set(LANGS.values())):
     ACTIVITIES[_lang] = ['claude__' + _lang, 'claude__editing', 'claude__coding']
 OPTIONAL = set(LANGS.values())          # not part of the core theme; `status` does not ask to push them
@@ -369,6 +376,212 @@ class Board:
         except (OSError, ValueError, http.client.HTTPException):
             return 'down'
 
+    def describe(self):
+        return 'http://%s/' % self.host
+
+    def release(self):
+        pass
+
+    def close(self):
+        pass
+
+
+NUS_SERVICE = '6e400001-b5a3-f393-e0a9-e50e24dcca9e'
+NUS_RX = '6e400002-b5a3-f393-e0a9-e50e24dcca9e'
+NUS_TX = '6e400003-b5a3-f393-e0a9-e50e24dcca9e'
+
+
+class BleError(Exception):
+    pass
+
+
+class BleBoard:
+    """The buddy over Bluetooth LE: its console commands (state, names, play) over the Nordic UART
+    Service (hardware/BLE.md), with bleak. The buddy takes one connection at a time, so the link is
+    held only while Claude is active and dropped `linger` seconds after release(); the phone app
+    and the simulator's Bluetooth push can connect in between.
+
+    bleak runs on an asyncio loop in its own thread; status() and play() may be called from any
+    thread and are serialised on that loop. The first connection needs pairing: the buddy shows a
+    6-digit code and macOS asks for it (after that the bond is reused silently)."""
+
+    def __init__(self, name='', timeout=8.0, linger=20.0, pair_timeout=60.0):
+        self.name = name.strip()
+        self.timeout, self.linger, self.pair_timeout = timeout, linger, pair_timeout
+        self.client = None
+        self.lines = None
+        self.buf = ''
+        self.fresh = False                    # connected, no reply yet (pairing may be pending)
+        self.gen = 0                          # bumped by every command; a pending release checks it
+        self.names, self.count = None, None   # `names` is fetched again only when `count` changes
+        self.error = ''
+        self.loop = asyncio.new_event_loop()
+        self.lock = None
+        threading.Thread(target=self._run_loop, daemon=True).start()
+
+    def _run_loop(self):
+        asyncio.set_event_loop(self.loop)
+        self.lock = asyncio.Lock()
+        self.loop.run_forever()
+
+    def _call(self, coro, timeout):
+        return asyncio.run_coroutine_threadsafe(coro, self.loop).result(timeout)
+
+    def describe(self):
+        return 'Bluetooth (%s)' % (self.name or 'any desk buddy')
+
+    # -- inside the loop
+
+    def _on_tx(self, _char, data):
+        self.buf += bytes(data).decode('utf-8', 'replace')
+        while '\n' in self.buf:
+            line, self.buf = self.buf.split('\n', 1)
+            line = line.strip()
+            if line:
+                self.lines.put_nowait(line)
+
+    def _on_disconnect(self, _client):
+        self.client = None
+
+    async def _ensure(self):
+        if self.client is not None and self.client.is_connected:
+            return
+        try:
+            from bleak import BleakClient, BleakScanner
+        except ImportError:
+            raise BleError('Bluetooth needs bleak: %s -m pip install bleak' % sys.executable)
+
+        def match(d, ad):
+            if NUS_SERVICE not in [u.lower() for u in ad.service_uuids]:
+                return False
+            return not self.name or self.name in (ad.local_name, d.name)
+        dev = await self._already_connected()
+        if dev is None:
+            dev = await BleakScanner.find_device_by_filter(match, timeout=10)
+        if dev is None:
+            raise BleError('no desk buddy advertising (out of range, or another phone or app is connected to it)')
+        client = BleakClient(dev, disconnected_callback=self._on_disconnect, timeout=20)
+        await client.connect()
+        self.lines, self.buf = asyncio.Queue(), ''
+        await client.start_notify(NUS_TX, self._on_tx)
+        self.client, self.fresh = client, True
+
+    async def _already_connected(self):
+        """macOS: a buddy another app on this Mac is connected to (the remote page in Chrome, the
+        phone app's macOS build). It does not advertise then, but CoreBluetooth shares the link."""
+        if sys.platform != 'darwin':
+            return None
+        try:
+            from CoreBluetooth import CBUUID
+            from bleak.backends.corebluetooth.CentralManagerDelegate import CentralManagerDelegate
+            from bleak.backends.device import BLEDevice
+            mgr = CentralManagerDelegate()
+            await mgr.wait_until_ready()
+            found = mgr.central_manager.retrieveConnectedPeripheralsWithServices_([CBUUID.UUIDWithString_(NUS_SERVICE)])
+            for p in list(found or []):
+                if not self.name or p.name() == self.name:
+                    return BLEDevice(p.identifier().UUIDString(), p.name(), (p, mgr))
+        except Exception:                     # bleak internals differ: just scan
+            pass
+        return None
+
+    async def _drop(self):
+        c, self.client = self.client, None
+        if c is not None:
+            try:
+                await c.disconnect()
+            except Exception:
+                pass
+
+    async def _command(self, cmd, accept):
+        """Send one console command; return the first reply line accept() takes."""
+        self.gen += 1
+        async with self.lock:
+            try:
+                await self._ensure()
+                while not self.lines.empty():                  # leftovers from a command that timed out
+                    self.lines.get_nowait()
+                # first command on a new link: macOS may be showing the pairing prompt
+                wait = self.pair_timeout if self.fresh else self.timeout
+                await self.client.write_gatt_char(NUS_RX, (cmd + '\n').encode(), response=True)
+                end = self.loop.time() + wait
+                while True:
+                    line = await asyncio.wait_for(self.lines.get(), max(0.05, end - self.loop.time()))
+                    if accept(line):
+                        self.fresh, self.error = False, ''
+                        return line
+            except Exception as e:
+                self.error = str(e) or type(e).__name__
+                await self._drop()                             # start clean next time
+                raise
+
+    async def _status(self):
+        line = await self._command('state', lambda l: l.startswith('state '))
+        st = json.loads(line[6:])
+        if self.names is None or st.get('count') != self.count:
+            got = await self._command('names', lambda l: l.startswith('names '))
+            self.names, self.count = [n for n in got[6:].split(',') if n], st.get('count')
+        st['animations'] = list(self.names)
+        return st
+
+    async def _release_later(self, gen):
+        await asyncio.sleep(self.linger)
+        if gen == self.gen:
+            async with self.lock:
+                if gen == self.gen:
+                    await self._drop()
+
+    # -- the Board interface
+
+    def status(self):
+        try:
+            return self._call(self._status(), self.pair_timeout + 2 * self.timeout + 30)
+        except Exception:
+            return None
+
+    def play(self, name):
+        try:
+            line = self._call(self._command('play ' + name, lambda l: l == 'ok' or l.startswith('no animation')),
+                              self.pair_timeout + self.timeout + 30)
+        except Exception:
+            return 'down'
+        return 'ok' if line == 'ok' else 'missing'
+
+    def release(self):
+        """Disconnect after `linger` seconds unless another command comes first."""
+        gen = self.gen
+        asyncio.run_coroutine_threadsafe(self._release_later(gen), self.loop)
+
+    async def _drop_locked(self):
+        self.gen += 1                         # cancels a pending release
+        async with self.lock:                 # after a command in flight
+            await self._drop()
+
+    def close(self):
+        """Disconnect now (after a command in flight)."""
+        try:
+            self._call(self._drop_locked(), 30)
+        except Exception:
+            pass
+
+
+def make_board_type(cfg):
+    host = str(cfg.get('host') or '')
+    return 'ble' if host == 'ble' or host.startswith('ble:') else 'http'
+
+
+def make_board_desc(cfg):
+    host = str(cfg.get('host') or '')
+    return 'Bluetooth (%s)' % (host[4:] or 'any desk buddy') if make_board_type(cfg) == 'ble' else 'http://%s/' % host
+
+
+def make_board(cfg):
+    """host 'ble' or 'ble:<name>' = Bluetooth (as sim/test/push_all.sh), anything else = Wi-Fi (HTTP)."""
+    host = str(cfg.get('host') or '')
+    if make_board_type(cfg) == 'ble':
+        return BleBoard(host[4:], linger=float(cfg.get('ble_linger_seconds', 20)))
+    return Board(host)
+
 
 def anim_names(status):
     out = set()
@@ -419,9 +632,11 @@ class Controller:
         self.names = None                       # animations on the buddy (None = unknown)
         self.names_at = -1e9
         self.board_retry = 0.0
+        self.board_backoff = 0.0
         self.last_error = ''
         self.last_event = clock()
         self.history = collections.deque(maxlen=20)
+        self.away_until = 0.0                   # another program is using the buddy (POST /hold)
 
     # -- events
 
@@ -552,10 +767,18 @@ class Controller:
         return now >= self.board_retry
 
     def _board_down(self, now, what):
-        self.board_retry = now + 15
+        # 15 s, 30 s, then every 60 s: a Bluetooth scan alone takes up to 10 s
+        self.board_backoff = min(60.0, self.board_backoff * 2) if self.board_backoff else 15.0
+        self.board_retry = now + self.board_backoff
         if self.last_error != what:
-            log('buddy at %s does not answer (%s); retrying every 15 s' % (self.cfg['host'], what))
+            log('buddy over %s does not answer (%s%s); retrying, up to every 60 s'
+                % (self.board.describe(), what, ': ' + self.board.error if getattr(self.board, 'error', '') else ''))
         self.last_error = what
+
+    def _board_up(self):
+        if self.last_error:
+            log('buddy over %s answers again' % self.board.describe())
+        self.last_error, self.board_backoff = '', 0.0
 
     def refresh_names(self, now, status=None):
         st = status or self.board.status()
@@ -563,7 +786,7 @@ class Controller:
             self._board_down(now, 'status')
             return None
         self.names, self.names_at = anim_names(st), now
-        self.last_error = ''
+        self._board_up()
         return st
 
     def _activate(self, now):
@@ -585,8 +808,10 @@ class Controller:
         r = self.board.play(name)
         if r == 'ok':
             self.shown, self.shown_act = name, act
+            self._board_up()
             self.history.append((time.strftime('%H:%M:%S'), act, name))
             log('%-10s -> %s' % (act, name))
+            self.board.release()                # Bluetooth: let go of the link if nothing follows
             return True
         if r == 'missing':
             log('%s is not on the buddy; using the next choice for %s' % (name, act))
@@ -619,10 +844,26 @@ class Controller:
             log('Claude is idle; someone picked %s on the buddy meanwhile, leaving it' % cur)
         self.active, self.shown, self.shown_act = False, None, None
         write_state(None)
+        self.board.release()                    # Bluetooth: free the link for the phone app
         return True
+
+    def hold(self, seconds):
+        """Stay off the buddy for `seconds` (0 = until now): another program on this computer is about
+        to use it, e.g. an animation upload over Bluetooth, which a command in between would corrupt."""
+        now = self.clock()
+        with self.lock:
+            self.away_until = now + max(0.0, float(seconds))
+            self.shown = None                   # whatever it plays afterwards, show ours again
+        if seconds > 0:
+            self.board.close()                  # Bluetooth: disconnect now, so the other program can connect
+            log('holding off the buddy for %d s' % seconds)
+        else:
+            log('hold released')
 
     def tick(self):
         now = self.clock()
+        if now < self.away_until:
+            return
         with self.lock:
             act, urgent = self.desired(now)
             if act != self.want:
@@ -691,7 +932,7 @@ def read_state():
 
 def daemon_main():
     cfg = load_config()
-    ctl = Controller(cfg, Board(cfg['host']))
+    ctl = Controller(cfg, make_board(cfg))
     st = read_state()
     if st:                                   # a previous daemon changed the buddy and did not put it back
         ctl.active, ctl.prev = True, st.get('prev') or 'cycle'
@@ -709,6 +950,11 @@ def daemon_main():
         def do_GET(self):
             if self.path == '/status' and self.headers.get(HEADER):
                 return self._reply(200, ctl.snapshot())
+            if self.path == '/board' and self.headers.get(HEADER):
+                st = ctl.board.status()          # through the daemon's own link (Bluetooth: one at a time)
+                if not ctl.active:
+                    ctl.board.release()
+                return self._reply(200, st)
             self._reply(404)
 
         def do_POST(self):
@@ -722,6 +968,12 @@ def daemon_main():
                 except ValueError:
                     return self._reply(400)
                 return self._reply(204)
+            if self.path == '/hold':
+                try:
+                    ctl.hold(float(json.loads(body.decode() or '{}').get('seconds', 120)))
+                except (ValueError, TypeError, AttributeError):
+                    return self._reply(400)
+                return self._reply(200, {'ok': True})
             if self.path == '/stop':
                 stop.set()
                 return self._reply(200, {'ok': True})
@@ -744,7 +996,7 @@ def daemon_main():
             os.replace(LOG_FILE, LOG_FILE + '.1')
     except OSError:
         pass
-    log('daemon started (pid %d), buddy at %s' % (os.getpid(), cfg['host']))
+    log('daemon started (pid %d), buddy over %s' % (os.getpid(), ctl.board.describe()))
     while not stop.is_set():
         try:
             ctl.tick()
@@ -759,6 +1011,7 @@ def daemon_main():
     if ctl.active:
         ctl.board_retry = 0
         ctl.restore(ctl.clock())
+    ctl.board.close()
     server.shutdown()
     log('daemon stopped')
     return 0
@@ -801,9 +1054,12 @@ def cmd_hook(_args):
         except OSError:
             try:                             # a daemon is there but slow: one more try, no second daemon
                 daemon_request(cfg, 'POST', '/event', body, timeout=1.5)
+                return 0
+            except ConnectionRefusedError:
+                pass                         # it was just shutting down: start a new one below
             except OSError as e:
                 log('hook: daemon did not take the event (%r)' % e)
-            return 0
+                return 0
         spawn_daemon()
         for _ in range(20):                  # the daemon is usually listening within 0.1 s
             time.sleep(0.05)
@@ -870,7 +1126,18 @@ def cmd_install(args):
         cfg['host'] = args.host
     cfg['enabled'] = True
     save_config(cfg)
-    print('config: %s (buddy at %s)' % (CONF_FILE, cfg['host']))
+    ble = make_board_type(cfg) == 'ble'
+    print('config: %s (buddy over %s)' % (CONF_FILE, 'Bluetooth' if ble else 'Wi-Fi at ' + cfg['host']))
+    if ble:
+        import importlib.util
+        if importlib.util.find_spec('bleak') is None:
+            print('Bluetooth needs bleak in the Python that runs the hooks: %s -m pip install bleak' % sys.executable)
+            return 1
+    try:                                     # a running daemon still has the old address
+        daemon_request(cfg, 'POST', '/stop', b'{}', timeout=3)
+        time.sleep(1)
+    except OSError:
+        pass
 
     path = args.settings or SETTINGS_FILE
     settings = _read_settings(path)
@@ -908,13 +1175,33 @@ def cmd_uninstall(args):
     return 0
 
 
+def _board_status(cfg):
+    """(status or None, description). Asks the running daemon first: over Bluetooth it holds the link."""
+    try:
+        code, st = daemon_request(cfg, 'GET', '/board', timeout=90)
+        if code == 200:
+            return st, make_board_desc(cfg)
+    except OSError:
+        pass
+    board = make_board(cfg)
+    if isinstance(board, BleBoard):
+        print('buddy:  connecting over Bluetooth... the first time, macOS asks for the 6-digit code on the buddy\'s screen',
+              flush=True)
+    try:
+        return board.status(), board.describe() + (' (%s)' % board.error if getattr(board, 'error', '') else '')
+    finally:
+        board.close()
+
+
 def _report_board(cfg):
-    st = Board(cfg['host']).status()
+    st, desc = _board_status(cfg)
     if st is None:
-        print('buddy:  no answer from http://%s/ (on the same network? try the IP address)' % cfg['host'])
+        hint = ('in range? another phone or app connected? paired?' if make_board_type(cfg) == 'ble'
+                else 'on the same network? try the IP address')
+        print('buddy:  no answer over %s (%s)' % (desc, hint))
         return
     names = anim_names(st)
-    print('buddy:  http://%s/ is playing %s, %d animations stored' % (cfg['host'], st.get('current'), len(names)))
+    print('buddy:  %s is playing %s, %d animations stored' % (desc, st.get('current'), len(names)))
     ctl = Controller(cfg, None)
     ctl.names = names
     first = lambda act: (ctl.candidates(act) or ['-'])[0]
@@ -934,7 +1221,7 @@ def _report_board(cfg):
     if missing:
         print()
         print('%d of the claude theme animations are not on the buddy; push them with:' % len(missing))
-        print("  sim/test/push_all.sh %s '^Claude'" % cfg['host'])
+        print("  sim/test/push_all.sh %s '^Claude'" % ('ble' if make_board_type(cfg) == 'ble' else cfg['host']))
 
 
 def cmd_status(_args):
@@ -965,17 +1252,17 @@ def cmd_status(_args):
 
 def cmd_demo(args):
     cfg = load_config()
-    board = Board(cfg['host'])
-    st = board.status()
-    if st is None:
-        print('no answer from http://%s/' % cfg['host'])
-        return 1
-    try:
+    try:                                     # the daemon would fight over the buddy (and hold the Bluetooth link)
         daemon_request(cfg, 'POST', '/stop', b'{}', timeout=3)
-        time.sleep(0.5)
-        st = board.status() or st
+        time.sleep(1)
     except OSError:
         pass
+    board = make_board(cfg)
+    st = board.status()
+    if st is None:
+        print('no answer over %s' % board.describe())
+        board.close()
+        return 1
     ctl = Controller(cfg, board)
     ctl.names = anim_names(st)
     prev = st.get('current') or 'cycle'
@@ -995,6 +1282,7 @@ def cmd_demo(args):
         pass
     finally:
         board.play(prev)
+        board.close()
         print('back to %s' % prev)
     return 0
 
@@ -1009,6 +1297,15 @@ def cmd_pause(_args, enabled=False):
         except OSError:
             pass
     print('Claude Code activity %s on the buddy' % ('shows' if enabled else 'no longer shows'))
+    return 0
+
+
+def cmd_hold(args):
+    try:
+        daemon_request(load_config(), 'POST', '/hold', json.dumps({'seconds': args.seconds}).encode(), timeout=15)
+        print('the bridge leaves the buddy alone for %d s' % args.seconds if args.seconds else 'the bridge is back')
+    except OSError:
+        print('daemon not running (nothing to hold)')
     return 0
 
 
@@ -1037,6 +1334,8 @@ def main(argv=None):
     d.add_argument('--only', help='comma-separated activities')
     sub.add_parser('pause', help='stop showing Claude activity')
     sub.add_parser('resume', help='show Claude activity again')
+    h = sub.add_parser('hold', help='leave the buddy alone for a while (frees the Bluetooth link at once)')
+    h.add_argument('seconds', type=float, nargs='?', default=120, help='0 ends the hold')
     sub.add_parser('stop', help='stop the daemon')
     args = p.parse_args(argv)
     if args.cmd == 'hook':
@@ -1055,6 +1354,8 @@ def main(argv=None):
         return cmd_pause(args, False)
     if args.cmd == 'resume':
         return cmd_pause(args, True)
+    if args.cmd == 'hold':
+        return cmd_hold(args)
     if args.cmd == 'stop':
         return cmd_stop(args)
     p.print_help()
