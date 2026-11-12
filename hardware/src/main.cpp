@@ -122,8 +122,8 @@ static void draw_message() {
   tft.drawString(msg2, 120, 132, 2);
 }
 
-/* Loading ring: a spinner on the outer ring, the progress on the inner ring,
- * the percentage in the middle and the label below. Called every ~40 ms. */
+/* Loading ring: a spinner on the outer ring, the progress on the inner ring and
+ * the percentage in the middle. Called every ~40 ms. */
 /* Arc segment on a ring; handles wrapping past 360 (drawArc's 0 is at 6 o'clock, clockwise). */
 static void ring_arc(int32_t r, int32_t ir, uint32_t a0, uint32_t a1, uint32_t col) {
   a0 %= 360; a1 %= 360;
@@ -137,11 +137,8 @@ static void draw_loading(bool full) {
   static int drawn_pct = -2;
   const uint32_t SEG = 60, STEP = 12;
   if (full) {
+    // no name on screen: the spinner ring ran through it. load_label only marks a new upload.
     tft.fillScreen(TFT_BLACK);
-    tft.setTextDatum(MC_DATUM);
-    tft.setTextColor(TFT_LIGHTGREY, TFT_BLACK);
-    tft.setTextPadding(200);
-    tft.drawString(load_label, 120, 168, 2);
     tft.drawArc(120, 120, 62, 54, 0, 360, 0x2124, TFT_BLACK, false);   // dim track for the progress ring
     spin = 0; drawn_deg = 0; drawn_pct = -2;
     ring_arc(74, 68, 0, SEG, TFT_CYAN);

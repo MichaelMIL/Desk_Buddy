@@ -222,7 +222,7 @@ console. A recursive mutex guards the player state
 and the animation registry; only the renderer touches the display. A slow
 upload, a Wi-Fi scan or an MQTT reconnect therefore never stalls the face.
 While an animation or firmware image is being received the screen shows a
-spinner with a progress ring, the percentage and the name, then the face
+spinner with a progress ring and the percentage, then the face
 comes back (the newly uploaded one if it replaced the playing one).
 
 Uploads that would not fit in the file system (a 16 KB margin is kept, since
