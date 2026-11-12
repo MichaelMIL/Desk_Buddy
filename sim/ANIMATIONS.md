@@ -72,10 +72,11 @@ selected on the device (`theme <name>` over Bluetooth or serial, MQTT, or the AP
 play in every theme). Name themed animations `'Halloween: pumpkin'`: the
 theme prefix is dropped from the board name. Existing themes: the build variants `dj`,
 `cat`, `bear`, `bunny`, `king`, `unicorn`, `skeleton`, `gamer`, `bee`,
-`devil`, `dragon`, `robot` and the seasons/occasions `halloween`, `xmas`,
+`devil`, `dragon`, `robot`, `builder` (hard hat), `hacker` (hood) and the
+seasons/occasions `halloween`, `xmas`,
 `space`, `ocean`, `birthday`, `valentine`, `summer`, and `claude` (see `theme_*.js`); a new theme name creates a new
 theme automatically. Build-variant animations keep the standard face and add
-the accessory (headphones, ears, crown, horn) plus a matching behaviour.
+the accessory (headphones, ears, crown, horn, hard hat, hood) plus a matching behaviour.
 
 ## Drawing API (`g`)
 
