@@ -307,11 +307,7 @@
   /** C symbol / board name: anim_<slug>, or anim_<theme>__<slug> for themed animations
    *  (the device shows "<theme>__" animations only when that theme is selected). */
   function symbolName(anim) {
-    let base = anim.name;
-    if (anim.theme) base = base.replace(new RegExp('^' + anim.theme + '\\s*:\\s*', 'i'), '').replace(/^[^:]*:\s*/, '');
-    const slug = base.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '') || 'animation';
-    const theme = anim.theme ? String(anim.theme).toLowerCase().replace(/[^a-z0-9]+/g, '') + '__' : '';
-    return 'anim_' + theme + slug;
+    return 'anim_' + Board.boardName(anim);
   }
 
   /** Render + encode + compress the animation. Returns { raw, bytes } (bytes = DBAZ). */
@@ -377,42 +373,12 @@
     S.busy = true;
     try {
       const { bytes } = await buildAnimation(anim);
-      let b64 = '';
-      for (let i = 0; i < bytes.length; i += 0x8000) b64 += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000));
       const name = symbolName(anim).replace(/^anim_/, '');
       const kb = (bytes.length / 1024).toFixed(1);
       say(`board: uploading ${name} (${kb} KB) to ${host}…`);
       showProgress(`uploading ${name} to ${host}`, 0);
-      const r = await fetch('/api/push', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ host, name, data_base64: btoa(b64), play: $('chk-board-play').checked }),
-      });
-      if (!r.ok) {
-        let msg = r.statusText;
-        try { msg = (await r.json()).error || msg; } catch (e) { /* ignore */ }
-        throw new Error(msg);
-      }
-      // NDJSON progress stream from serve.py
-      const reader = r.body.getReader();
-      const dec = new TextDecoder();
-      let buf = '', j = null;
-      for (;;) {
-        const { value, done } = await reader.read();
-        if (done) break;
-        buf += dec.decode(value, { stream: true });
-        let nl;
-        while ((nl = buf.indexOf('\n')) >= 0) {
-          const line = buf.slice(0, nl).trim();
-          buf = buf.slice(nl + 1);
-          if (!line) continue;
-          let ev;
-          try { ev = JSON.parse(line); } catch (e) { continue; }
-          if (ev.type === 'progress') showProgress(`uploading ${name} to ${host}: ${(ev.sent / 1024).toFixed(0)} / ${(ev.total / 1024).toFixed(0)} KB`, ev.total ? ev.sent / ev.total : 0);
-          else if (ev.type === 'done') j = ev;
-          else if (ev.type === 'error') throw new Error(ev.error);
-        }
-      }
-      if (!j) throw new Error('connection to serve.py ended without a result');
+      const j = await Board.push(host, name, bytes, $('chk-board-play').checked, (sent, total) =>
+        showProgress(`uploading ${name} to ${host}: ${(sent / 1024).toFixed(0)} / ${(total / 1024).toFixed(0)} KB`, total ? sent / total : 0));
       showProgress(`stored ${name} on ${host}`, 1);
       say(`board: stored ${name}${j.play ? ', now playing' : ''} (${j.free_kb !== undefined ? j.free_kb + ' KB free on the board' : 'ok'})`);
       return j;
@@ -493,6 +459,18 @@
     $('btn-size').onclick = estimateSize;
     $('btn-export-fw').onclick = () => exportToFirmware();
     $('btn-push-board').onclick = () => pushToBoard();
+    $('btn-edit').onclick = () => {
+      const a = S.anim;
+      if (!a) return;
+      if (!a._file) { say('this animation is not saved to a file yet (save it from the chat first)', true); return; }
+      window.open(`editor.html?file=${encodeURIComponent(a._file)}&name=${encodeURIComponent(a.name)}`, 'desk-buddy-editor');
+    };
+    // the editor announces saves: reload and show the saved animation
+    try {
+      new BroadcastChannel('desk-buddy-sim').onmessage = e => {
+        if (e.data && e.data.type === 'saved') { say(`editor saved animations/${e.data.file}`); reloadAnimations(e.data.name); }
+      };
+    } catch (e) { /* BroadcastChannel unsupported */ }
     $('board-host').value = localStorage.getItem('sim.board.host') || '';
     fetch('/api/ping').then(r => r.json()).then(j => {
       if (j && j.ok && j.firmware) {

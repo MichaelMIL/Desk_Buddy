@@ -29,9 +29,10 @@ with swappable accessories.
 
 ## How a face gets from an idea to the desk
 
-1. **Describe it** in the simulator's chat ("a sleepy face that nods off and
-   jolts awake") or write it in a few lines of JavaScript against a small
-   drawing API. It plays in the simulator immediately.
+1. **Make it**: describe it in the simulator's chat ("a sleepy face that nods
+   off and jolts awake"), pose it on a timeline in the animation editor, or
+   write it in a few lines of JavaScript against a small drawing API. It
+   plays in the simulator immediately.
 2. **Push it**: the simulator compresses it and uploads it over Wi‑Fi. The
    buddy shows a loading ring, stores it on its flash file system, and
    starts playing it. No reflash, and it survives reboots and updates.
@@ -41,6 +42,16 @@ with swappable accessories.
 <p align="center">
   <img src="docs/images/simulator.png" alt="The simulator" width="900">
 </p>
+
+<p align="center">
+  <img src="docs/images/editor.png" alt="The animation editor" width="900">
+</p>
+
+The animation editor (`sim/editor.html`) poses the face with sliders and
+keyframes (eyes, lids, brows, mouth, blush, head motion, sparkles, hearts,
+tears…), with one‑click expressions and undo, or edits any animation as code
+with a live preview. Saving updates the simulator; one click pushes to the
+buddy.
 
 The simulator renders into a real 240×240 RGB565 framebuffer with the same
 integer rasterisers the microcontroller libraries use, so what you see is

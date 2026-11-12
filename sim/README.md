@@ -13,8 +13,11 @@ sim/
   lib/dba.js          DBA1 animation encoder/decoder (export)
   lib/app.js          UI: playback, scrubbing, export
   lib/chat.js         "Ask Claude" panel (Anthropic SDK in the browser)
+  lib/board.js        shared: board names, rendering to DBAZ, push with progress
+  editor.html, lib/editor.js   the animation editor (visual keyframes + code)
   animations/         your animations (one .js file each) + index.js manifest
   animations/face_lib.js  shared helpers for the buddy's face (eyes, mouth, brows)
+  animations/face_rig.js  keyframed faces (the visual editor's format)
   tools/dba.py        PNG/GIF <-> DBA converter (Pillow)
   tools/gen_registry.py  regenerates hardware/src/animations/animations.h
   player/             symlinks to the C decoder in ../hardware/lib + Arduino example + host test
@@ -34,7 +37,33 @@ Keys: `Space` play/pause, `←` `→` step one frame, `R` reload animation files
 Hover the screen to read a pixel's coordinates and RGB565 value. Pixels outside
 the circle are drawn by the panel driver but are not visible on the glass.
 
-## Ask Claude to write one
+## Animation editor
+
+`editor.html` (the "Animation editor" link in the simulator's header, or the
+**Edit** button next to the current animation) edits animations in two ways:
+
+- **Face (visual)**: pose the buddy's face on a timeline, no code. Every face
+  part is a slider (eyes open, per-eye wink, happy squint, heavy lids, look
+  direction, eye/iris/pupil size, brows, smile/frown, mouth open/width,
+  blush, head move, bounce, shake) plus effects (sparkles, hearts, z's,
+  tears, exclamation). Moving a slider sets a keyframe at the playhead; the
+  pose buttons (happy, sad, angry, surprised, sleepy, wink, love, blink)
+  key a whole expression at once. Keys are diamonds on the timeline: drag to
+  retime, click to edit value, time and easing (smooth, linear, pop
+  overshoot, hold), Delete to remove. Undo/redo, colours, theme, length and
+  frame rate are in the side panel.
+- **Code**: any animation file in an editor with syntax highlighting and a
+  live preview; syntax and runtime errors show under the code. Files with
+  several animations get a picker for which one to preview.
+
+**Save** writes `animations/<name>.js` (and adds it to `index.js`); an open
+simulator tab reloads and selects it by itself. **→ board** renders,
+compresses and uploads with a progress bar. Faces made visually are stored as
+a keyframe `SPEC` handled by `animations/face_rig.js`, so they reopen in the
+visual editor; "Edit as code" shows the generated file. Keys: `Space`
+play/pause, `←` `→` frame, `Home` start, `⌘Z` / `⇧⌘Z` undo/redo, `⌘S` save.
+
+
 
 The right-hand panel is a chat connected to Claude. With `./serve.sh` running
 and the Claude Code CLI installed, the default backend is **Claude Code**:

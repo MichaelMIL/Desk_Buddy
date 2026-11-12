@@ -2,6 +2,7 @@
 // Add your own file here and press R in the simulator.
 window.ANIMATION_FILES = [
   'face_lib.js',
+  'face_rig.js',        // keyframed faces made with the animation editor (editor.html)
   'face_angry.js',
   'face_happy.js',
   'face_in_love.js',
@@ -25,4 +26,9 @@ window.ANIMATION_FILES = [
   'clock.js',
   'confetti_loop.js',
   'template.js',
+  'dj_groove.js',
+  'stpatricks_lucky_hat.js',
+  'face_giggle.js',
+  'stpatricks_pot_of_gold.js',
+  'stpatricks_lucky_clover.js',
 ];

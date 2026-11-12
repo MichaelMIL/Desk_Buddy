@@ -125,7 +125,7 @@ class Handler(SimpleHTTPRequestHandler):
             req = json.loads(self.rfile.read(n) or b"{}")
             name = str(req.get("file", ""))
             code = str(req.get("code", ""))
-            if not FILE_RE.match(name) or name == "index.js" or name == "face_lib.js":
+            if not FILE_RE.match(name) or name in ("index.js", "face_lib.js", "face_rig.js"):
                 return self._json(400, {"error": "bad file name: %r" % name})
             if "Sim.register(" not in code:
                 return self._json(400, {"error": "code does not call Sim.register"})

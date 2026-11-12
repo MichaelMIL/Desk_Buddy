@@ -76,6 +76,8 @@
 <header>
   <h1>Desk Buddy TFT Simulator</h1>
   <span>1.28" round · 240×240 · GC9A01 · RGB565</span>
+  <span style="flex:1"></span>
+  <a href="editor.html" target="desk-buddy-editor" style="color:var(--accent); text-decoration:none">Animation editor ↗</a>
 </header>
 <main>
   <aside id="left">
@@ -106,7 +108,7 @@
   <aside>
     <h2>Current</h2>
     <dl>
-      <dt>Animation</dt><dd id="hud-name">–</dd>
+      <dt>Animation</dt><dd><span id="hud-name">–</span> <button id="btn-edit" title="Open this animation in the editor" style="padding:1px 8px; margin-left:6px">Edit</button></dd>
       <dt>Frame</dt><dd id="hud-frame">–</dd>
       <dt>Time</dt><dd id="hud-time">–</dd>
       <dt>Rate</dt><dd id="hud-fps">–</dd>
@@ -171,6 +173,7 @@
 </main>
 <script src="lib/gfx.js"></script>
 <script src="lib/dba.js"></script>
+<script src="lib/board.js"></script>
 <script src="lib/app.js"></script>
 <script type="module" src="lib/chat.js"></script>
 </body>

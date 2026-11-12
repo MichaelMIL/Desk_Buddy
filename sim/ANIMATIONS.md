@@ -136,7 +136,34 @@ Existing face animations to learn from: `face_happy.js`, `face_sleepy.js`,
 extras. Movement of the whole face (bob, shake, nod) is a `dx`/`dy` passed to
 the helpers.
 
-## Style rules that make it look good on the device
+## Keyframed faces (FaceRig, made by the editor)
+
+Files written by the visual editor (`sim/editor.html`) look like this and
+reopen in it:
+
+```js
+const SPEC = {
+  name: 'Face: giggle', fps: 30, duration: 3000,
+  colors: { bg: '#000000', iris: '#2a6cff', mouth: '#ff4f7a', blush: '#ff8fa3' },
+  tracks: {
+    squint: [[0, 0], [300, 1, 'pop'], [2400, 1], [2800, 0]],   // [timeMs, value, ease?]
+    mouthOpen: [[0, 0], [300, 0.9, 'pop'], [2800, 0]],
+  },
+};
+Sim.register(FaceRig.animation(SPEC));
+```
+
+Parameters (unlisted ones keep their default): `open`, `openL`, `openR`,
+`squint`, `lid` (0..0.9), `lookX` (-20..20), `lookY` (-15..15), `eyeSize`
+(0.6..1.4), `iris` (6..24), `pupil` (0.2..0.8), `brows` (0/1), `browRaise`
+(-10..30), `browTilt` (-20..20, + angry), `mouthCurve` (-1..1),
+`mouthOpen` (0..1), `mouthWidth` (8..44), `blush`, `headX`, `headY`
+(-24..24), `bob`, `shake`, and effects `sparkle`, `hearts`, `zzz`, `tears`,
+`exclaim` (0..1). Ease is `smooth` (default), `linear`, `pop` or `step`.
+When asked to tweak such a file, edit the SPEC and keep the
+`FaceRig.animation(SPEC)` call so it stays editable in the editor.
+
+
 
 - Clear with black unless the design needs otherwise. Use saturated colours;
   the panel is bright (400 nits) and small (3.2 cm).

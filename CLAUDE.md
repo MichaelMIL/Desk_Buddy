@@ -11,6 +11,10 @@ PlatformIO firmware that plays what the simulator exports.
   and `sim/test/smoke.sh` (headless Chrome renders and exports every
   animation; needs Google Chrome). `sim/test/sheet.html?anim=<name>` shows a
   contact sheet of one animation.
+- Animation editor: `sim/editor.html` (visual keyframes via
+  `sim/animations/face_rig.js`, or code). Editor-made files hold a `SPEC`;
+  edit that, keep `FaceRig.animation(SPEC)`. Animation files each run in
+  their own function scope, so share helpers through `window.*` only.
 - Run the simulator: `./sim/serve.sh` (also enables saving from the chat
   panel and the "→ firmware" export). The panel's default backend runs the
   local `claude -p` CLI through `sim/serve.py` with `sim/ANIMATIONS.md` as
