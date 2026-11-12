@@ -73,7 +73,7 @@ play in every theme). Name themed animations `'Halloween: pumpkin'`: the
 theme prefix is dropped from the board name. Existing themes: the build variants `dj`,
 `cat`, `bear`, `bunny`, `king`, `unicorn`, `skeleton`, `gamer`, `bee`,
 `devil`, `dragon`, `robot` and the seasons/occasions `halloween`, `xmas`,
-`space`, `ocean`, `birthday`, `valentine`, `summer` (see `theme_*.js`); a new theme name creates a new
+`space`, `ocean`, `birthday`, `valentine`, `summer`, and `claude` (see `theme_*.js`); a new theme name creates a new
 theme automatically. Build-variant animations keep the standard face and add
 the accessory (headphones, ears, crown, horn) plus a matching behaviour.
 
@@ -154,7 +154,7 @@ const SPEC = {
 Sim.register(FaceRig.animation(SPEC));
 ```
 
-Parameters (unlisted ones keep their default): `open`, `openL`, `openR`,
+`colors` may also set `sclera` (the eye whites). Parameters (unlisted ones keep their default): `open`, `openL`, `openR`,
 `squint`, `lid` (0..0.9), `lookX` (-20..20), `lookY` (-15..15), `eyeSize`
 (0.6..1.4), `iris` (6..24), `pupil` (0.2..0.8), `brows` (0/1), `browRaise`
 (-10..30), `browTilt` (-20..20, + angry), `mouthCurve` (-1..1),

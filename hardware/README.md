@@ -101,7 +101,7 @@ new prefix creates a new theme. Select it on the Settings page, with
 Assistant select). Shipped themes: one per build variant (`dj`, `cat`, `bear`, `bunny`,
 `king`, `unicorn`, `skeleton`, `gamer`, `bee`, `devil`, `dragon`, `robot`)
 and seasonal or occasion ones (`halloween`, `xmas`, `space`, `ocean`,
-`birthday`, `valentine`, `summer`).
+`birthday`, `valentine`, `summer`), plus `claude`.
 
 ## MQTT
 

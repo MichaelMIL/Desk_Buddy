@@ -118,8 +118,8 @@ only redraw what changes (it also makes the exported file smaller).
 `halloween__<name>` and plays only while that theme is selected (common
 animations play in every theme). The shipped themes are in
 `animations/theme_*.js`: one per build variant (dj, cat, bear, bunny, king,
-unicorn, skeleton, gamer, bee, devil, dragon, robot) and seasonal or occasion
-ones (halloween, xmas, space, ocean, birthday, valentine, summer).
+unicorn, skeleton, gamer, bee, devil, dragon, robot), seasonal or occasion
+ones (halloween, xmas, space, ocean, birthday, valentine, summer), and claude.
 
 Drawing API on `g` (integer pixels, colours are RGB565 numbers, same
 algorithms as Adafruit_GFX / TFT_eSPI so a C++ port looks identical):

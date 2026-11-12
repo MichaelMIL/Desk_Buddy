@@ -133,7 +133,8 @@ window.FaceRig = (() => {
   function draw(g, v, tms, spec, hooks, f) {
     const F = window.Face, t = tms / 1000;
     const bg = Sim.hex(spec.colors.bg), mouth = Sim.hex(spec.colors.mouth);
-    const keep = { IRIS: F.IRIS, MOUTH: F.MOUTH, MOUTH_IN: F.MOUTH_IN, BLUSH: F.BLUSH };
+    const keep = { IRIS: F.IRIS, MOUTH: F.MOUTH, MOUTH_IN: F.MOUTH_IN, BLUSH: F.BLUSH, SCLERA: F.SCLERA };
+    if (spec.colors.sclera) F.SCLERA = Sim.hex(spec.colors.sclera);   // optional: tinted eye whites
     F.IRIS = Sim.hex(spec.colors.iris);
     F.MOUTH = mouth;
     F.MOUTH_IN = Sim.lerp565(mouth, Sim.C.BLACK, 0.55);
