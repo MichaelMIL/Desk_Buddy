@@ -118,6 +118,8 @@ reply ends with a newline; a command that prints nothing answers `ok`.
 | `rotation <0-3>` | Display rotation in steps of 90° (saved) | `rotation 1` |
 | `names` | Every animation name on one line | `names bear__honey,bear__roar,…` |
 | `state` | The state JSON on one line | `state {"current":…}` |
+| `config` | Settings and status as JSON on one line (name, version, speed, loops, rotation, cycle list, start face, storage, paired devices; Wi-Fi and MQTT in the Wi-Fi build) | `config {"name":…}` |
+| `start <name>` / `start cycle` | What plays after a reboot (saved) | `start 'face_happy'` |
 | `list` | Names with sizes and free space | one line per animation |
 | `status` | The status report | animation, name, Wi-Fi, MQTT, Bluetooth, memory |
 | `upload <name> <bytes>` | Receive an animation on this link | see Uploading animations |
@@ -125,11 +127,13 @@ reply ends with a newline; a command that prints nothing answers `ok`.
 | `name <device name>` | Rename (Bluetooth name, mDNS, Home Assistant); reboots | `saved, rebooting` |
 | `ble forget` / `ble on` / `ble off` | Forget all bonds / Bluetooth on or off (reboots) | |
 | `reboot` / `reset` | Reboot / erase all settings and bonds, then reboot | |
-| `wifi <ssid> <password>` | Wi-Fi network; reboots | `saved, rebooting` |
+| `wifi <ssid> <password>` | Wi-Fi network; reboots. Quote a name with spaces: `wifi "My Home" secret` | `saved, rebooting` |
 | `mqtt <host> [port] [user] [password]`, `prefix <topic>` | MQTT broker and topic prefix; reboot | `saved, rebooting` |
+| `ha on` / `ha off` | Home Assistant MQTT discovery (saved) | `home assistant discovery on` |
 | `appass <password>`, `ap` | Setup access point password / start it now | |
+| `otapass <password>` | Firmware update password; empty removes it | |
 
-The last three rows exist only in the Wi-Fi build; the build without Wi-Fi
+The last five rows exist only in the Wi-Fi build; the build without Wi-Fi
 answers `<command>: this build has no Wi-Fi`, and refuses `ble off`. Any
 unknown command, `help` included, answers with the command list.
 
@@ -156,7 +160,7 @@ The protocol, for writing your own client:
 ```
 > upload face_wave 23514            the name (a-z 0-9 _, up to 31) and the exact byte count
 < ready 2048                        or: error <reason> (no space, bad name, another upload running)
-> (2048 bytes of the .dba file)     raw bytes, DBA1 or DBAZ as the simulator exports them
+> (2048 bytes of the .dba file)     raw bytes, DBAL (or DBAZ, DBA1) as the simulator exports them
 < ack 2048
 > (next 2048 bytes)  ...            wait for each ack before sending the next window
 < ack 23514                         after the last byte
@@ -213,9 +217,23 @@ All of these pair through the operating system's prompt the first time.
 **Remote page (`sim/remote.html`).** Run `./sim/serve.sh`, open
 http://localhost:8080/remote.html in Chrome or Edge (desktop or Android),
 press **Connect** and pick "Desk Buddy". The first time, the page says to type
-the code and waits up to a minute for the pairing prompt. Then it shows the
-face buttons (common faces plus the selected theme's, marked ✦), a screen
-toggle, a brightness slider, a theme menu and a console for any command.
+the code and waits up to a minute for the pairing prompt. It covers every
+command:
+
+- **Face:** face buttons (common faces plus the selected theme's, marked ✦),
+  screen, next, brightness, theme.
+- **Playback:** speed, loops per face, rotation, the start face, which faces
+  cycle.
+- **Animations:** the stored ones with sizes and free space, play, delete,
+  and upload of `.dba` files with a progress bar.
+- **Wi-Fi & MQTT** (Wi-Fi build): network, setup access point, broker, topic
+  prefix, Home Assistant discovery, firmware update password.
+- **Device:** rename, forget paired devices, Bluetooth off, reboot, factory
+  reset. After a command that reboots the buddy, the page reconnects by itself.
+- **Console:** any command, with the replies.
+
+It reads the settings with `config` (firmware 2026.11.12d and later; with
+older firmware the page works but shows no settings).
 
 - Web Bluetooth needs localhost or https, so the page cannot be served by the
   buddy itself.
@@ -308,9 +326,10 @@ A command takes 50 to 320 ms from the write to the new state on a paired link
 (`dj__scratch`, `ocean__diver`) take 289 to 316 ms, almost all of it loading
 from flash. Pairing does not slow commands down.
 
-Uploads were only measured with a 5 KB file (the test board's file system was
-nearly full): the data took 1.0 to 1.2 s over Bluetooth and 0.4 s over USB.
-Large files have not been timed yet.
+Uploads: `push_all.sh ble` stored 36 animations (about 880 KB) in 4 min 58 s,
+including headless Chrome rendering each one, so Bluetooth moves at least
+3 KB/s; a 5 KB file's data took 1.0 to 1.2 s over Bluetooth and 0.4 s over
+USB. No errors or timeouts in those runs (2026-11-12).
 
 Bluetooth does not slow Wi-Fi measurably. With it on, 40 of 40 HTTP status
 requests were answered (median 186 ms); with it off, 35 of 40 (median

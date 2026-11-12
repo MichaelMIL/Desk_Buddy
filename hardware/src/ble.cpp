@@ -174,7 +174,10 @@ void bleLoop() {
   if (connEvent) {
     connEvent = false;
     Serial.printf("bluetooth: %s\n", bleStatus().c_str());
-    if (!connected) { uploadAbort("Bluetooth disconnected"); line = ""; pending = ""; }
+    if (!connected) {
+      if (uploadActive(bleOut)) uploadAbort("Bluetooth disconnected");   // only our own upload; one over USB carries on
+      line = ""; pending = "";
+    }
   }
   pairingScreen();
 

@@ -4,6 +4,7 @@
 #include <esp_heap_caps.h>
 #include <sys/stat.h>
 #include "rom/miniz.h"      // inflate from ROM: no flash cost
+#include "lzma_dec.h"        // DBAL (lib/dba_player)
 
 static const char *DIR = "/a";
 static const size_t MAX_ENTRIES = 256;   // ~6 KB; the BLE-only build's 3.3 MB holds ~150-300 faces
@@ -26,24 +27,44 @@ static String pathFor(const String &name) { return String(DIR) + "/" + name + ".
 
 static void *bigAlloc(size_t n) { return psramFound() ? heap_caps_malloc(n, MALLOC_CAP_SPIRAM) : malloc(n); }
 
-/* "DBAZ" container: magic, u32 original size, u32 compressed size, zlib stream. */
+/* Compressed containers: magic, u32 original size, u32 compressed size, then a zlib
+ * stream ("DBAZ") or an .lzma stream ("DBAL", about 40% smaller; lib/dba_player/lzma_dec.c). */
 static bool isDbaz(const uint8_t *p, size_t n) { return n >= 12 && memcmp(p, "DBAZ", 4) == 0; }
+static bool isDbal(const uint8_t *p, size_t n) { return n >= 12 && memcmp(p, "DBAL", 4) == 0; }
+static bool isPacked(const uint8_t *p, size_t n) { return isDbaz(p, n) || isDbal(p, n); }
 static uint32_t rd32(const uint8_t *p) { return p[0] | (p[1] << 8) | (p[2] << 16) | ((uint32_t)p[3] << 24); }
 
-/* Inflate a DBAZ buffer. Returns a bigAlloc'ed DBA1 buffer (caller frees) or NULL. */
-static uint8_t *inflateDbaz(const uint8_t *z, size_t zlen, size_t *outLen, String *err) {
-  if (!isDbaz(z, zlen)) { if (err) *err = "not DBAZ"; return NULL; }
+/* Unpack a DBAZ or DBAL buffer. Returns a bigAlloc'ed DBA1 buffer (caller frees) or NULL. */
+static uint8_t *unpack(const uint8_t *z, size_t zlen, size_t *outLen, String *err) {
+  if (!isPacked(z, zlen)) { if (err) *err = "not DBAZ/DBAL"; return NULL; }
   uint32_t orig = rd32(z + 4), clen = rd32(z + 8);
-  if (clen + 12 > zlen || orig < 32 || orig > 4 * 1024 * 1024) { if (err) *err = "bad DBAZ header"; return NULL; }
+  if (clen + 12 > zlen || orig < 32 || orig > 4 * 1024 * 1024) { if (err) *err = "bad DBAZ/DBAL header"; return NULL; }
   uint8_t *out = (uint8_t *)bigAlloc(orig);
-  tinfl_decompressor *d = (tinfl_decompressor *)bigAlloc(sizeof(tinfl_decompressor));
-  if (!out || !d) { free(out); free(d); if (err) *err = "out of memory"; return NULL; }
-  tinfl_init(d);
-  size_t inSize = clen, outSize = orig;
-  tinfl_status st = tinfl_decompress(d, z + 12, &inSize, out, out, &outSize,
-                                     TINFL_FLAG_PARSE_ZLIB_HEADER | TINFL_FLAG_USING_NON_WRAPPING_OUTPUT_BUF);
-  free(d);
-  if (st != TINFL_STATUS_DONE || outSize != orig) { free(out); if (err) *err = "inflate failed (" + String((int)st) + ")"; return NULL; }
+  if (!out) { if (err) *err = "out of memory"; return NULL; }
+  uint32_t t0 = millis();
+  if (isDbal(z, zlen)) {
+    size_t ws = lzma_work_size(z + 12, clen);
+    int r = -1;
+    if (ws) {
+      // the probability tables (7-24 KB) are read for every bit: internal RAM beats PSRAM
+      void *w = heap_caps_malloc(ws, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+      if (!w) w = bigAlloc(ws);
+      r = w ? lzma_decode(z + 12, clen, out, orig, w) : -5;
+      free(w);
+    }
+    if (r) { free(out); if (err) *err = r == -5 ? String("out of memory") : "LZMA decode failed (" + String(r) + ")"; return NULL; }
+  } else {
+    tinfl_decompressor *d = (tinfl_decompressor *)bigAlloc(sizeof(tinfl_decompressor));
+    if (!d) { free(out); if (err) *err = "out of memory"; return NULL; }
+    tinfl_init(d);
+    size_t inSize = clen, outSize = orig;
+    tinfl_status st = tinfl_decompress(d, z + 12, &inSize, out, out, &outSize,
+                                       TINFL_FLAG_PARSE_ZLIB_HEADER | TINFL_FLAG_USING_NON_WRAPPING_OUTPUT_BUF);
+    free(d);
+    if (st != TINFL_STATUS_DONE || outSize != orig) { free(out); if (err) *err = "inflate failed (" + String((int)st) + ")"; return NULL; }
+  }
+  Serial.printf("store: unpacked %s %u -> %u bytes in %u ms\n", isDbal(z, zlen) ? "DBAL" : "DBAZ",
+                (unsigned)clen, (unsigned)orig, (unsigned)(millis() - t0));
   *outLen = orig;
   return out;
 }
@@ -111,9 +132,9 @@ const uint8_t *storeLoad(size_t i, size_t *len) {
   if (i >= count) return NULL;
   AnimEntry &e = entries[i];
   if (e.builtin) {
-    if (!isDbaz(e.flash, e.len)) { *len = e.len; return e.flash; }   // raw DBA1 in flash: use in place
+    if (!isPacked(e.flash, e.len)) { *len = e.len; return e.flash; }   // raw DBA1 in flash: use in place
     String err;
-    uint8_t *out = inflateDbaz(e.flash, e.len, len, &err);
+    uint8_t *out = unpack(e.flash, e.len, len, &err);
     if (!out) Serial.printf("store: %s: %s\n", e.name.c_str(), err.c_str());
     return out;
   }
@@ -124,9 +145,9 @@ const uint8_t *storeLoad(size_t i, size_t *len) {
   size_t got = f.read(buf, e.len);
   f.close();
   if (got != e.len) { free(buf); return NULL; }
-  if (!isDbaz(buf, e.len)) { *len = e.len; return buf; }            // older, uncompressed upload
+  if (!isPacked(buf, e.len)) { *len = e.len; return buf; }          // older, uncompressed upload
   String err;
-  uint8_t *out = inflateDbaz(buf, e.len, len, &err);
+  uint8_t *out = unpack(buf, e.len, len, &err);
   free(buf);
   if (!out) Serial.printf("store: %s: %s\n", e.name.c_str(), err.c_str());
   return out;
@@ -181,13 +202,13 @@ bool storeUploadCommit(const String &name, String &err) {
   }
   upName = name;
   bool ok = validDba1(upHead, upBytes);
-  if (!ok && isDbaz(upHead, upBytes)) {
-    // compressed: inflate once to make sure it is a valid 240x240 DBA1 before keeping it
+  if (!ok && isPacked(upHead, upBytes)) {
+    // compressed: unpack once to make sure it is a valid 240x240 DBA1 before keeping it
     File f = LittleFS.open(upTmp, "r");
     uint8_t *z = f ? (uint8_t *)bigAlloc(upBytes) : NULL;
     if (z && f.read(z, upBytes) == upBytes) {
       size_t n = 0; String ierr;
-      uint8_t *raw = inflateDbaz(z, upBytes, &n, &ierr);
+      uint8_t *raw = unpack(z, upBytes, &n, &ierr);
       ok = raw && validDba1(raw, n);
       if (!raw) err = ierr;
       free(raw);
@@ -195,7 +216,7 @@ bool storeUploadCommit(const String &name, String &err) {
     if (f) f.close();
     free(z);
   }
-  if (!ok) { removeIfExists(upTmp); if (err.isEmpty()) err = "not a 240x240 DBA1/DBAZ animation"; return false; }
+  if (!ok) { removeIfExists(upTmp); if (err.isEmpty()) err = "not a 240x240 DBA1/DBAZ/DBAL animation"; return false; }
   String dst = pathFor(upName);
   removeIfExists(dst);
   if (!LittleFS.rename(upTmp, dst)) { removeIfExists(upTmp); err = "rename failed"; return false; }

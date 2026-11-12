@@ -28,7 +28,7 @@ change it.
 | `POST /api/brightness` | `value` = 10 to 100 | Software dimming (saved) | `{"ok":true,"brightness":60}`; 400 out of range |
 | `POST /api/theme` | `name` = theme, empty for none | Selects a theme (saved) | `{"ok":true,"theme":"xmas"}`; 400 not letters/digits |
 | `GET /api/anim` | | Stored animations and space | `{"animations":[{"name","bytes","builtin"}],"free","total"}` (bytes) |
-| `PUT /api/anim` | header `X-Anim-Name`, body = DBA1/DBAZ bytes | Stores an animation; replaces one with the same name | `{"ok":true,"name","free_kb","animations":[…]}`; 507 no space, 409 another upload running, 400 invalid |
+| `PUT /api/anim` | header `X-Anim-Name`, body = DBAL/DBAZ/DBA1 bytes | Stores an animation; replaces one with the same name | `{"ok":true,"name","free_kb","animations":[…]}`; 507 no space, 409 another upload running, 400 invalid |
 | `DELETE /api/anim` | `name` | Deletes a stored animation | `{"ok":true,"free_kb":512}`; 404 not found or built-in |
 | `GET /api/scan` | | Scans for Wi-Fi networks (a few seconds) | `[{"ssid","rssi","open"}]`, at most 20 |
 | `POST /api/config` | form fields, below | Saves settings, then reboots | `{"ok":true,"rebooting":true}` |

@@ -41,6 +41,7 @@ extern Config cfg;
 
 String deviceId();           // 6 hex chars from the MAC, e.g. "a1b2c3"
 String hostName();           // e.g. "desk-buddy" (from cfg.name, DNS-safe)
+String jsonStr(const String &s);   // s as a quoted, escaped JSON string
 void configLoad();
 void configSave();
 void configClear();

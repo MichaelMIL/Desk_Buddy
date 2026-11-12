@@ -32,7 +32,7 @@ boot with `StoreProhibited` at address 0x10.
 | Animations in over | HTTP, Bluetooth, USB serial | Bluetooth, USB serial |
 | Firmware updates | over Wi-Fi (OTA) or USB | USB only |
 | Firmware | ~952 KB in one of two 1 MB slots (`partitions.csv`) | ~494 KB in one 640 KB slot (`partitions_ble.csv`) |
-| Space for animations | 1.875 MB (65 faces fill it, ~28 KB each) | 3.3 MB (about 115 of those faces) |
+| Space for animations | 1.875 MB (all of the simulator's animations fit, ~13 KB each) | 3.3 MB (about twice that; up to 256 are listed) |
 
 The two use different partition tables, so switching between them (one USB
 flash) erases the stored animations; push them again afterwards
@@ -79,9 +79,11 @@ Console commands (USB serial at 115200, or a paired Bluetooth device):
 `name <device name>`, `rotation 0-3`, `loops <n>`, `speed <percent>`,
 `theme <name>|none`, `screen on|off`, `brightness <10-100>` (software
 dimming: the backlight is hard-wired, so pixel values are scaled),
-`ble on|off|forget`, `upload <name> <bytes>`, `appass <password>`, `ap`,
-`reset`, `reboot`. `names` and `state` print one machine-readable line
-(comma-separated names / JSON).
+`ble on|off|forget`, `upload <name> <bytes>`, `start <name>|cycle`,
+`ha on|off`, `appass <password>`, `otapass <password>`, `ap`, `reset`,
+`reboot`. `names`, `state` and `config` print one machine-readable line
+(comma-separated names / state JSON / settings JSON). Quote a Wi-Fi name
+with spaces: `wifi "My Home" <password>`.
 
 ## Bluetooth LE
 
@@ -140,10 +142,15 @@ a **Face** select entity, a **Theme** select, a **Screen** switch and a
 
 Animations are stored on the device's flash file system (LittleFS: 1.875 MB
 in the Wi-Fi build, 3.3 MB without Wi-Fi) and survive reboots and firmware
-updates of the same build. They are stored deflated (the `DBAZ` container:
-zlib over the DBA1 stream, typically 4–5× smaller, so a 3 s face is 10–25 KB)
-and inflated into PSRAM when selected, using the inflate routine in the S3's
-ROM. Uncompressed `DBA1` uploads are still accepted. Up to 256 are listed.
+updates of the same build. They are stored compressed, normally as the `DBAL`
+container (LZMA over the DBA1 stream, about 9× smaller, so a 3 s face is
+4–12 KB), and unpacked into PSRAM when selected with `lib/dba_player/lzma_dec.c`
+(1.8 KB of code, 7 KB of work memory; about 3.5 MB/s, so a face takes
+25 ms to unpack when selected and the largest animation an estimated 125 ms). The older `DBAZ` container (zlib, about
+40% larger, unpacked by the inflate routine in the S3's ROM) and uncompressed
+`DBA1` uploads are still accepted. Up to 256 are listed. Frames whose changes
+are far apart arrive as several records, all but the last with delay 0; the
+renderer draws those back to back.
 
 The board address can be an IP or `.local` name (HTTP, Wi-Fi build), `usb`
 (USB serial) or `ble` (Bluetooth, paired):
@@ -242,5 +249,5 @@ src/mqtt.*              MQTT + Home Assistant discovery (Wi-Fi build)
 src/config.*            settings in NVS
 src/no_coredump.c       leaves ESP-IDF's core dump writer out (see the size table)
 src/animations/         optional built-in animations (generated; empty by default)
-lib/dba_player/         DBA1 decoder (plain C; sim/player symlinks here, sim/test checks it)
+lib/dba_player/         DBA1 decoder and the DBAL (LZMA) decoder (plain C; sim/player symlinks here, sim/test checks them)
 ```

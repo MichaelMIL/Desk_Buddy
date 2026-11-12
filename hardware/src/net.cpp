@@ -31,17 +31,6 @@ bool netApActive() { return apOn; }
 String netApSsid() { return apSsid; }
 String netIp() { return netConnected() ? WiFi.localIP().toString() : (apOn ? WiFi.softAPIP().toString() : String("")); }
 
-static String jsonStr(const String &s) {
-  String o = "\"";
-  for (char c : s) {
-    if (c == '"' || c == '\\') { o += '\\'; o += c; }
-    else if (c == '\n') o += "\\n";
-    else if ((uint8_t)c < 0x20) continue;
-    else o += c;
-  }
-  return o + "\"";
-}
-
 static String animationsJson() {
   String a = "[";
   app_lock();

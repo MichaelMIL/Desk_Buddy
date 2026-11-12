@@ -11,14 +11,17 @@
  *
  * Serial (115200):
  *   list                    print animation names (built-in and stored)
- *   names | state           one-line machine-readable list / state (JSON)
+ *   names | state | config  one-line machine-readable list / state / settings (JSON)
  *   delete <name>           remove a stored animation
  *   play <name>             play one animation and stay on it ("play cycle" resumes cycling)
  *   next | cycle [a,b|all]  skip / resume cycling (optionally set the cycle list)
  *   status                  wifi / mqtt / animation state
- *   wifi <ssid> <password>  save Wi-Fi credentials and reboot
+ *   wifi <ssid> <password>  save Wi-Fi credentials and reboot ("quote" an SSID with spaces)
  *   mqtt <host> [port] [user] [password]   save broker settings and reboot
  *   prefix <topic prefix>   MQTT topic prefix (default deskbuddy/<id>)
+ *   ha on|off               Home Assistant MQTT discovery
+ *   otapass <password>      firmware update password (empty = none)
+ *   start <name>|cycle      what plays after a reboot
  *   name <device name>      device name (Bluetooth, Home Assistant, mDNS host)
  *   rotation 0|1|2|3        display rotation (x 90 degrees)
  *   loops <n>               loops per face when cycling
@@ -219,6 +222,9 @@ static void render_step() {
   if ((int32_t)(millis() - next_frame_at) < 0) return;
   int ended = 0;
   uint16_t hold = dba_render_next(&anim, rowbuf, push_row, NULL, &ended);
+  // records with delay 0 are parts of the same picture (the encoder splits a frame whose
+  // changes are far apart into several rectangles): draw the rest now, not 1 ms apart
+  for (int part = 1; hold == 0 && !ended && part < 256; part++) hold = dba_render_next(&anim, rowbuf, push_row, NULL, &ended);
   frames_rendered++;
   uint32_t scaled = (uint32_t)hold * 100 / cfg.speed;
   next_frame_at += scaled ? scaled : 1;
@@ -371,9 +377,27 @@ String app_state_json() {
   return s;
 }
 
+/* Settings and status as one line of JSON, for clients ("config" command). */
+static String app_config_json() {
+  Lock l;
+  String s = "{\"name\":" + jsonStr(cfg.name) + ",\"version\":\"" FW_VERSION "\",\"wifiBuild\":" + (BUDDY_WIFI ? "true" : "false");
+  s += ",\"speed\":" + String(cfg.speed) + ",\"loops\":" + String(cfg.loops) + ",\"rotation\":" + String(cfg.rotation);
+  s += ",\"cycleList\":" + jsonStr(cfg.cycleList) + ",\"start\":" + jsonStr(cfg.anim);
+  s += ",\"count\":" + String(storeCount()) + ",\"freeKb\":" + String(storeFreeBytes() / 1024) + ",\"totalKb\":" + String(storeTotalBytes() / 1024);
+  s += ",\"bonds\":" + String(bleBondCount());
+#if BUDDY_WIFI
+  s += ",\"wifi\":{\"ssid\":" + jsonStr(cfg.ssid) + ",\"connected\":" + (netConnected() ? "true" : "false") + ",\"ip\":" + jsonStr(netIp());
+  s += ",\"ap\":" + jsonStr(netApActive() ? netApSsid() : String()) + ",\"apPassSet\":" + (cfg.apPass.length() ? "true" : "false") + "}";
+  s += ",\"mqtt\":{\"host\":" + jsonStr(cfg.mqttHost) + ",\"port\":" + String(cfg.mqttPort) + ",\"user\":" + jsonStr(cfg.mqttUser);
+  s += ",\"prefix\":" + jsonStr(cfg.mqttPrefix) + ",\"ha\":" + (cfg.haDiscovery ? "true" : "false") + ",\"status\":" + jsonStr(mqttStatus()) + "}";
+  s += ",\"otaPassSet\":" + String(cfg.otaPass.length() ? "true" : "false");
+#endif
+  return s + "}";
+}
+
 #if !BUDDY_WIFI
 static bool wifi_only(const String &cmd) {
-  static const char *w[] = { "wifi", "mqtt", "prefix", "appass", "ap" };
+  static const char *w[] = { "wifi", "mqtt", "prefix", "appass", "ap", "ha", "otapass" };
   for (const char *c : w) if (cmd == c) return true;
   return false;
 }
@@ -400,6 +424,15 @@ void app_command(const String &line, Print &out) {
     out.println(s);
   } else if (cmd == "state") {
     out.println("state " + app_state_json());
+  } else if (cmd == "config") {
+    out.println("config " + app_config_json());
+  } else if (cmd == "start") {
+    if (arg != "cycle" && storeFind(arg.c_str()) < 0) { out.printf("no animation named '%s'\n", arg.c_str()); return; }
+    cfg.anim = arg == "cycle" ? "" : arg; configSave(); out.printf("start '%s'\n", arg.c_str());
+  } else if (cmd == "ha") {
+    cfg.haDiscovery = (arg == "on" || arg == "1"); configSave(); mqttPublishAnimations(); out.printf("home assistant discovery %s\n", cfg.haDiscovery ? "on" : "off");
+  } else if (cmd == "otapass") {
+    cfg.otaPass = arg; configSave(); out.println(arg.length() ? "firmware update password set (OTA restarts with it after a reboot)" : "firmware update password removed");
   } else if (cmd == "delete") {
     Lock l;
     out.println(storeDelete(arg.c_str()) ? "deleted" : "not found or built-in");
@@ -421,9 +454,11 @@ void app_command(const String &line, Print &out) {
     if (!BUDDY_WIFI && arg != "on") { out.println("bluetooth stays on: this build has no Wi-Fi"); return; }
     cfg.ble = (arg == "on" || arg == "1"); configSave(); out.printf("bluetooth %s, rebooting\n", cfg.ble ? "on" : "off"); delay(200); ESP.restart();
   } else if (cmd == "wifi") {
-    int s2 = arg.indexOf(' ');
-    cfg.ssid = s2 > 0 ? arg.substring(0, s2) : arg;
-    cfg.pass = s2 > 0 ? arg.substring(s2 + 1) : "";
+    // wifi <ssid> <password>, or wifi "<ssid with spaces>" <password>
+    int s2;
+    if (arg.startsWith("\"")) { int q = arg.indexOf('"', 1); cfg.ssid = q > 0 ? arg.substring(1, q) : arg.substring(1); s2 = q > 0 ? q + 1 : arg.length(); }
+    else { s2 = arg.indexOf(' '); cfg.ssid = s2 > 0 ? arg.substring(0, s2) : arg; if (s2 < 0) s2 = arg.length(); }
+    cfg.pass = arg.substring(s2); cfg.pass.trim();
     configSave(); out.println("saved, rebooting"); delay(200); ESP.restart();
   } else if (cmd == "mqtt") {
     String parts[4]; int k = 0;
@@ -463,9 +498,9 @@ void app_command(const String &line, Print &out) {
   } else if (cmd == "reboot") {
     out.println("rebooting"); delay(200); ESP.restart();
   } else {
-    out.println("commands: list | names | state | delete <n> | play <name> | next | cycle [a,b|all] | status | "
+    out.println("commands: list | names | state | config | delete <n> | play <name> | next | cycle [a,b|all] | start <name>|cycle | status | "
 #if BUDDY_WIFI
-                "wifi <ssid> <pass> | mqtt <host> [port] [user] [pass] | prefix <p> | appass <p> | ap | "
+                "wifi <ssid> <pass> | mqtt <host> [port] [user] [pass] | prefix <p> | ha on|off | appass <p> | otapass <p> | ap | "
 #endif
                 "name <n> | rotation 0-3 | loops <n> | speed <pct> | theme <t>|none | screen on|off | brightness <pct> | ble on|off|forget | upload <name> <bytes> | reset | reboot");
   }

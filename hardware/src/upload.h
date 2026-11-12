@@ -3,7 +3,7 @@
  *
  *   > upload <name> <bytes>\n          a console command
  *   < ready <window>                   or "error <reason>"
- *   > <at most <window> raw bytes>     DBA1 or DBAZ data, as the sim exports it
+ *   > <at most <window> raw bytes>     DBAL, DBAZ or DBA1 data, as the sim exports it
  *   < ack <received>                   after each full window and after the last byte
  *   ... repeat until all bytes are sent ...
  *   < stored <name> <free> KB free     or "error <reason>"
