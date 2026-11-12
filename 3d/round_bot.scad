@@ -147,26 +147,33 @@ beam_w = 6.4;  beam_len = 20;  beam_t = 0.8;   // spring beam under the peg
 beam_rec = 0.5;            // beam is set back from the inner face by this much
 beam_gap = 0.6;            // free space behind the beam (it prints as a bridge)
 // band to cup: each end of the band runs on down as a flat tab, the band's full width,
-// into a slot in the top of its cup. A small hook on the tip clicks into a groove at the
+// into a slot in the top of its cup. A hook on the tip clicks into a groove at the
 // bottom of the slot and the tip rests on the slot floor. The band itself is the spring:
-// it squeezes in by the hook's height while the hook passes. Made for FDM: the whole
+// it squeezes in by the hook's height while the hook passes. The catch is nearly flat, so
+// pulling on the band cannot cam the hook out: to take the band off, push its end towards
+// the head and lift. Made for FDM: the whole
 // band, tabs included, is one 2D outline extruded through its width, and the slot is
 // open towards the head, so neither part needs support or a bridge.
 band_seat = 0.05;          // drawn gap between the band's end and the cup
-btab_x0   = seat_x + 0.6;  // inner face of the tab, from the head axis. The gap to the
+btab_x0   = seat_x + 0.9;  // inner face of the tab, from the head axis. The gap to the
                            // head lets the band squeeze in while the hook passes
-btab_t    = 2.5;           // tab thickness (about 5 perimeters)
+btab_t    = 2.65;          // tab thickness: it fills the slot
 btab_zb   = cup_z + 4.4;   // tip of the tab (head frame); the slot floor keeps 0.85 mm
                            // over the twist-lock's spring pocket below it
-btab_hook = 0.45;          // how far the hook stands out: raise for a firmer click
-btab_clr  = 0.15;          // clearance around the tab in its slot
+btab_hook = 0.8;           // how far the hook stands out: raise for a firmer hold (keep it
+                           // 0.1 below the gap to the head, or the hook cannot pass)
+btab_catch = 15;           // the catch face's angle off flat (degrees). Below ~17 friction
+                           // locks it; raise it to make the band pull out more easily
+btab_clr  = 0.05;          // clearance between the tab's outer face and the slot's wall
+btab_clr_y = 0.08;         // clearance at the front and back of the tab
 btab_pre  = 0.1;           // the hook stays pressed on its catch by this much: no rattle
 btab_x1   = btab_x0 + btab_t;             // outer face of the tab
-hook_zl   = btab_zb + 1.2;                // top of the hook's lead-in ramp
-hook_zc   = hook_zl + 0.6;                // top of its flat; the catch above it is at
-hook_dz   = btab_hook*tan(30);            // 60 degrees to the push direction
-cuff_x    = btab_x1 + btab_clr + 0.25;    // the band's end thickens into a cuff whose outer face
-                                          // reaches past the slot's wall: it covers the slot's mouth
+hook_zl   = btab_zb + 1.5;                // top of the hook's lead-in ramp
+hook_zc   = hook_zl + 0.6;                // top of its flat; the catch rises from there
+hook_dz   = btab_hook*tan(btab_catch);
+cuff_x    = btab_x1 + btab_clr + 0.4;     // the band's last ~9 mm thicken into a yoke whose outer
+                                          // face sits on the cup past the slot's wall
+cup_groove = cuff_x + 0.3;                // decorative groove round the cup, just outside the yoke
 ear_y   = band_y - head_front_y;   // head-local position of the ear axis
 ear_z   = cup_z;
 // ============================================================
@@ -334,7 +341,7 @@ seat_top = cup_z + seat_d/2 + 0.3;         // ... below this height
 module band_ring_2d() difference() { circle(r = band_r_in + band_t); circle(r = band_r_in); }
 module mir() { for (m = [0, 1]) mirror([m, 0]) children(); }
 // x-z outline of the band: the ring, whose ends come down onto the cups and thicken
-// into cuffs there (beside the seat bosses they keep clear of them)
+// into yokes there (beside the seat bosses they keep clear of them)
 module band_profile_2d() intersection() {
     union() { band_ring_2d(); mir() cuff_2d(); }
     union() {
@@ -342,7 +349,7 @@ module band_profile_2d() intersection() {
         mir() translate([leg_xi, cup_z]) square([20, seat_top - cup_z + 0.01]);
     }
 }
-// right-hand cuff: straight down at cuff_x onto the cup, and a tangent from there up to the
+// right-hand yoke: straight down at cuff_x onto the cup, and a tangent from there up to the
 // band's outer curve
 module cuff_2d() let(P = [cuff_x, cup_z + cup_d/2 + 0.3], a = atan2(P[1], P[0]) + acos(R_b/norm(P)))
     difference() {
@@ -353,7 +360,7 @@ module cuff_2d() let(P = [cuff_x, cup_z + cup_d/2 + 0.3], a = atan2(P[1], P[0]) 
 module cup_top(g) translate([cup_in - 0.02, band_y, head_cz + cup_z]) rotate([0, 90, 0]) cylinder(r = cup_d/2 + g, h = 10);
 
 // x-z outline of the right-hand tab (head frame): lead-in, hook, catch. Its top ends
-// inside the cuff.
+// inside the yoke.
 module btab_2d() let(zt = cup_z + cup_d/2 + 0.4) polygon([
     [btab_x0, zt], [btab_x0, btab_zb + 0.4], [btab_x0 + 0.4, btab_zb], [btab_x1 - 0.1, btab_zb],
     [btab_x1 + btab_hook, hook_zl], [btab_x1 + btab_hook, hook_zc], [btab_x1, hook_zc + hook_dz], [btab_x1, zt]]);
@@ -473,16 +480,16 @@ module cup(side = 1) {
                 translate([0, 0, cup_in]) cylinder(d = cup_d, h = 5);
                 translate([0, 0, cup_x1 - 3]) cylinder(d = cup_d - 5, h = 3);
             }
-        // groove between pad and shell (shallow, and out past the band's slot)
+        // groove between pad and shell (shallow, just outside the band's yoke)
         translate([0, band_y, head_cz + cup_z]) rotate([0, 90*side, 0])
-            translate([0, 0, cup_in + 3.7]) difference() {
-                cylinder(d = cup_d + 2, h = 0.8);
+            translate([0, 0, cup_groove]) difference() {
+                cylinder(d = cup_d + 2, h = 0.45);
                 translate([0, 0, -1]) cylinder(d = cup_d - 1.0, h = 3);
             }
         translate([0, band_y, head_cz + cup_z]) rotate([0, 90*side, 0]) ear_cut(cup_x1);
         // slot for the band's tab: open at the top and towards the head
         translate([0, 0, head_cz]) mirror([side < 0 ? 1 : 0, 0, 0])
-            xz_extrude(band_y - band_w/2 - btab_clr, band_w + 2*btab_clr) btab_slot_2d();
+            xz_extrude(band_y - band_w/2 - btab_clr_y, band_w + 2*btab_clr_y) btab_slot_2d();
     }
     translate([0, band_y, head_cz + cup_z]) rotate([0, 90*side, 0]) ear_lock();
 }
