@@ -55,4 +55,7 @@ PlatformIO firmware that plays what the simulator exports.
   names `claude__<slug>` animations, so renaming a `Claude: …` animation
   means updating it there. Once installed, this repo's own Claude sessions
   drive the board too and hold its one Bluetooth link while busy; run
-  `buddy_bridge.py pause` (or `hold <s>`) while testing on it.
+  `buddy_bridge.py pause` (or `hold <s>`) while testing on it. The macOS
+  menu bar app `claude_integration/menubar/` (Swift; `swift test`,
+  `build.sh --install`) reads the daemon's `GET /status`, so keep that
+  snapshot's keys in step with `menubar/Sources/BuddyBarCore/Snapshot.swift`.

@@ -187,6 +187,36 @@ To keep one session off the buddy, start it with `DESK_BUDDY=0 claude`.
 `pause` covers every session, for example while testing firmware on the
 board.
 
+## Menu bar app (macOS)
+
+`menubar/` is **Buddy Bridge**, a menu bar app (macOS 13 or later, Swift).
+It shows whether the bridge is running and what it shows. The icon follows the
+activity: a book for reading, a pencil for editing, a speech bubble with "!"
+when a session waits for you. It also shows a pause sign when paused, a moon
+when the daemon is not running (normal until the next Claude Code event), a
+raised hand during a `hold`, and a warning sign when the hooks are missing or
+the buddy does not answer. Click the icon for a panel with:
+
+- the state and the animation on the buddy;
+- the link (Bluetooth or Wi-Fi), whether it is connected, and what the buddy
+  goes back to;
+- each session: project folder, activity, subagents, last event;
+- the last few animations shown;
+- Pause / Resume, "Leave the buddy alone for 2 min" (`hold`), Stop, Open log,
+  and Open at login.
+
+```sh
+claude_integration/menubar/build.sh --install   # builds, copies to ~/Applications, starts it
+```
+
+It needs only the Swift toolchain that comes with Xcode or the Command Line
+Tools; `build.sh` without `--install` leaves the app in `menubar/build/`. It
+polls `GET /status` on the daemon (`127.0.0.1:47615`, header `X-Desk-Buddy:
+1`) every 1.5 s, and reads `claude.json` and `~/.claude/settings.json`. Pause
+and Resume run the hooks' own command line with `pause` / `resume`. The app
+keeps no state of its own. Tests: `cd claude_integration/menubar && swift
+test` (status parsing, state rules, and that every icon exists).
+
 ## Troubleshooting
 
 - **Nothing happens.** Run `status`. "not installed": run `install`.
@@ -221,3 +251,4 @@ board.
 |---|---|
 | `buddy_bridge.py` | hook client, daemon, installer and CLI (one file, standard library) |
 | `test_bridge.py` | `python3 claude_integration/test_bridge.py`: event classification, display rules with a fake clock, and the real hook and daemon against a fake buddy |
+| `menubar/` | the Buddy Bridge menu bar app (Swift package; `build.sh`, `swift test`) |

@@ -365,6 +365,20 @@ class Display(unittest.TestCase):
         self.run_for(4)                                          # after min_seconds of editing
         self.assertEqual(self.board.current, 'claude__reading')
 
+    def test_snapshot_for_the_menu_bar_app(self):
+        self.send(pre('Read', sid='abcdef123456'))
+        self.run_for(1)
+        s = self.ctl.snapshot()
+        self.assertEqual((s['showing'], s['activity'], s['link'], s['connected'], s['hold_s']),
+                         ('claude__reading', 'reading', 'fake', None, 0))   # no connected(): HTTP-like
+        self.assertEqual((s['sessions'][0]['id'], s['sessions'][0]['cwd']), ('abcdef12', '/w'))
+        self.assertEqual(tuple(s['recent'][-1][1:]), ('reading', 'claude__reading'))
+        self.assertEqual(s['pid'], os.getpid())
+        self.ctl.hold(30)
+        self.clock.t += 10
+        self.assertEqual(self.ctl.snapshot()['hold_s'], 20)
+        json.dumps(s)                                            # what GET /status sends
+
     def test_overrides(self):
         self.ctl.cfg['animations'] = {'reading': 'face_happy', 'thinking': ['nope', 'claude__spark']}
         self.send(pre('Read'))
@@ -484,6 +498,7 @@ class Bluetooth(unittest.TestCase):
         ctl.apply(bb.classify(pre('Edit', file_path='/x.py')))
         ctl.tick()
         self.assertEqual(self.fake.current, 'claude__editing')
+        self.assertIs(ctl.snapshot()['connected'], True)
         ctl.apply(bb.classify(ev('Stop')))
         for _ in range(300):
             clock.t += 0.25
@@ -491,6 +506,7 @@ class Bluetooth(unittest.TestCase):
         self.assertEqual(self.fake.current, 'cycle')
         time.sleep(0.6)
         self.assertFalse(self.fake.is_connected)                             # released once idle
+        self.assertIs(ctl.snapshot()['connected'], False)
         home.cleanup()
 
 

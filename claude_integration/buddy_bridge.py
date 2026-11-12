@@ -379,6 +379,9 @@ class Board:
     def describe(self):
         return 'http://%s/' % self.host
 
+    def connected(self):
+        return None                           # HTTP: no lasting link
+
     def release(self):
         pass
 
@@ -429,6 +432,13 @@ class BleBoard:
 
     def describe(self):
         return 'Bluetooth (%s)' % (self.name or 'any desk buddy')
+
+    def connected(self):
+        c = self.client
+        try:
+            return bool(c is not None and c.is_connected)
+        except Exception:
+            return False
 
     # -- inside the loop
 
@@ -896,11 +906,16 @@ class Controller:
 
     def snapshot(self):
         now = self.clock()
+        connected = getattr(self.board, 'connected', None)
         with self.lock:
             return {
                 'host': self.cfg['host'], 'active': self.active, 'previous': self.prev,
                 'showing': self.shown, 'activity': self.shown_act, 'wanted': self.want,
                 'board_error': self.last_error,
+                # for the menu bar app (menubar/): the link, whether it is up (None: HTTP has none),
+                # seconds left of a POST /hold, the daemon's pid
+                'link': self.board.describe(), 'connected': connected() if connected else None,
+                'hold_s': max(0, round(self.away_until - now)), 'pid': os.getpid(),
                 'sessions': [{'id': s.sid[:8], 'cwd': s.cwd, 'activity': s.act,
                               'waiting_for_user': s.attention is not None, 'subagents': s.agents,
                               'last_event_s': round(now - s.seen, 1)} for s in self.sessions.values()],
