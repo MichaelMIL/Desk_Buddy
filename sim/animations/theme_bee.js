@@ -79,3 +79,30 @@ Sim.register(FaceRig.animation({
     if (bloom > 0.9) bee(g, fx - 28 + Math.round(6 * Math.sin(c.t * 3)), top - 22 + Math.round(4 * Math.cos(c.t * 4)), c.t, 1);
   },
 }));
+
+function hexagon(g, x, y, r, fill, line) {
+  const pts = [];
+  for (let k = 0; k < 6; k++) pts.push([x + Math.round(r * Math.cos(k * Math.PI / 3)), y + Math.round(r * Math.sin(k * Math.PI / 3))]);
+  if (fill != null) for (let k = 0; k < 6; k++) g.fillTriangle(x, y, pts[k][0], pts[k][1], pts[(k + 1) % 6][0], pts[(k + 1) % 6][1], fill);
+  for (let k = 0; k < 6; k++) g.drawLine(pts[k][0], pts[k][1], pts[(k + 1) % 6][0], pts[(k + 1) % 6][1], line);
+}
+
+Sim.register(FaceRig.animation({
+  name: 'Bee: dance', theme: 'bee', fps: 24, duration: 4000,
+  tracks: {
+    headX: [[0, 0], [500, -10], [1000, 10], [1500, -10], [2000, 10], [2500, -10], [3000, 10], [3500, -10], [4000, 0]],
+    headY: [[0, 0], [250, -5], [500, 0], [750, -5], [1000, 0], [1250, -5], [1500, 0], [1750, -5], [2000, 0], [2250, -5], [2500, 0], [2750, -5], [3000, 0], [3250, -5], [3500, 0], [3750, -5], [4000, 0]],
+    squint: [[0, 0], [400, 1], [3600, 1], [4000, 0]],
+    mouthCurve: [[0, 0.8], [400, 1]],
+    mouthOpen: [[0, 0], [400, 0.55], [3600, 0.55], [4000, 0]],
+    blush: [[0, 0.7]],
+  },
+}, {
+  under(g, c) {
+    // honeycomb along the bottom fills up cell by cell
+    const cells = [[60, 200], [78, 210], [96, 200], [114, 210], [132, 200], [150, 210], [168, 200], [186, 210], [69, 220], [105, 220], [141, 220], [177, 220]];
+    const filled = Math.floor((c.t / 4) * (cells.length + 2));
+    cells.forEach(([x, y], k) => hexagon(g, x, y, 10, k < filled ? Sim.hex('#ffb000') : Sim.hex('#3a2a08'), Sim.hex('#b8860b')));
+  },
+  over(g, c) { antennae(g, c.dy, c.t); },
+}));

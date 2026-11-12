@@ -35,7 +35,7 @@ Sim.register(FaceRig.animation({
     const show = Face.kf(c.t, [[1.5, 0], [1.65, 1], [3.4, 1], [3.7, 0]]);
     if (show > 0.02) {
       const col = Sim.lerp565(c.bg, Sim.C.YELLOW, show), y = 206 - Math.round(6 * Math.abs(Math.sin(c.t * 8)) * show);
-      g.text(120, y, 'LEVEL UP!', col, { size: 19, weight: 'bold', align: 'center', baseline: 'middle', crisp: true });
+      g.text(120, y, 'LEVEL UP!', col, { size: 19, weight: 'bold', font: 'Arial, Helvetica, sans-serif', align: 'center', baseline: 'middle' });
     }
   },
 }));
@@ -60,5 +60,22 @@ Sim.register(FaceRig.animation({
     const u = (c.t / 1.5) % 1, x = 196 + c.dx, y = 62 + Math.round(30 * u) + c.dy, col = Sim.lerp565(c.bg, Sim.hex('#58c8ff'), 1 - u * 0.6);
     g.fillCircle(x, y, 5, col);
     g.fillTriangle(x - 5, y - 1, x + 5, y - 1, x, y - 11, col);
+  },
+}));
+
+Sim.register(FaceRig.animation({
+  name: 'Gamer: game over', theme: 'gamer', fps: 24, duration: 4000,
+  tracks: {
+    eyeSize: [[0, 1.15], [600, 1.15], [900, 1]], iris: [[0, 11], [900, 16]], pupil: [[0, 0.3], [900, 0.5]],
+    brows: [[0, 1]], browRaise: [[0, 22], [900, 12]], browTilt: [[0, 0], [900, -14]],
+    mouthCurve: [[0, 0], [800, 0], [1100, -0.8]], mouthOpen: [[0, 0.6], [800, 0.6], [1000, 0]], mouthWidth: [[0, 18], [1100, 22]],
+    lid: [[0, 0], [900, 0], [1200, 0.35]], lookY: [[0, 0], [1000, 8]],
+    tears: [[0, 0], [1300, 0], [1600, 0.8]],
+  },
+}, {
+  over(g, c) {
+    headset(g, c.dy, c.t, 0);
+    const blink = ((c.t * 3) | 0) % 2 === 0;
+    if (c.t > 0.3 && (blink || c.t > 2.5)) g.text(120, 206, 'GAME OVER', Sim.hex('#ff3a3a'), { size: 19, weight: 'bold', font: 'Arial, Helvetica, sans-serif', align: 'center', baseline: 'middle' });
   },
 }));

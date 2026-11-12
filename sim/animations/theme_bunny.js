@@ -60,3 +60,36 @@ Sim.register({
     if (chew > 0.8) for (let k = 0; k < 3; k++) g.drawPixel(136 + k * 5, 186 + k * 3, Sim.C.ORANGE);
   },
 });
+
+/* One ear at an angle (0 = straight up, + leans right). */
+function ear(g, bx, by, ang, len, col, inner) {
+  const s = Math.sin(ang), c = Math.cos(ang);
+  const tx = bx + Math.round(len * s), ty = by - Math.round(len * c);
+  const px = Math.round(15 * c), py = Math.round(15 * s);
+  g.fillTriangle(bx - px, by - py, bx + px, by + py, tx, ty, col);
+  const ix = Math.round(7 * c), iy = Math.round(7 * s), bx2 = bx + Math.round(4 * s), by2 = by - Math.round(4 * c);
+  g.fillTriangle(bx2 - ix, by2 - iy, bx2 + ix, by2 + iy, bx + Math.round((len - 14) * s), by - Math.round((len - 14) * c), inner);
+}
+
+Sim.register({
+  name: 'Bunny: curious',
+  theme: 'bunny',
+  fps: 24,
+  duration: 4000,
+
+  frame(g, f) {
+    const F = Face, t = f.t / 1000;
+    g.clear(F.BG);
+    const white = Sim.hex('#e8e8f0'), pink = Sim.hex('#ffb3c6');
+    const flop = F.kf(t, [[0.3, 0], [0.7, 1, 'pop'], [1.8, 1], [2.2, 0]]);       // left ear flops over
+    const perk = F.kf(t, [[2.4, 0], [2.6, 1], [3.4, 1], [3.7, 0]]);             // right ear perks up
+    ear(g, 86, 66, -0.25 - 0.95 * flop, 52, white, pink);
+    ear(g, 154, 66, 0.25 - 0.22 * perk, 52 + Math.round(6 * perk), white, pink);
+    const lookX = Math.round(F.kf(t, [[0, 0], [0.8, -12], [1.8, -12], [2.4, 12], [3.4, 12], [3.9, 0]]));
+    const lookY = Math.round(F.kf(t, [[0, 0], [0.8, -6], [1.8, -6], [2.4, 0]]));
+    bunnyFace(g, 0, F, { lookX, lookY });
+    const tw = Math.round(2 * Math.sin(t * 34));                                // sniffing
+    g.fillEllipse(120 + tw, 150, 8, 6, Sim.hex('#ff8fa3'));
+    if (t > 0.9 && t < 2.1) g.text(lookX < 0 ? 44 : 196, 52, '?', Sim.hex('#ffe14d'), { size: 26, weight: 'bold', align: 'center', baseline: 'middle', crisp: true });
+  },
+});

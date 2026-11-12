@@ -60,9 +60,16 @@ window.Face = (() => {
       g.fillRect(cx - rx - 1, cy - ry - 1, 2 * rx + 3, Math.round(2 * ry * o.topLid) + 1, bg());
     }
     if (o.squint > 0) {
-      // cover the lower part with a background ellipse -> upward crescent
+      // cover the lower part with a background ellipse -> upward crescent. Only the rows
+      // of the eye itself are painted: at small squints the ellipse sits mostly below the
+      // eye and would otherwise erase whatever is drawn there (props, backgrounds).
       const off = Math.round((2 * ry + 6) * (1 - o.squint) + ry * 0.55 * o.squint);
-      g.fillEllipse(cx, cy + off, rx + 4, ry + 2, bg());
+      const ecy = cy + off, erx = rx + 4, ery = ry + 2;
+      for (let y = Math.max(cy - ry - 1, ecy - ery); y <= Math.min(cy + ry + 1, ecy + ery); y++) {
+        const d = (y - ecy) / ery;
+        const hw = Math.floor(erx * Math.sqrt(Math.max(0, 1 - d * d)));
+        g.drawFastHLine(cx - hw, y, 2 * hw + 1, bg());
+      }
     }
   };
 

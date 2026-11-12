@@ -76,3 +76,27 @@ Sim.register(FaceRig.animation({
     }
   },
 }));
+
+Sim.register(FaceRig.animation({
+  name: 'Birthday: balloons', theme: 'birthday', fps: 20, duration: 4500,
+  tracks: {
+    lookY: [[0, -8]], lookX: [[0, -8], [2200, 8], [4500, -8]],
+    eyeSize: [[0, 1.08]],
+    mouthCurve: [[0, 1]], mouthOpen: [[0, 0.5]], mouthWidth: [[0, 28]],
+    blush: [[0, 0.8]],
+  },
+}, {
+  under(g, c) {
+    // balloons drift up behind the face
+    for (let k = 0; k < 6; k++) {
+      const u = ((c.t / 4.5) + k / 6) % 1;
+      const x = 30 + ((k * 37) % 180) + Math.round(10 * Math.sin(c.t * 1.5 + k)), y = 262 - Math.round(300 * u);
+      const col = CONFETTI[k % CONFETTI.length];
+      for (let i = 0; i < 4; i++) g.drawLine(x + (i % 2 ? 2 : -2), y + 20 + i * 6, x + (i % 2 ? -2 : 2), y + 26 + i * 6, Sim.hex('#cfd8e3'));
+      g.fillEllipse(x, y, 14, 17, col);
+      g.fillTriangle(x - 3, y + 19, x + 3, y + 19, x, y + 15, col);
+      g.fillEllipse(x - 5, y - 6, 3, 5, Sim.lerp565(col, Sim.C.WHITE, 0.6));
+    }
+  },
+  over(g, c) { partyHat(g, c.dy, c.t); },
+}));

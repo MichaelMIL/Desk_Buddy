@@ -75,3 +75,26 @@ Sim.register({
     }
   },
 });
+
+Sim.register({
+  name: 'Skeleton: laugh',
+  theme: 'skeleton',
+  fps: 24,
+  duration: 3200,
+
+  frame(g, f) {
+    const t = f.t / 1000, bg = Sim.hex('#101018');
+    g.clear(bg);
+    const laugh = Face.kf(t, [[0.2, 0], [0.4, 1], [2.6, 1], [2.9, 0]]);
+    const jaw = Math.round(3 + 16 * Math.abs(Math.sin(t * 9)) * laugh);
+    const dy = Math.round(-6 * laugh + 3 * Math.sin(t * 18) * laugh);
+    skull(g, { dy, jaw, pupil: HOLE });
+    // laughing eyes: cover the lower half of each socket -> upside-down crescents
+    if (laugh > 0.3) for (const cx of [80, 160]) g.fillEllipse(cx, 100 + dy + 20, 30, 22, BONE);
+    // HA HA bouncing on the forehead
+    if (laugh > 0.5) for (let k = 0; k < 2; k++) {
+      const hop = Math.abs(Math.sin(t * 9 + k * 1.6));
+      g.text(98 + k * 44, 46 + dy - Math.round(5 * hop), 'HA', HOLE, { size: 17, weight: 'bold', font: 'Arial, Helvetica, sans-serif', align: 'center', baseline: 'middle' });
+    }
+  },
+});

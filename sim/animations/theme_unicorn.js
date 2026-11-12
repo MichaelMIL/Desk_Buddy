@@ -67,3 +67,32 @@ Sim.register({
     F.blush(g, 1, 0, dy + 6);
   },
 });
+
+Sim.register(FaceRig.animation({
+  name: 'Unicorn: magic', theme: 'unicorn', fps: 24, duration: 3600,
+  colors: { bg: '#1e0f3a' },
+  tracks: {
+    lookY: [[0, 0], [600, -12], [2800, -12], [3200, 0]], lookX: [[0, 0], [600, 3]],
+    eyeSize: [[0, 1], [900, 1.12], [2700, 1.12], [3100, 1]],
+    mouthCurve: [[0, 0.6], [900, 0.1], [2700, 0.1], [3100, 0.8]],
+    mouthOpen: [[0, 0], [900, 0.55], [2700, 0.55], [3100, 0]],
+    blush: [[0, 0.6]],
+    sparkle: [[0, 0], [2800, 0], [3000, 1], [3600, 0]],
+  },
+}, {
+  over(g, c) {
+    mane(g, c.dy, c.t);
+    const glow = Face.kf(c.t, [[0.3, 0], [0.8, 1], [2.8, 1], [3.2, 0]]);
+    horn(g, c.dy, glow);
+    // magic stars spill from the horn tip out to both sides
+    if (glow > 0.05) {
+      const cols = ['#ff7ab3', '#ffb86b', '#fff26b', '#7bffb0', '#7bc8ff', '#c57bff'].map(Sim.hex);
+      for (let k = 0; k < 12; k++) {
+        const u = ((c.t * 0.9) + k / 12) % 1, side = k % 2 ? 1 : -1;
+        const x = 120 + side * Math.round((20 + 6 * (k % 3)) * u * 4), y = 12 + c.dy + Math.round(70 * u * u) + Math.round(6 * Math.sin(u * 9 + k));
+        const s = Math.round(2 + 4 * Math.sin(u * Math.PI)), col = Sim.lerp565(c.bg, cols[k % cols.length], glow * Math.sin(u * Math.PI));
+        g.drawFastHLine(x - s, y, 2 * s + 1, col); g.drawFastVLine(x, y - s, 2 * s + 1, col);
+      }
+    }
+  },
+}));

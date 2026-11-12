@@ -68,3 +68,33 @@ Sim.register({
     crown(g, dy, t);
   },
 });
+
+Sim.register(FaceRig.animation({
+  name: 'King: cheers', theme: 'king', fps: 24, duration: 3600,
+  colors: { bg: '#1a0a2a' },
+  tracks: {
+    headY: [[0, 8]],
+    squint: [[0, 0], [900, 0], [1100, 1], [2600, 1], [2900, 0]],
+    mouthCurve: [[0, 0.7], [900, 1]],
+    mouthOpen: [[0, 0], [900, 0], [1100, 0.7], [2600, 0.7], [2900, 0]],
+    mouthWidth: [[0, 26], [1100, 32], [2900, 26]],
+    blush: [[0, 0], [1100, 0.8], [2900, 0]],
+    sparkle: [[0, 0], [1200, 1], [2500, 1], [2800, 0]],
+  },
+}, {
+  over(g, c) {
+    crown(g, c.dy, c.t);
+    // golden goblet raised for a toast
+    const lift = Face.kf(c.t, [[0.4, 0], [1.0, 1, 'pop'], [2.6, 1], [3.1, 0]]);
+    const gold = Sim.hex('#f0c419'), x = 204, y = 194 - Math.round(34 * lift);
+    g.fillTriangle(x - 13, y - 18, x + 13, y - 18, x, y, gold);
+    g.fillEllipse(x, y - 18, 13, 4, Sim.hex('#b8860b'));
+    g.fillEllipse(x, y - 18, 10, 2, Sim.hex('#a0102a'));
+    g.fillRect(x - 2, y, 4, 11, gold);
+    g.fillEllipse(x, y + 12, 8, 3, gold);
+    if (lift > 0.95 && c.t < 1.4) for (let k = 0; k < 4; k++) {
+      const a = -Math.PI / 2 + (k - 1.5) * 0.5;
+      g.drawLine(x + Math.round(18 * Math.cos(a)), y - 22 + Math.round(18 * Math.sin(a)), x + Math.round(26 * Math.cos(a)), y - 22 + Math.round(26 * Math.sin(a)), Sim.C.WHITE);
+    }
+  },
+}));

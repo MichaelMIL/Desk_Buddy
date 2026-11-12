@@ -70,3 +70,42 @@ Sim.register(FaceRig.animation({
     }
   },
 }));
+
+function beachBall(g, x, y, r, rot) {
+  const cols = ['#ff3a3a', '#ffffff', '#2a6cff', '#ffffff', '#ffd23d', '#ffffff'].map(Sim.hex);
+  for (let k = 0; k < 6; k++) {
+    const a0 = ((rot + k * 60) % 360 + 360) % 360, a1 = (a0 + 60) % 360;
+    if (a0 < a1) g.drawArc(x, y, r, 0, a0, a1, cols[k]);
+    else { g.drawArc(x, y, r, 0, a0, 360, cols[k]); g.drawArc(x, y, r, 0, 0, a1, cols[k]); }
+  }
+  g.fillCircle(x, y, 3, Sim.C.WHITE);
+}
+
+const BALL = FaceRig.normalize({
+  name: 'Summer: beach ball', theme: 'summer', fps: 24, duration: 4000,
+  colors: { bg: '#0e2f4a' },
+  tracks: {
+    mouthCurve: [[0, 0.9]], mouthOpen: [[0, 0.3]], blush: [[0, 0.5]],
+    squint: [[0, 0], [3000, 0], [3200, 0.8], [3800, 0.8], [4000, 0]],
+  },
+});
+Sim.register({
+  name: BALL.name, theme: BALL.theme, fps: BALL.fps, duration: BALL.duration,
+  frame(g, f) {
+    const t = f.t / 1000;
+    const bx = 120 + Math.round(70 * Math.sin(f.p * Math.PI * 2)), by = 204 - Math.round(64 * Math.abs(Math.sin(f.p * Math.PI * 3)));
+    const v = FaceRig.valuesAt(BALL, f.t);
+    v.lookX = Math.max(-14, Math.min(14, Math.round((bx - 120) / 5)));          // watching the ball
+    v.lookY = Math.max(-10, Math.min(12, Math.round((by - 112) / 7)));
+    FaceRig.draw(g, v, f.t, BALL, {
+      under(g, c) {
+        for (let x = 0; x < 240; x += 4) {
+          const h = 222 + Math.round(4 * Math.sin(x / 14 + t * 3));
+          g.fillRect(x, h, 4, 240 - h, Sim.hex('#1f78b4'));
+          g.fillRect(x, h, 4, 2, Sim.hex('#9fd3ff'));
+        }
+      },
+      over(g, c) { beachBall(g, bx, by, 16, Math.round(t * 240 * Math.sign(Math.cos(f.p * Math.PI * 2)))); },
+    }, f);
+  },
+});

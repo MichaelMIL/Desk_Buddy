@@ -68,3 +68,32 @@ Sim.register({
     g.drawLine(bx + 12, by + 10, 200, 190 + Math.round(6 * Math.sin(t * 5)), red);
   },
 });
+
+Sim.register({
+  name: 'Cat: laser',
+  theme: 'cat',
+  fps: 30,
+  duration: 4000,
+
+  frame(g, f) {
+    const F = Face, t = f.t / 1000;
+    g.clear(F.BG);
+    // the laser dot zips around the bottom of the screen
+    const lx = 120 + Math.round(78 * Math.sin(t * 2.3) * Math.cos(t * 0.7)), ly = 198 + Math.round(16 * Math.sin(t * 3.1));
+    const crouch = F.kf(t, [[2.6, 0], [3.0, 1], [3.3, 1], [3.45, -1, 'pop'], [3.8, 0]]);   // wiggle, then pounce
+    const dy = Math.round(6 * crouch + (crouch > 0.9 ? 2 * Math.sin(t * 40) : 0));
+    catEars(g, dy, crouch > 0.9 ? Math.round(4 * Math.sin(t * 30)) : 0, Sim.hex('#f2b8c6'), Sim.hex('#ff8fa3'));
+    for (const cx of [F.LX, F.RX]) {
+      g.fillEllipse(cx, F.EY + dy, 32, 40, Sim.hex('#ffd34d'));
+      const px = cx + Math.max(-12, Math.min(12, Math.round((lx - cx) / 6)));
+      const py = F.EY + dy + Math.max(-14, Math.min(16, Math.round((ly - F.EY) / 6)));
+      g.fillCircle(px, py, 16, Sim.hex('#101018'));                               // big hunting pupils
+      g.fillCircle(px + 5, py - 6, 4, Sim.C.WHITE);
+    }
+    g.fillTriangle(112, 146 + dy, 128, 146 + dy, 120, 156 + dy, Sim.hex('#ff8fa3'));
+    g.drawArc(110, 164 + dy, 11, 8, 20, 180, F.MOUTH); g.drawArc(130, 164 + dy, 11, 8, 180, 340, F.MOUTH);
+    whiskers(g, dy, Sim.hex('#8a919c'));
+    g.fillCircle(lx, ly, 7, Sim.lerp565(F.BG, Sim.C.RED, 0.35));
+    g.fillCircle(lx, ly, 3, Sim.hex('#ff3030'));
+  },
+});

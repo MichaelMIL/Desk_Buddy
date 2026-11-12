@@ -65,3 +65,32 @@ Sim.register(FaceRig.animation({
     }
   },
 }));
+
+Sim.register(FaceRig.animation({
+  name: 'Dragon: sneeze', theme: 'dragon', fps: 24, duration: 3600,
+  colors: { bg: '#071a10', iris: '#ffb000' },
+  tracks: {
+    lid: [[0, 0], [400, 0.2], [900, 0.45], [1300, 0.7], [1450, 0]],             // ah… ah…
+    squint: [[0, 0], [1400, 0], [1450, 1], [1800, 1], [2000, 0]],               // …CHOO
+    headY: [[0, 0], [1300, -8], [1450, 10, 'pop'], [1900, 0]],
+    mouthCurve: [[0, 0.6], [400, 0], [1450, 0], [2200, 0.6]],
+    mouthOpen: [[0, 0], [500, 0.3], [1300, 0.6], [1450, 0.2], [1700, 0]],
+    blush: [[0, 0], [2050, 0], [2150, 0.9], [3300, 0.9], [3400, 0]],
+    lookX: [[0, 0], [2200, 0], [2500, -10], [3200, -10], [3500, 0]],             // looks away, embarrassed
+  },
+}, {
+  over(g, c) {
+    spikes(g, c.dy, Sim.hex('#ff8a1a'));
+    nostrils(g, c.dx, c.dy);
+    const burst = Face.kf(c.t, [[1.42, 0], [1.9, 1]]);                         // 0..1 as the burst spreads
+    if (c.t > 1.42 && c.t < 1.9) {
+      for (const nx of [112, 128]) for (let k = 0; k < 7; k++) {
+        const a = Math.PI * (0.15 + 0.7 * k / 6) + (nx < 120 ? 0.3 : -0.3), d = 6 + Math.round(36 * burst);
+        const col = burst < 0.5 ? (k % 2 ? Sim.hex('#fff2a6') : Sim.hex('#ffd23d')) : (k % 2 ? Sim.hex('#ffb000') : Sim.hex('#ff6a1a'));
+        g.fillCircle(nx + c.dx + Math.round(d * Math.cos(a)), 148 + c.dy + Math.round(d * Math.sin(a)), Math.round(6 - 3 * burst), col);
+      }
+    }
+    const smoke = Face.kf(c.t, [[1.9, 0], [2.2, 1], [3.0, 0]]);
+    if (smoke > 0.02) for (let k = 0; k < 3; k++) g.drawCircle(104 + k * 16, 150 + c.dy - Math.round(14 * smoke) - k * 4, 5 + k * 2, Sim.lerp565(c.bg, Sim.hex('#9aa0aa'), smoke));
+  },
+}));

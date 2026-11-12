@@ -50,3 +50,25 @@ Sim.register(FaceRig.animation({
     }
   },
 }));
+
+Sim.register(FaceRig.animation({
+  name: 'Valentine: kiss', theme: 'valentine', fps: 24, duration: 3600,
+  colors: { bg: '#200814' },
+  tracks: {
+    openL: [[0, 1], [700, 1], [850, 0], [1900, 0], [2050, 1]],                   // wink…
+    mouthCurve: [[0, 0.6], [600, 0], [1700, 0], [2000, 0.9]],
+    mouthOpen: [[0, 0], [600, 0.15], [1700, 0.15], [1900, 0]],                    // …pucker…
+    mouthWidth: [[0, 26], [600, 10], [1700, 10], [2000, 26]],
+    blush: [[0, 0.4], [900, 1]],
+  },
+}, {
+  over(g, c) {
+    // …and a heart floats off the lips
+    const u = Face.kf(c.t, [[1.0, 0], [2.6, 1]]);
+    if (c.t > 1.0 && c.t < 2.8) {
+      const x = 128 + Math.round(70 * u), y = 160 - Math.round(110 * u) + Math.round(6 * Math.sin(u * 12));
+      heart(g, x, y, 4 + Math.round(8 * u), Sim.lerp565(c.bg, Sim.hex('#ff2a5a'), 1 - 0.3 * u));
+    }
+    if (c.t > 0.95 && c.t < 1.25) for (const s of [-1, 1]) g.drawLine(120 + s * 14, 160 + c.dy, 120 + s * 22, 156 + c.dy, Sim.hex('#ff8fb3'));
+  },
+}));

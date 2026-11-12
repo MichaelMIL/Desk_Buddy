@@ -66,3 +66,31 @@ Sim.register(FaceRig.animation({
     }
   },
 }));
+
+Sim.register(FaceRig.animation({
+  name: 'Devil: trident', theme: 'devil', fps: 24, duration: 3600,
+  colors: { bg: '#1a0608', mouth: '#ff4f4f' },
+  tracks: {
+    brows: [[0, 1]], browTilt: [[0, 12]], browRaise: [[0, 4]], lid: [[0, 0.25]],
+    openL: [[0, 1], [1200, 1], [1350, 0], [1900, 0], [2050, 1]],
+    lookX: [[0, 6]],
+    mouthCurve: [[0, 0.9]],
+    mouthWidth: [[0, 22], [1200, 30], [2000, 30], [2400, 22]],
+    headX: [[0, -8]],
+  },
+}, {
+  over(g, c) {
+    horns(g, c.dy, Sim.hex('#b3121e'));
+    const metal = Sim.hex('#9aa0aa'), x = 206, ty = 76 + Math.round(4 * Math.sin(c.t * 3));
+    g.fillRect(x - 2, ty, 5, 200 - ty, Sim.hex('#6a2a1a'));
+    g.fillRect(x - 11, ty - 2, 23, 4, metal);
+    for (const px of [x - 10, x, x + 10]) {
+      g.fillRect(px - 1, ty - 14, 3, 14, metal);
+      g.fillTriangle(px - 4, ty - 14, px + 4, ty - 14, px, ty - 24, metal);
+    }
+    if ((c.t % 1.8) < 0.25) {
+      const sx = x + 10, sy = ty - 24;
+      g.drawFastHLine(sx - 6, sy, 13, Sim.C.WHITE); g.drawFastVLine(sx, sy - 6, 13, Sim.C.WHITE);
+    }
+  },
+}));

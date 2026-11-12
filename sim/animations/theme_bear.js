@@ -67,3 +67,33 @@ Sim.register({
     }
   },
 });
+
+Sim.register(FaceRig.animation({
+  name: 'Bear: snooze', theme: 'bear', fps: 20, duration: 4000,
+  tracks: {
+    open: [[0, 0]], eyeSize: [[0, 0.88]],
+    mouthCurve: [[0, 0.3]], mouthWidth: [[0, 12]],
+    zzz: [[0, 1]],
+    headY: [[0, 0], [2000, 4], [4000, 0]],
+  },
+}, {
+  under(g, c) {
+    g.fillEllipse(120 + c.dx, 154 + c.dy, 30, 22, Sim.hex('#c9955a'));     // muzzle
+    g.fillEllipse(120 + c.dx, 142 + c.dy, 10, 7, Sim.hex('#101018'));      // nose
+  },
+  over(g, c) {
+    bearEars(g, c.dy, Sim.hex('#8b5a2b'), Sim.hex('#c9955a'));
+    // a bubble grows with each breath, then pops
+    const u = (c.t % 2) / 2, x = 138 + c.dx, y = 146 + c.dy;
+    if (u < 0.9) {
+      const r = Math.round(3 + 15 * u);
+      g.drawCircle(x + Math.round(r * 0.7), y + Math.round(r * 0.2), r, Sim.hex('#9fd3ff'));
+      g.drawPixel(x + Math.round(r * 0.5), y - Math.round(r * 0.4), Sim.C.WHITE);
+    } else {
+      for (let k = 0; k < 6; k++) {
+        const a = k * Math.PI / 3;
+        g.drawLine(x + 12 + Math.round(8 * Math.cos(a)), y + Math.round(8 * Math.sin(a)), x + 12 + Math.round(14 * Math.cos(a)), y + Math.round(14 * Math.sin(a)), Sim.hex('#9fd3ff'));
+      }
+    }
+  },
+}));
