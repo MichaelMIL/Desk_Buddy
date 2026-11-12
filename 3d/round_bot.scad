@@ -13,14 +13,14 @@
 //  Parts (set `part`, then F6 / export STL):
 //    core:        "head_shell" "head_cap" "neck_key" "base" "usb_cover"
 //    bodies:      "body_bare" "body_skeleton" "body_hoodie" "body_cat" "body_astro"
-//                 (all need supports)
+//                 "body_claude" (all need supports)
 //    side pieces: "plug" (x2, fits both sides) "cup_left" "cup_right" "cup_mic"
-//                 "pod_left" "pod_right"
+//                 "cup_claude_left" "cup_claude_right" "pod_left" "pod_right"
 //    bands:       "band_plain" "band_cat" "band_bug" "band_bear" "band_bunny"
-//                 "band_devil" "band_crown" "band_dino" "band_unicorn"
+//                 "band_devil" "band_crown" "band_dino" "band_unicorn" "band_claude"
 //  Template = core + body_bare + 2 plugs. To add a theme, copy plug(),
 //  topper_2d() or body("bare") and keep their interfaces.
-//    "assembly" - coloured preview of the DJ theme
+//    "assembly" - coloured preview of the DJ theme, "assembly_claude" - the Claude theme
 //
 //  Units: mm. Front of the robot faces -Y. Z is up.
 // ============================================================
@@ -184,6 +184,15 @@ module xz_extrude(y0, len) {
     // rotate +90 about X maps 2D (x, v) -> (x, -t, v); no mirror needed
     translate([0, y0 + len, 0]) rotate([90, 0, 0])
         linear_extrude(len) children();
+}
+
+// Claude spark (as claude_kit.js draws it): n tapered rays of uneven length round a small
+// core. r = longest ray; w = half-width of a ray's base (fraction of r); tip = half-width
+// of its blunt tip (mm), so it prints; rot = angle of the first ray (degrees).
+module spark_2d(r, n = 12, w = 0.12, vary = 0.3, core = 0.22, tip = 0.3, rot = 0) {
+    circle(r = r*core, $fn = 32);
+    for (k = [0 : n - 1]) let(len = r*(1 - vary + vary*(((k*7) % 5)/4)))
+        rotate(rot + k*360/n) polygon([[0, -r*w], [len, -tip], [len, tip], [0, r*w]]);
 }
 
 module rounded_puck(R, D, rf, rb) {
@@ -391,7 +400,9 @@ module band(style = "plain") {
         band_ex(-band_w/2 - 1, 2.2) for (m = [0, 1]) mirror([m, 0]) rotate(-33)
             translate([0, band_r_in + band_t + 1.5]) offset(r = 1) offset(delta = -4.2) translate([0, -(band_r_in + band_t + 1.5)]) cat_ear_2d();
     }
-    if (style != "plain" && style != "cat" && style != "bug") difference() {
+    if (style == "claude")   // Claude spark, 4 mm thick and flush with the back face (print side)
+        band_ex(band_w/2 - 4, 4) translate([0, R_b + 7]) spark_2d(10, rot = 30);
+    if (style != "plain" && style != "cat" && style != "bug" && style != "claude") difference() {
         band_ex() topper_2d(style);
         band_ex(-band_w/2 - 1, 2.0) topper_recess_2d(style);
     }
@@ -473,7 +484,7 @@ module ear_cut(z_out) {
 }
 
 // headphone cup: twist-locks into the head, the band's tab then clicks into its slot
-module cup(side = 1) {
+module cup(side = 1, spark = false) {
     difference() {
         translate([0, band_y, head_cz + cup_z]) rotate([0, 90*side, 0])
             hull() {
@@ -487,6 +498,10 @@ module cup(side = 1) {
                 translate([0, 0, -1]) cylinder(d = cup_d - 1.0, h = 3);
             }
         translate([0, band_y, head_cz + cup_z]) rotate([0, 90*side, 0]) ear_cut(cup_x1);
+        // Claude theme: a spark engraved 0.6 mm into the outer face (it prints on the bed,
+        // so its rays are short gaps the next layers close over)
+        if (spark) translate([0, band_y, head_cz + cup_z]) rotate([0, 90*side, 0])
+            translate([0, 0, cup_x1 - 0.6]) linear_extrude(1) spark_2d(5, w = 0.16, tip = 0.3, rot = 15);
         // slot for the band's tab: open at the top and towards the head
         translate([0, 0, head_cz]) mirror([side < 0 ? 1 : 0, 0, 0])
             xz_extrude(band_y - band_w/2 - btab_clr_y, band_w + 2*btab_clr_y) btab_slot_2d();
@@ -727,8 +742,26 @@ module neck_key(dy = 0) {
     }
 }
 
+// Claude theme: an open laptop on the lap, hands on its keys, the spark on the back of the
+// lid; a second spark in relief on the back
+lap_w = 22;  lap_d = 12.5;  lap_t = 1.6;   // base (keyboard half)
+lap_y = -34; lap_z = 15.6;                 // its far edge (the hinge) and underside
+lid_h = 13;  lid_t = 1.4;  lid_tilt = 12;  // the lid leans back towards the buddy
+module laptop() {
+    translate([-lap_w/2, lap_y, lap_z]) cube([lap_w, lap_d, lap_t]);
+    translate([0, lap_y, lap_z]) rotate([-lid_tilt, 0, 0]) {
+        translate([-lap_w/2, 0, 0]) cube([lap_w, lid_t, lid_h]);
+        translate([0, 0.01, lid_h/2 + 0.6]) rotate([90, 0, 0]) linear_extrude(0.6) spark_2d(5.5, rot = 30);
+    }
+}
+module back_spark() intersection() {
+    difference() { torso(-0.7); torso(); }
+    translate([0, 0, 21]) rotate([-90, 0, 0]) linear_extrude(40) spark_2d(8, rot = -150);
+}
+
 // style: "bare" (template), "hoodie", "cat" (hoodie + tail),
-//        "astro" (suit collar + backpack), "skeleton" (bones + rib relief)
+//        "astro" (suit collar + backpack), "skeleton" (bones + rib relief),
+//        "claude" (laptop on the lap, spark on the back)
 module body(style = "hoodie") {
     plain = style == "bare" || style == "skeleton";
     difference() {
@@ -739,6 +772,7 @@ module body(style = "hoodie") {
             if (style == "hoodie" || style == "cat") hood_bag();
             if (style == "cat") cat_tail();
             if (style == "astro") backpack();
+            if (style == "claude") { laptop(); back_spark(); }
             neck_box(neck_wall, body_h - 6, head_bottom_z + neck_plug);
             neck_box(neck_wall + neck_fit, head_bottom_z - 2, head_bottom_z + neck_plug);   // snug plug
             // rest block behind the neck: the rear of the head's flat floor sits on it
@@ -915,6 +949,20 @@ else if (part == "neck_key")      place_head() neck_key(placed ? key_pos : 0);
 else if (part == "body_hoodie") body("hoodie");
 else if (part == "body_cat")    body("cat");
 else if (part == "body_astro")  body("astro");
+else if (part == "body_claude") body("claude");
+else if (part == "band_claude")      show([-90, 0, 0]) band("claude");
+else if (part == "cup_claude_right") show([0, 90, 0])  cup(1, true);
+else if (part == "cup_claude_left")  show([0, -90, 0]) cup(-1, true);
+else if (part == "assembly_claude") {
+    color("#f0eee6") place_head() head_shell();
+    color("#e6e4de") place_head() head_cap();
+    place_head() screen_dummy();
+    color("#1f1e1d") band("claude");
+    color("#f0eee6") { cup(1, true); cup(-1, true); }
+    color("#d97757") body("claude");
+    color("#d97757") usb_cover();
+    color("#444") base_plate();
+}
 else if (part == "base")        base_plate();
 else if (part == "usb_cover")   show([-90, 0, 0]) usb_cover();   // outer face down
 else if (part == "screen")      place_head() screen_dummy();
