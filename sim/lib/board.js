@@ -1,7 +1,8 @@
 /*
  * board.js - shared by the simulator (app.js) and the editor (editor.js):
- * board names, file names, rendering an animation to DBAZ bytes, and pushing
- * to a running desk buddy through serve.py's /api/push (NDJSON progress).
+ * board names, file names, rendering an animation to the bytes the board
+ * stores (DBAL: LZMA), and pushing to a running desk buddy through serve.py's
+ * /api/push (NDJSON progress). Boards with firmware older than DBAL get DBAZ.
  */
 (function () {
   'use strict';
@@ -27,7 +28,22 @@
     return { i, n: def.frames, fps: def.fps, dt: 1000 / def.fps, t: i * 1000 / def.fps, p: def.frames > 1 ? i / def.frames : 0, state };
   }
 
-  /** Render every frame of `def` (a registered animation) and return { raw, bytes } (bytes = DBAZ). */
+  /**
+   * Encode frames the way the board stores them: DBA1 split into several rectangles per
+   * frame or not, whichever is smaller once compressed, in a DBAL (LZMA) container.
+   * Returns { raw (DBA1), bytes (DBAL) }.
+   */
+  function pack(frames, delays, loop) {
+    const opts = { width: Gfx.WIDTH, height: Gfx.HEIGHT, delays, loop: loop !== false };
+    const split = DBA.encode(frames, { ...opts, split: true });
+    const single = DBA.encode(frames, { ...opts, split: false });
+    const a = { raw: split, bytes: DBA.compressLzma(split) };
+    if (single.length === split.length && single.every((v, i) => v === split[i])) return a;
+    const b = { raw: single, bytes: DBA.compressLzma(single) };
+    return b.bytes.length < a.bytes.length ? b : a;
+  }
+
+  /** Render every frame of `def` (a registered animation) and return { raw, bytes } (see pack). */
   async function build(def) {
     const fb = new Gfx.Framebuffer();
     const state = {};
@@ -40,8 +56,7 @@
       delays.push(d);
       frames.push(fb.snapshot());
     }
-    const raw = DBA.encode(frames, { width: Gfx.WIDTH, height: Gfx.HEIGHT, delays, loop: def.loop !== false });
-    return { raw, bytes: await DBA.compress(raw) };
+    return pack(frames, delays, def.loop);
   }
 
   function toBase64(bytes) {
@@ -50,11 +65,27 @@
     return btoa(s);
   }
 
+  /* Hosts whose firmware refused DBAL (from before DBAL support): they get DBAZ from then on. */
+  const noLzma = new Set();
+  const oldFirmwareRefusal = msg => /DBA1\/DBAZ animation/.test(msg) && !/DBAL/.test(msg);
+
   /**
-   * Upload DBAZ bytes to the board at `host` as `name`. onProgress(sent, total) is called
+   * Upload DBAL/DBAZ bytes to the board at `host` as `name`. onProgress(sent, total) is called
    * while the bytes go out. Resolves with the board's reply; throws with a readable message.
+   * A board whose firmware predates DBAL refuses it; the bytes are then re-sent as DBAZ.
    */
   async function push(host, name, bytes, play, onProgress) {
+    if (DBA.isLzma(bytes) && noLzma.has(host)) bytes = await DBA.compress(await DBA.decompress(bytes));
+    try {
+      return await pushOnce(host, name, bytes, play, onProgress);
+    } catch (e) {
+      if (!DBA.isLzma(bytes) || !oldFirmwareRefusal(e.message)) throw e;
+      noLzma.add(host);
+      return pushOnce(host, name, await DBA.compress(await DBA.decompress(bytes)), play, onProgress);
+    }
+  }
+
+  async function pushOnce(host, name, bytes, play, onProgress) {
     const r = await fetch('/api/push', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ host, name, data_base64: toBase64(bytes), play: !!play }),
@@ -95,5 +126,5 @@
     try { new BroadcastChannel('desk-buddy-sim').postMessage({ type: 'saved', file, name }); } catch (e) { /* unsupported */ }
   }
 
-  window.Board = { boardName, fileNameFor, frameInfo, build, push, getHost, setHost, announceSaved };
+  window.Board = { boardName, fileNameFor, frameInfo, pack, build, push, getHost, setHost, announceSaved };
 })();

@@ -150,8 +150,8 @@ class Handler(SimpleHTTPRequestHandler):
             if not SYM_RE.match(sym):
                 return self._json(400, {"error": "bad symbol: %r" % sym})
             data = base64.b64decode(req.get("data_base64", ""))
-            if data[:4] not in (b"DBA1", b"DBAZ"):
-                return self._json(400, {"error": "data is not a DBA1/DBAZ animation"})
+            if data[:4] not in (b"DBA1", b"DBAZ", b"DBAL"):
+                return self._json(400, {"error": "data is not a DBA1/DBAZ/DBAL animation"})
             if not os.path.isdir(FIRMWARE_DIR):
                 return self._json(400, {"error": "firmware dir not found: %s" % FIRMWARE_DIR})
             path = os.path.join(FIRMWARE_DIR, sym + ".h")
@@ -173,10 +173,10 @@ class Handler(SimpleHTTPRequestHandler):
             if not NAME_RE.match(name):
                 return self._json(400, {"error": "bad name (a-z, 0-9, _ only)"})
             data = base64.b64decode(req.get("data_base64", ""))
-            if data[:4] not in (b"DBA1", b"DBAZ"):
-                return self._json(400, {"error": "data is not a DBA1/DBAZ animation"})
+            if data[:4] not in (b"DBA1", b"DBAZ", b"DBAL"):
+                return self._json(400, {"error": "data is not a DBA1/DBAZ/DBAL animation"})
             if data[:4] == b"DBA1":
-                data = dba.compress(data)
+                data = dba.compress(data, "zlib")   # DBAZ: every firmware takes it
         except Exception as e:  # noqa: BLE001
             return self._json(400, {"error": str(e)})
         # stream progress while the bytes go to the board
@@ -396,12 +396,33 @@ def _push_serial(port, name, data, play, progress):
         ser.close()
 
 
+def _bridge_hold(seconds):
+    """Ask the Claude Code bridge (claude_integration/buddy_bridge.py) to drop its Bluetooth link
+    and stay off the buddy for `seconds` (0 ends the hold). The buddy takes one connection, and a
+    command the bridge wrote mid-upload would land in the upload data. No bridge running: ignored."""
+    try:
+        c = http.client.HTTPConnection("127.0.0.1", 47615, timeout=15)
+        c.request("POST", "/hold", body=json.dumps({"seconds": seconds}), headers={"X-Desk-Buddy": "1"})
+        c.getresponse().read()
+        c.close()
+    except OSError:
+        pass
+
+
 def _push_ble(device_name, name, data, play, progress):
     try:
         import asyncio
         from bleak import BleakClient, BleakScanner
     except ImportError:
         raise BoardError("Bluetooth push needs bleak: pip install bleak")
+    _bridge_hold(300)
+    try:
+        return _push_ble_now(device_name, name, data, play, progress, asyncio, BleakClient, BleakScanner)
+    finally:
+        _bridge_hold(5)   # not 0: push_all.sh pushes the next file right away and renews the hold
+
+
+def _push_ble_now(device_name, name, data, play, progress, asyncio, BleakClient, BleakScanner):
 
     async def run():
         def match(d, ad):
@@ -410,7 +431,7 @@ def _push_ble(device_name, name, data, play, progress):
             return not device_name or device_name in (ad.local_name, d.name)
         dev = await BleakScanner.find_device_by_filter(match, timeout=10)
         if not dev:
-            raise BoardError("no desk buddy advertising over Bluetooth (is another phone or tab connected to it?)")
+            raise BoardError("no desk buddy advertising over Bluetooth (is another phone, tab or program connected to it?)")
         replies, text = asyncio.Queue(), [""]
 
         def on_tx(_, d):
@@ -446,7 +467,7 @@ def _push_ble(device_name, name, data, play, progress):
 
 
 def push_to_board(host, name, data, play=False, timeout=60, progress=None, chunk=4096):
-    """Upload a DBA1/DBAZ animation to a desk buddy, calling progress(sent, total) along the way;
+    """Upload a DBA1/DBAZ/DBAL animation to a desk buddy, calling progress(sent, total) along the way;
     returns the board's reply. host = ip[:port] (HTTP), "usb[:<port>]" or "ble[:<name>]"."""
     if host == "usb" or host.startswith("usb:"):
         return _push_serial(host[4:], name, data, play, progress)

@@ -5,7 +5,7 @@ format). Lets you turn PNG sequences or GIFs made in any PC tool into files
 the desk buddy firmware can play.
 
   python3 dba.py encode frames/*.png -o anim.h --fps 25
-  python3 dba.py encode wave.gif -o wave.dba
+  python3 dba.py encode wave.gif -o wave.dba          # DBAL (LZMA); --zlib for firmware without DBAL
   python3 dba.py decode anim.dba -o out_dir/        # PNG per frame
   python3 dba.py gif anim.dba -o preview.gif
   python3 dba.py info anim.dba
@@ -16,6 +16,7 @@ Needs Pillow:  pip install pillow
 """
 import argparse
 import glob
+import lzma
 import os
 import re
 import struct
@@ -28,25 +29,38 @@ except ImportError:  # pragma: no cover
     Image = None
 
 MAGIC = b"DBA1"
-MAGIC_Z = b"DBAZ"      # compressed container: magic, u32 original size, u32 compressed size, zlib stream
+MAGIC_Z = b"DBAZ"      # compressed containers: magic, u32 original size, u32 compressed size, then
+MAGIC_L = b"DBAL"      # a zlib stream (DBAZ) or an .lzma stream (DBAL, needs firmware with DBAL support)
 FLAG_LOOP = 1
 WIDTH, HEIGHT = 240, 240
 
 
-def compress(data):
-    """DBA1 bytes -> DBAZ bytes (zlib, level 9)."""
-    z = zlib.compress(data, 9)
-    return MAGIC_Z + struct.pack("<II", len(data), len(z)) + z
+def compress(data, method="lzma"):
+    """DBA1 bytes -> DBAL bytes (LZMA, the default) or DBAZ bytes (method="zlib", for older firmware)."""
+    if method == "zlib":
+        z = zlib.compress(data, 9)
+        return MAGIC_Z + struct.pack("<II", len(data), len(z)) + z
+    dict_size = 4096
+    while dict_size < len(data):
+        dict_size *= 2
+    # lc=0, lp=1, pb=1 suit 16-bit pixels; the firmware decoder takes lc + lp <= 4
+    z = lzma.compress(data, format=lzma.FORMAT_ALONE, filters=[{
+        "id": lzma.FILTER_LZMA1, "preset": 9 | lzma.PRESET_EXTREME, "lc": 0, "lp": 1, "pb": 1, "dict_size": dict_size}])
+    return MAGIC_L + struct.pack("<II", len(data), len(z)) + z
 
 
 def decompress(data):
-    """DBAZ or DBA1 bytes -> DBA1 bytes."""
-    if data[:4] != MAGIC_Z:
+    """DBAL, DBAZ or DBA1 bytes -> DBA1 bytes."""
+    if data[:4] not in (MAGIC_Z, MAGIC_L):
         return data
     orig, clen = struct.unpack_from("<II", data, 4)
-    raw = zlib.decompress(data[12:12 + clen])
+    body = data[12:12 + clen]
+    if data[:4] == MAGIC_L:
+        raw = lzma.LZMADecompressor(format=lzma.FORMAT_ALONE).decompress(body, max_length=orig)
+    else:
+        raw = zlib.decompress(body)
     if len(raw) != orig:
-        raise ValueError("DBAZ: expected %d bytes, got %d" % (orig, len(raw)))
+        raise ValueError("%s: expected %d bytes, got %d" % (data[:4].decode(), orig, len(raw)))
     return raw
 
 
@@ -137,30 +151,111 @@ def dirty_rect(a, b, width, height):
     return x0, y0, x1 - x0 + 1, y1 - y0 + 1
 
 
-def encode(frames, delays, width=WIDTH, height=HEIGHT, loop=True):
-    """frames: list of RGB565 lists (width*height). delays: ms per frame."""
-    out = bytearray(MAGIC)
-    out += struct.pack("<HHHHI", width, height, len(frames), FLAG_LOOP if loop else 0, 0)
+TILE, MERGE_PX = 4, 400
+
+
+def split_rects(a, b, width, height):
+    """Rectangles covering the pixels that differ between frames a and b (same steps as
+    splitRects in lib/dba.js, which must give the same boxes): changed 4x4 tiles grouped
+    into 8-connected clusters scanned row by row, each cluster's bounding box of changed
+    pixels, then the pair whose union adds the fewest unchanged pixels merged while that
+    is under 400 pixels. Returns [(x, y, w, h), ...]."""
+    tw, th = -(-width // TILE), -(-height // TILE)
+    box = {}                                   # tile -> [x0, y0, x1, y1] of its changed pixels
+    for y in range(height):
+        row = y * width
+        ra, rb = a[row:row + width], b[row:row + width]
+        if ra == rb:
+            continue
+        ty = y // TILE
+        for x in range(width):
+            if ra[x] != rb[x]:
+                t = ty * tw + x // TILE
+                q = box.get(t)
+                if q is None:
+                    box[t] = [x, y, x, y]
+                else:
+                    if x < q[0]: q[0] = x
+                    if x > q[2]: q[2] = x
+                    q[3] = y
+    seen, boxes = set(), []
+    for t0 in sorted(box):
+        if t0 in seen:
+            continue
+        x0, y0, x1, y1 = width, height, -1, -1
+        seen.add(t0)
+        stack = [t0]
+        while stack:
+            t = stack.pop()
+            tx, ty = t % tw, t // tw
+            q = box[t]
+            x0, y0, x1, y1 = min(x0, q[0]), min(y0, q[1]), max(x1, q[2]), max(y1, q[3])
+            for dy in (-1, 0, 1):
+                for dx in (-1, 0, 1):
+                    nx, ny = tx + dx, ty + dy
+                    if 0 <= nx < tw and 0 <= ny < th:
+                        u = ny * tw + nx
+                        if u in box and u not in seen:
+                            seen.add(u)
+                            stack.append(u)
+        boxes.append([x0, y0, x1 + 1, y1 + 1])
+    area = lambda q: (q[2] - q[0]) * (q[3] - q[1])
+    while True:
+        best = None
+        for i in range(len(boxes)):
+            for j in range(i + 1, len(boxes)):
+                p, q = boxes[i], boxes[j]
+                u = [min(p[0], q[0]), min(p[1], q[1]), max(p[2], q[2]), max(p[3], q[3])]
+                cost = area(u) - area(p) - area(q)
+                if cost < MERGE_PX and (best is None or cost < best[0]):
+                    best = (cost, i, j, u)
+        if best is None:
+            break
+        boxes[best[1]] = best[3]
+        del boxes[best[2]]
+    return [(q[0], q[1], q[2] - q[0], q[3] - q[1]) for q in boxes]
+
+
+def encode(frames, delays, width=WIDTH, height=HEIGHT, loop=True, split=True):
+    """frames: list of RGB565 lists (width*height). delays: ms per frame. split: a frame whose
+    changes are far apart becomes several records (all but the last with delay 0) when that
+    is smaller; lib/dba.js encodes the same way, byte for byte."""
+    out = bytearray()
     prev = None
+    records = 0
     for i, f in enumerate(frames):
         if len(f) != width * height:
             raise ValueError("frame %d has wrong size" % i)
-        rect = dirty_rect(prev, f, width, height) if prev is not None else (0, 0, width, height)
-        data = b""
-        if rect:
-            x, y, w, h = rect
-            px = []
-            for yy in range(h):
-                s = (y + yy) * width + x
-                px.extend(f[s:s + w])
-            data = rle_encode(px)
-        else:
-            x = y = w = h = 0
         d = max(0, min(65535, int(round(delays[i]))))
-        out += struct.pack("<HHHHHHI", x, y, w, h, d, 0, len(data))
-        out += data
+        if prev is None:
+            rects = [(0, 0, width, height)]
+        elif split:
+            rects = split_rects(prev, f, width, height)
+        else:
+            r = dirty_rect(prev, f, width, height)
+            rects = [r] if r else []
+        if not rects:
+            rects = [(0, 0, 0, 0)]
+        for k, (x, y, w, h) in enumerate(rects):
+            data = b""
+            if w and h:
+                px = []
+                for yy in range(h):
+                    s = (y + yy) * width + x
+                    px.extend(f[s:s + w])
+                data = rle_encode(px)
+            out += struct.pack("<HHHHHHI", x, y, w, h, d if k == len(rects) - 1 else 0, 0, len(data))
+            out += data
+            records += 1
         prev = f
-    return bytes(out)
+    if records > 65535:
+        raise ValueError("too many records (%d); encode with split=False" % records)
+    return MAGIC + struct.pack("<HHHHI", width, height, records, FLAG_LOOP if loop else 0, 0) + bytes(out)
+
+
+def pictures(anim):
+    """The frames as shown: records with delay 0 are parts of the picture that follows."""
+    return [f for i, f in enumerate(anim["frames"]) if f["delay"] or i == len(anim["frames"]) - 1]
 
 
 def decode(data):
@@ -204,6 +299,11 @@ def to_c_header(data, symbol, comment=""):
     return "\n".join(lines) + "\n"
 
 
+def old_firmware_refusal(message):
+    """True if a board's upload error means its firmware does not know DBAL yet."""
+    return "DBA1/DBAZ animation" in message and "DBAL" not in message
+
+
 def frame_to_image(pixels, width, height):
     raw = bytearray()
     for c in pixels:
@@ -243,7 +343,9 @@ def main(argv=None):
     e.add_argument("-o", "--output", required=True, help=".dba or .h")
     e.add_argument("--fps", type=float, default=30)
     e.add_argument("--no-loop", action="store_true")
-    e.add_argument("--raw", action="store_true", help="write uncompressed DBA1 instead of the deflated DBAZ container")
+    e.add_argument("--raw", action="store_true", help="write uncompressed DBA1 instead of the compressed DBAL container")
+    e.add_argument("--zlib", action="store_true", help="write the deflated DBAZ container (for firmware without DBAL support)")
+    e.add_argument("--no-split", action="store_true", help="one rectangle per frame (fewer records, usually larger)")
     e.add_argument("--name", help="C symbol name (default from output filename)")
 
     d = sub.add_parser("decode", help=".dba -> PNG per frame")
@@ -269,8 +371,8 @@ def main(argv=None):
         import json
         import urllib.request
         data = open(a.input, "rb").read()
-        if data[:4] not in (MAGIC, MAGIC_Z):
-            sys.exit("%s is not a DBA1/DBAZ file" % a.input)
+        if data[:4] not in (MAGIC, MAGIC_Z, MAGIC_L):
+            sys.exit("%s is not a DBA1/DBAZ/DBAL file" % a.input)
         if data[:4] == MAGIC:
             data = compress(data)   # the board stores compressed files; convert on the fly
         name = a.name or re.sub(r"^anim_", "", os.path.splitext(os.path.basename(a.input))[0])
@@ -283,7 +385,14 @@ def main(argv=None):
             sys.stdout.write("\r  %s: %5.1f / %5.1f KB  %3d%%" % (name, sent / 1024, total / 1024, 100 * sent // max(1, total)))
             sys.stdout.flush()
         try:
-            res = serve.push_to_board(a.host, name, data, play=a.play, progress=prog)
+            try:
+                res = serve.push_to_board(a.host, name, data, play=a.play, progress=prog)
+            except serve.BoardError as e:
+                if data[:4] != MAGIC_L or not old_firmware_refusal(str(e)):
+                    raise
+                print("\n  the board's firmware predates DBAL (LZMA); sending DBAZ instead")
+                data = compress(decompress(data), "zlib")
+                res = serve.push_to_board(a.host, name, data, play=a.play, progress=prog)
         except serve.BoardError as e:
             sys.exit("\n%s" % e)
         print("\n  stored, %s KB free on the board%s" % (res.get("free_kb", "?"), ", playing" if a.play else ""))
@@ -296,9 +405,9 @@ def main(argv=None):
         frames, delays = load_inputs(a.inputs, a.fps)
         if not frames:
             sys.exit("no input frames found")
-        data = encode(frames, delays, loop=not a.no_loop)
+        data = encode(frames, delays, loop=not a.no_loop, split=not a.no_split)
         if not a.raw:
-            data = compress(data)
+            data = compress(data, "zlib" if a.zlib else "lzma")
         if a.output.endswith(".h"):
             sym = a.name or "anim_" + os.path.splitext(os.path.basename(a.output))[0]
             with open(a.output, "w") as fh:
@@ -311,29 +420,32 @@ def main(argv=None):
     elif a.cmd == "decode":
         anim = decode(open(a.input, "rb").read())
         os.makedirs(a.output, exist_ok=True)
-        for i, f in enumerate(anim["frames"]):
+        shown = pictures(anim)
+        for i, f in enumerate(shown):
             frame_to_image(f["pixels"], anim["width"], anim["height"]).save(
                 os.path.join(a.output, "frame_%04d.png" % i))
-        print("wrote %d frames to %s" % (len(anim["frames"]), a.output))
+        print("wrote %d frames to %s" % (len(shown), a.output))
 
     elif a.cmd == "gif":
         anim = decode(open(a.input, "rb").read())
-        imgs = [frame_to_image(f["pixels"], anim["width"], anim["height"]) for f in anim["frames"]]
+        shown = pictures(anim)
+        imgs = [frame_to_image(f["pixels"], anim["width"], anim["height"]) for f in shown]
         imgs[0].save(a.output, save_all=True, append_images=imgs[1:],
-                     duration=[f["delay"] for f in anim["frames"]], loop=0)
+                     duration=[f["delay"] for f in shown], loop=0)
         print("wrote %s" % a.output)
 
     elif a.cmd == "info":
         filedata = open(a.input, "rb").read()
         data = decompress(filedata)
         anim = decode(data)
-        print("%s: %dx%d, %d frames, loop=%s, %.1f KB%s" % (
-            a.input, anim["width"], anim["height"], len(anim["frames"]), anim["loop"], len(filedata) / 1024,
-            " deflated (%.1f KB uncompressed)" % (len(data) / 1024) if filedata[:4] == MAGIC_Z else ""))
+        kind = {MAGIC_Z: " deflated", MAGIC_L: " LZMA"}.get(filedata[:4])
+        print("%s: %dx%d, %d frames in %d records, loop=%s, %.1f KB%s" % (
+            a.input, anim["width"], anim["height"], len(pictures(anim)), len(anim["frames"]), anim["loop"],
+            len(filedata) / 1024, "%s (%.1f KB uncompressed)" % (kind, len(data) / 1024) if kind else ""))
         o = 16
         for i, f in enumerate(anim["frames"]):
             dlen = struct.unpack_from("<I", data, o + 12)[0]
-            print("  frame %3d: rect=%-20s delay=%4d ms  %6d bytes" % (i, f["rect"], f["delay"], dlen))
+            print("  record %4d: rect=%-20s delay=%4d ms  %6d bytes" % (i, f["rect"], f["delay"], dlen))
             o += 16 + dlen
 
 

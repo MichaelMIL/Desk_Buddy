@@ -10,10 +10,11 @@ sim/
   serve.sh / serve.py local server with save/export endpoints for the UI
   ANIMATIONS.md       how to write animations (also Claude's instructions)
   lib/gfx.js          240x240 RGB565 framebuffer + GFX-style drawing API
-  lib/dba.js          DBA1 animation encoder/decoder (export)
+  lib/dba.js          DBA1 animation encoder/decoder, DBAL/DBAZ containers (export)
+  lib/lzma.js         LZMA encoder/decoder for the DBAL container
   lib/app.js          UI: playback, scrubbing, export
   lib/chat.js         "Ask Claude" panel (Anthropic SDK in the browser)
-  lib/board.js        shared: board names, rendering to DBAZ, push with progress
+  lib/board.js        shared: board names, rendering to DBAL, push with progress (DBAZ for old firmware)
   editor.html, lib/editor.js   the animation editor (visual keyframes + code)
   remote.html         Bluetooth LE remote for the real buddy (Web Bluetooth, Chrome/Edge)
   animations/         your animations (one .js file each) + index.js manifest
@@ -153,11 +154,15 @@ uploaded to the device's flash file system, where it stays across reboots and
 firmware updates; with "play" ticked it starts right away. `test/push_all.sh
 <address>` pushes every animation. **Estimate size** shows the size first;
 **C header (.h)** / **.dba binary** download the same data instead (a `.dba`
-can be pushed later with `tools/dba.py push`). Only the changed area of each
-frame is stored, run-length encoded, and the whole stream is then deflated
-(`DBAZ` container, done in the browser with `CompressionStream`), which cuts
-the faces to roughly a fifth: a 3 s face is 10–25 KB. **Estimate size** shows
-both the compressed and the uncompressed size.
+can be pushed later with `tools/dba.py push`). Only the changed areas of each
+frame are stored (a frame whose changes are far apart, say a blink and a
+caret, becomes several small rectangles instead of one big one), run-length
+encoded, and the whole stream is then compressed with LZMA (`DBAL` container,
+`lib/lzma.js`). A 3 s face is 4–12 KB, the median animation 9 KB, and all of
+the simulator's animations together 1.4 MB, so they fit on the Wi-Fi build.
+**Estimate size** shows both the compressed and the uncompressed size.
+Firmware from before DBAL support refuses it; the push then sends the older,
+about 40% larger deflated `DBAZ` container instead.
 
 **→ firmware** instead compiles the animation into the firmware
 (`hardware/src/animations/`), for a built-in fallback; that needs
@@ -186,14 +191,18 @@ black.
 
 ## DBA1 format
 
-Files and uploads are normally the `DBAZ` container: `"DBAZ"`, u32 original
-size, u32 compressed size, then a zlib stream of the DBA1 bytes below.
-`tools/dba.py encode --raw` writes plain DBA1; every reader accepts both.
+Files and uploads are normally the `DBAL` container: `"DBAL"`, u32 original
+size, u32 compressed size, then an `.lzma` stream (LZMA1, 13-byte header) of
+the DBA1 bytes below. `DBAZ` is the same with a zlib stream (firmware from
+before DBAL takes only that; `tools/dba.py encode --zlib`), and
+`tools/dba.py encode --raw` writes plain DBA1. Every reader accepts all three.
 
 Little‑endian. File header: `"DBA1"`, u16 width, u16 height, u16 frameCount,
 u16 flags (bit 0 = loop), u32 reserved. Each frame: u16 x, y, w, h (dirty
 rectangle; frame 0 is full screen; w = h = 0 means "nothing changed, just
-wait"), u16 delayMs, u16 reserved, u32 dataLen, then an RLE stream of the
+wait"; delay 0 means the next record belongs to the same picture, which is
+how one frame is split into several rectangles), u16 delayMs, u16 reserved,
+u32 dataLen, then an RLE stream of the
 rectangle's pixels: token byte `t`; `t & 0x80` → run of `(t & 0x7f) + 1`
 copies of the following u16, otherwise `t + 1` literal u16 values follow.
 The full description is at the top of `lib/dba.js`.

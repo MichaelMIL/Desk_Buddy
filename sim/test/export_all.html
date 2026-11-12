@@ -11,7 +11,13 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
 document.getElementById('f').onload = async () => {
   const w = document.getElementById('f').contentWindow;
   const out = [];
-  for (let i = 0; i < 100 && !(w.SimApp && w.SimApp.registry.length); i++) await sleep(100);
+  // wait until every animation file has loaded: the list is built once, after the last one
+  // (the registry fills file by file, so waiting for it to be non-empty exported only the first few)
+  for (let i = 0; i < 600 && !w.document.querySelector('#anim-list li.item'); i++) await sleep(100);
+  if (!w.document.querySelector('#anim-list li.item')) {
+    document.getElementById('result').textContent = 'EXPORT FAIL: the simulator did not finish loading its animations';
+    return;
+  }
   const skip = /^(Template)$/;
   const params = new URLSearchParams(location.search);
   const host = params.get('push');

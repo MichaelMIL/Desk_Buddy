@@ -195,10 +195,11 @@ Or call `FaceRig.draw(g, values, f.t, spec, hooks, f)` from your own
 - Hold expressive poses for a moment (300–800 ms) so they read; transitions of
   150–300 ms feel snappy and alive.
 - Keep strokes ≥ 3 px; 1 px lines are hard to see at 0.135 mm per pixel.
-- Size budget: the exporter stores only the changed rectangle per frame, so
-  redrawing a small region is cheap and a full-screen `draw2d` redraw is
-  ~30–60 KB per frame. A face animation of 2–4 s at 20–30 fps is typically
-  60–120 KB. Press "Estimate size" in the simulator.
+- Size budget: the exporter stores only the changed areas of each frame, so
+  redrawing a small region is cheap (two small changes far apart cost about
+  what each costs alone) and a full-screen `draw2d` redraw is ~30–60 KB per
+  frame before compression. A face animation of 2–4 s at 20–30 fps is
+  typically 4–12 KB compressed. Press "Estimate size" in the simulator.
 - Prefer the integer primitives over `draw2d`/`text` where you can: they are
   deterministic across browsers and match what the microcontroller draws.
 - Never draw anything that must be read outside radius ~110 from the centre.

@@ -1,9 +1,10 @@
 // Render test frames with gfx.js, encode with dba.js, and write:
 //   out/frames.raw  all frames as little-endian RGB565 (for comparison)
 //   out/delays.json per-frame delays
-//   out/js.dba      encoder output (raw DBA1)
+//   out/js.dba      encoder output (raw DBA1, frames split into several rectangles)
 //   out/js.dbaz     the same, deflated (DBAZ container)
-// Also round-trips through the JS decoder and the DBAZ compress/decompress pair.
+//   out/js.dbal     the same, LZMA (DBAL container)
+// Also round-trips through the JS decoder and both compress/decompress pairs.
 const fs = require('fs');
 const path = require('path');
 const Gfx = require('../lib/gfx.js');
@@ -45,19 +46,31 @@ const raw = Buffer.alloc(frames.length * 240 * 240 * 2);
 frames.forEach((f, i) => Buffer.from(f.buffer, f.byteOffset, f.byteLength).copy(raw, i * 240 * 240 * 2));
 fs.writeFileSync(path.join(out, 'frames.raw'), raw);
 
-// JS round trip
+// JS round trip: records with delay 0 are parts of the picture that follows
 const dec = DBA.decode(bytes);
-if (dec.frames.length !== frames.length) throw new Error('frame count mismatch');
-dec.frames.forEach((f, i) => {
+const shown = dec.frames.filter((f, i) => f.delay || i === dec.frames.length - 1);
+if (shown.length !== frames.length) throw new Error('frame count mismatch');
+if (dec.frames.length <= frames.length) throw new Error('expected the split encoder to use several rectangles somewhere');
+shown.forEach((f, i) => {
   if (f.delay !== delays[i]) throw new Error(`delay mismatch at ${i}`);
   for (let k = 0; k < f.pixels.length; k++) if (f.pixels[k] !== frames[i][k]) throw new Error(`pixel mismatch frame ${i} @ ${k}`);
 });
-const empty = dec.frames[frames.length - 1].rect;
+const empty = dec.frames[dec.frames.length - 1].rect;
 if (empty.w !== 0 || empty.h !== 0) throw new Error('expected empty delta for identical frame');
+// without splitting: one record per frame, same pictures
+const single = DBA.encode(frames, { width: 240, height: 240, delays, loop: true, split: false });
+const dec1 = DBA.decode(single);
+if (dec1.frames.length !== frames.length) throw new Error('split: false should give one record per frame');
+dec1.frames.forEach((f, i) => { for (let k = 0; k < f.pixels.length; k++) if (f.pixels[k] !== frames[i][k]) throw new Error(`split: false pixel mismatch frame ${i}`); });
 // header output sanity
 const hdr = DBA.toCHeader(bytes, 'anim_test');
 if (!hdr.includes(`anim_test_len = ${bytes.length}`)) throw new Error('bad header');
-console.log(`js: ${frames.length} frames, ${bytes.length} bytes, round trip OK`);
+console.log(`js: ${frames.length} frames in ${dec.frames.length} records, ${bytes.length} bytes (${single.length} unsplit), round trip OK`);
+
+// DBAL: LZMA compress, decompress, compare
+const l = DBA.compressLzma(bytes);
+if (!DBA.isCompressed(l) || !DBA.isLzma(l)) throw new Error('compressLzma did not produce DBAL');
+fs.writeFileSync(path.join(out, 'js.dbal'), l);
 
 // DBAZ: compress, decompress, compare
 (async () => {
@@ -68,4 +81,7 @@ console.log(`js: ${frames.length} frames, ${bytes.length} bytes, round trip OK`)
   for (let i = 0; i < bytes.length; i++) if (back[i] !== bytes[i]) throw new Error(`DBAZ round trip mismatch @ ${i}`);
   fs.writeFileSync(path.join(out, 'js.dbaz'), z);
   console.log(`js: DBAZ ${z.length} bytes (${(100 * z.length / bytes.length).toFixed(0)}% of raw), round trip OK`);
+  const lb = await DBA.decompress(l);
+  if (lb.length !== bytes.length || lb.some((v, i) => v !== bytes[i])) throw new Error('DBAL round trip mismatch');
+  console.log(`js: DBAL ${l.length} bytes (${(100 * l.length / bytes.length).toFixed(0)}% of raw), round trip OK`);
 })().catch(e => { console.error(e); process.exit(1); });

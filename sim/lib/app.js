@@ -310,11 +310,10 @@
     return 'anim_' + Board.boardName(anim);
   }
 
-  /** Render + encode + compress the animation. Returns { raw, bytes } (bytes = DBAZ). */
+  /** Render + encode + compress the animation. Returns { raw, bytes } (bytes = DBAL, see Board.pack). */
   async function buildAnimation(anim) {
     const { frames, delays } = await collectFrames(anim);
-    const raw = DBA.encode(frames, { width: WIDTH, height: HEIGHT, delays, loop: anim.loop !== false });
-    const bytes = await DBA.compress(raw);
+    const { raw, bytes } = Board.pack(frames, delays, anim.loop);
     $('hud-size').textContent = `${(bytes.length / 1024).toFixed(1)} KB (${(raw.length / 1024).toFixed(1)} KB uncompressed)`;
     return { raw, bytes };
   }
@@ -328,7 +327,7 @@
       const sym = symbolName(a);
       const kb = (bytes.length / 1024).toFixed(1);
       if (asHeader) {
-        download(sym + '.h', new Blob([DBA.toCHeader(bytes, sym, `${a.name}: ${a.frames} frames @ ${a.fps} fps, deflated`)], { type: 'text/plain' }));
+        download(sym + '.h', new Blob([DBA.toCHeader(bytes, sym, `${a.name}: ${a.frames} frames @ ${a.fps} fps, LZMA`)], { type: 'text/plain' }));
       } else {
         download(sym + '.dba', new Blob([bytes], { type: 'application/octet-stream' }));
       }
