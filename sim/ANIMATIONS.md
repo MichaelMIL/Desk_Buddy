@@ -72,11 +72,20 @@ selected on the device (`theme <name>` over Bluetooth or serial, MQTT, or the AP
 play in every theme). Name themed animations `'Halloween: pumpkin'`: the
 theme prefix is dropped from the board name. Existing themes: the build variants `dj`,
 `cat`, `bear`, `bunny`, `king`, `unicorn`, `skeleton`, `gamer`, `bee`,
-`devil`, `dragon`, `robot`, `builder` (hard hat), `hacker` (hood) and the
-seasons/occasions `halloween`, `xmas`,
-`space`, `ocean`, `birthday`, `valentine`, `summer`, and `claude` (see `theme_*.js`); a new theme name creates a new
+`devil`, `dragon`, `robot`, `builder` (hard hat), `hacker` (hood), `scientist`
+(goggles, wild hair) and the seasons/occasions `halloween`, `xmas`,
+`space`, `ocean`, `birthday`, `valentine`, `summer`, and `claude` (see `theme_*.js`),
+`rude` (the finger, a fart, an eye roll, talk to the hand: `rude.js`, kept out of the
+normal cycle), plus
+`template` for the bare template build: the generic demos (eyes, bouncing ball, spinner,
+clock, confetti) that used to play in every theme (`template_*.js`). A new theme name creates a new
 theme automatically. Build-variant animations keep the standard face and add
-the accessory (headphones, ears, crown, horn, hard hat, hood) plus a matching behaviour.
+the accessory (headphones, ears, crown, horn, hard hat, hood, goggles) plus a matching behaviour.
+
+Common (theme-less) groups besides the `Face:` ones: `Eat:` (`eat.js`),
+`Attention:` (`attention.js`), `Notify:` (`notify.js`, meant to be played on
+an event), `Break:` (`break.js`, taking a break from work) and `Silly:`
+(`silly.js`).
 
 ## Drawing API (`g`)
 
@@ -180,6 +189,12 @@ For the Claude theme, `animations/claude_kit.js` (window.ClaudeKit) has the
 shared pieces: the colours, `spark`, `terminal`, `mono`, `label`, `check`,
 `cross`, `codeBars` (syntax-coloured code lines), `cliSpinner` (the CLI's
 · ✢ ✳ ✶ ✻ ✽ spinner) and `miniBuddy`; see `theme_claude_code.js`.
+
+For hands, `animations/hand_kit.js` (window.Hands) draws cartoon hands:
+`Hands.draw(g, Hands.OPEN, x, y, { scale, angle, flip, cuff })` with the wrist
+at (x, y) and the poses `OPEN` (wave), `FLAT` (stop), `FIST` (knock), `THUMB`
+and `MIDDLE`; plus `capsule` (a thick line with round ends), `motion` (motion
+lines), `bubble` (speech bubble) and `rnd` (seeded random). See `attention.js`.
 
 Or call `FaceRig.draw(g, values, f.t, spec, hooks, f)` from your own
 `frame()` with values from `FaceRig.valuesAt(spec, f.t)` that you adjust

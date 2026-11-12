@@ -29,6 +29,7 @@
  */
 Sim.register({
   name: 'Template',
+  category: 'Template',   // listed with the template theme's animations (the editor drops this line)
   fps: 30,
   duration: 2000,          // ms per loop (or use frames: N)
 

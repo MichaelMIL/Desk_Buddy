@@ -1,6 +1,7 @@
 /* Two cartoon eyes that look around and blink. */
 Sim.register({
-  name: 'Eyes',
+  name: 'Template: eyes',
+  theme: 'template',   // plays only while the template theme is selected, not in every theme's cycle
   fps: 30,
   duration: 4000,
 

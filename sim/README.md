@@ -119,8 +119,14 @@ only redraw what changes (it also makes the exported file smaller).
 `halloween__<name>` and plays only while that theme is selected (common
 animations play in every theme). The shipped themes are in
 `animations/theme_*.js`: one per build variant (dj, cat, bear, bunny, king,
-unicorn, skeleton, gamer, bee, devil, dragon, robot), seasonal or occasion
-ones (halloween, xmas, space, ocean, birthday, valentine, summer), and claude.
+unicorn, skeleton, gamer, bee, devil, dragon, robot, builder, hacker, scientist), seasonal or
+occasion ones (halloween, xmas, space, ocean, birthday, valentine, summer), claude, and
+rude (`rude.js`: the finger, a fart and so on, out of the normal cycle). Common groups
+besides the faces: eating, wanting attention, notifications, work breaks and silly
+faces (`eat.js`, `attention.js`, `notify.js`, `break.js`, `silly.js`).
+`template_*.js` hold the generic demos (eyes, bouncing ball, spinner, clock,
+confetti) in the `template` theme, for the bare template build, so they stay
+out of the other themes' cycles.
 
 Drawing API on `g` (integer pixels, colours are RGB565 numbers, same
 algorithms as Adafruit_GFX / TFT_eSPI so a C++ port looks identical):

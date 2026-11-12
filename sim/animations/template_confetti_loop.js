@@ -1,6 +1,7 @@
 /* Confetti loop: a shower of coloured paper pieces drifts and tumbles down the screen; seamless cycle. */
 Sim.register({
-  name: 'Confetti loop',
+  name: 'Template: confetti loop',
+  theme: 'template',   // plays only while the template theme is selected, not in every theme's cycle
   fps: 25,
   duration: 3000,
   loop: true,

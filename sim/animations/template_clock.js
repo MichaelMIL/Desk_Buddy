@@ -1,6 +1,7 @@
 /* Analog clock face using the Canvas 2D escape hatch (anti-aliased hands). */
 Sim.register({
-  name: 'Clock',
+  name: 'Template: clock',
+  theme: 'template',   // plays only while the template theme is selected, not in every theme's cycle
   fps: 10,
   frames: 100, // ten seconds of the seconds hand (exports ~150 KB; 600 frames would be ~1 MB)
 

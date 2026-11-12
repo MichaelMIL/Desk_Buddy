@@ -99,9 +99,12 @@ and can push it straight to the board.
 - Themes: animations tagged with a theme only play while that theme is
   selected; the common faces always do. There is a theme per build variant
   (`dj`, `cat`, `bear`, `bunny`, `king`, `unicorn`, `skeleton`, `gamer`,
-  `bee`, `devil`, `dragon`, `robot`) and seasonal or occasion ones
+  `bee`, `devil`, `dragon`, `robot`, `builder`, `hacker`, `scientist`, and `template` for
+  the bare build, which holds the generic demos: eyes, a bouncing ball, a
+  spinner, a clock, confetti) and seasonal or occasion ones
   (`halloween`, `xmas`, `space`, `ocean`, `birthday`, `valentine`,
-  `summer`, `stpatricks`), plus a `claude` theme in Claude's coral and
+  `summer`, `stpatricks`), a `rude` theme (the middle finger, a fart, an
+  eye roll, talk to the hand) that stays out of the normal cycle, plus a `claude` theme in Claude's coral and
   cream, most of it about coding with Claude Code (36 animations): the CLI
   spinner "Pondering…", reading and grepping files, a diff being edited, a
   todo list ticking off, a permission prompt, a build that breaks and gets

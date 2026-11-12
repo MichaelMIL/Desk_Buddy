@@ -1,6 +1,7 @@
 /* Loading spinner: only a thin ring changes each frame, so it exports small. */
 Sim.register({
-  name: 'Spinner',
+  name: 'Template: spinner',
+  theme: 'template',   // plays only while the template theme is selected, not in every theme's cycle
   fps: 30,
   frames: 30,
 

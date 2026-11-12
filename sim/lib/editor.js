@@ -764,6 +764,7 @@
     const name = uniqueName('My animation');
     let src = lib.sources['template.js'] || `Sim.register({\n  name: 'Template',\n  fps: 30,\n  duration: 2000,\n  frame(g, f) {\n    g.clear(Sim.C.BLACK);\n    g.fillCircle(120, 120, 40, Sim.hsv(f.p * 360, 1, 1));\n  },\n});\n`;
     src = src.replace(/name:\s*'Template'/, `name: '${name}'`);
+    src = src.replace(/^\s*category:\s*'Template',.*\n/m, '');   // the starter's own grouping
     openCode(src, null, name);
   }
 

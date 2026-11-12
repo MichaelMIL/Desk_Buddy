@@ -1,6 +1,7 @@
 /* Ball bouncing inside the round display, leaving a short trail. */
 Sim.register({
-  name: 'Bouncing ball',
+  name: 'Template: bouncing ball',
+  theme: 'template',   // plays only while the template theme is selected, not in every theme's cycle
   fps: 40,
   frames: 160,
 
