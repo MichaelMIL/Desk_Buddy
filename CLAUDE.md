@@ -57,7 +57,9 @@ PlatformIO firmware that plays what the simulator exports.
 - Animation library: `~/.config/desk-buddy/library` (or `$DESK_BUDDY_LIBRARY`)
   holds a `.dbal` per animation; `sim/serve.py` saves every push there and
   `sim/test/library.sh [--app]` exports them all (`--app` also copies them into
-  `app/assets/library`, not committed). The bridge, the menu bar app (through
+  `app/assets/library`, not committed). Every app build (Xcode phases, Gradle)
+  runs `app/tool/sync_library.sh`, which does that when `sim/` changed, so the
+  app always carries every animation. The bridge, the menu bar app (through
   the daemon), the phone app and `sim/remote.html` upload a played animation
   from it when the buddy no longer has it, deleting the least recently played
   library-backed ones while the buddy answers "not enough space".

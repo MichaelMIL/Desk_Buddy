@@ -43,7 +43,6 @@ Needs Flutter 3.44+ (`flutter doctor`). Bluetooth does not work in the iOS
 simulator or the Android emulator, so use a real phone.
 
 ```sh
-sim/test/library.sh --app   # the animation library into app/assets/library (not committed)
 cd app
 flutter pub get
 flutter run                 # picks a connected phone; -d <id> to choose
@@ -56,6 +55,16 @@ flutter run                 # picks a connected phone; -d <id> to choose
   `build/app/outputs/flutter-apk/app-release.apk`. Android 12+ asks for
   "Nearby devices"; older versions ask for location (needed to scan).
 - **macOS:** `flutter run -d macos` (asks to allow Bluetooth the first time).
+
+**Every build carries every animation.** Before Flutter bundles the assets,
+the iOS and macOS Xcode builds and the Android Gradle build run
+`tool/sync_library.sh`. It exports all of the simulator's animations into
+`assets/library` (not committed), so the app's faces and themes always match
+`sim/animations/`. The export takes about a minute in headless Chrome and runs
+only when an animation or the simulator's renderer changed since the last one;
+otherwise it adds nothing to the build. It needs Google Chrome; without it the
+app keeps the animations it had. `DESK_BUDDY_SKIP_LIBRARY=1` skips it, and
+`tool/sync_library.sh --force` exports now.
 
 The buddy accepts one connection at a time. Close the simulator's remote page
 or any other app connected to it first.
@@ -70,6 +79,7 @@ or any other app connected to it first.
 | `lib/scanner.dart` | Scanning by service UUID, Bluetooth on/allowed state |
 | `lib/saved_device.dart` | The remembered buddy (shared_preferences) |
 | `lib/library.dart` | The bundled animation library and when each animation last played |
+| `tool/sync_library.sh` | Run by every build: exports the simulator's animations into `assets/library` when they changed |
 | `lib/screens/` | Scan, connecting/pairing, remote and console, buddy settings |
 | `lib/widgets/buddy_face.dart` | The round-screen picture |
 
