@@ -13,8 +13,8 @@ and exits after half an hour of quiet.
   buddy_bridge.py install --host 192.168.50.99   add the hooks to ~/.claude/settings.json
   buddy_bridge.py status                         hooks, daemon, buddy, which animation each activity plays
   buddy_bridge.py demo                           play every activity on the buddy, then put it back
-  buddy_bridge.py pause | resume                 stop / start reflecting Claude on the buddy
-  buddy_bridge.py stop                           stop the daemon (puts the buddy back first)
+  buddy_bridge.py pause | resume                 manual (Claude leaves the animation to you) / follow Claude
+  buddy_bridge.py start | stop                   start the daemon now / stop it (puts the buddy back first)
   buddy_bridge.py uninstall                      remove the hooks
 
 Python 3.8+, standard library only. See README.md next to this file.
@@ -41,6 +41,7 @@ CONF_DIR = os.environ.get('DESK_BUDDY_HOME') or os.path.join(os.path.expanduser(
 CONF_FILE = os.path.join(CONF_DIR, 'claude.json')
 STATE_FILE = os.path.join(CONF_DIR, 'claude-state.json')
 LOG_FILE = os.path.join(CONF_DIR, 'claude-bridge.log')
+PYTHON_FILE = os.path.join(CONF_DIR, 'claude-python')   # the daemon's interpreter (has bleak), for menubar/
 SETTINGS_FILE = os.path.join(os.path.expanduser('~'), '.claude', 'settings.json')
 HOOK_MARK = 'buddy_bridge.py'            # how install/uninstall recognise our hook entries
 HEADER = 'X-Desk-Buddy'                  # required on daemon requests (keeps web pages from posting to it)
@@ -346,8 +347,14 @@ def classify(ev):
 
 # ---------------------------------------------------------------------------- the buddy
 
+# Console commands the menu bar app may send through the daemon (POST /buddy); nothing that
+# changes settings for good or reboots. Over Wi-Fi each maps onto an HTTP endpoint (no `next`).
+BUDDY_COMMANDS = ('play', 'cycle', 'next', 'brightness', 'screen', 'theme')
+
+
 class Board:
     """The buddy's HTTP API (hardware/src/net.cpp)."""
+    commands = tuple(c for c in BUDDY_COMMANDS if c != 'next')
 
     def __init__(self, host, timeout=6.0):         # a play is ~0.1-0.3 s, but Wi-Fi power save can add seconds
         self.host = host
@@ -375,6 +382,29 @@ class Board:
             return 'missing' if e.code == 404 else 'down'
         except (OSError, ValueError, http.client.HTTPException):
             return 'down'
+
+    def command(self, cmd):
+        """One of `commands` as the console would take it ("brightness 60"), sent to the matching
+        endpoint. Returns 'ok' or the buddy's error, or None if it does not answer."""
+        verb, _, arg = cmd.partition(' ')
+        arg = arg.strip()
+        routes = {'play': ('/api/play', {'name': arg}), 'cycle': ('/api/play', {'name': 'cycle'}),
+                  'brightness': ('/api/brightness', {'value': arg}),
+                  'screen': ('/api/screen', {'on': '1' if arg in ('on', '1') else '0'}),
+                  'theme': ('/api/theme', {'name': '' if arg == 'none' else arg})}
+        if verb not in routes:
+            return '%s: not available over Wi-Fi' % verb
+        path, query = routes[verb]
+        try:
+            self._request('POST', path + '?' + urllib.parse.urlencode(query))
+            return 'ok'
+        except urllib.error.HTTPError as e:
+            try:
+                return json.loads(e.read().decode()).get('error') or 'error %d' % e.code
+            except (OSError, ValueError, AttributeError):
+                return 'error %d' % e.code
+        except (OSError, ValueError, http.client.HTTPException):
+            return None
 
     def describe(self):
         return 'http://%s/' % self.host
@@ -407,6 +437,8 @@ class BleBoard:
     bleak runs on an asyncio loop in its own thread; status() and play() may be called from any
     thread and are serialised on that loop. The first connection needs pairing: the buddy shows a
     6-digit code and macOS asks for it (after that the bond is reused silently)."""
+
+    commands = BUDDY_COMMANDS
 
     def __init__(self, name='', timeout=8.0, linger=20.0, pair_timeout=60.0):
         self.name = name.strip()
@@ -557,6 +589,14 @@ class BleBoard:
             return 'down'
         return 'ok' if line == 'ok' else 'missing'
 
+    def command(self, cmd):
+        """Any console command; returns its reply line ("ok", "brightness 60%", ...) or None."""
+        try:
+            return self._call(self._command(cmd, lambda l: not l.startswith(('state ', 'names '))),
+                              self.pair_timeout + self.timeout + 30)
+        except Exception:
+            return None
+
     def release(self):
         """Disconnect after `linger` seconds unless another command comes first."""
         gen = self.gen
@@ -647,6 +687,7 @@ class Controller:
         self.last_event = clock()
         self.history = collections.deque(maxlen=20)
         self.away_until = 0.0                   # another program is using the buddy (POST /hold)
+        self.paused = not cfg.get('enabled', True)   # manual: Claude Code leaves the buddy alone (pause)
 
     # -- events
 
@@ -654,6 +695,8 @@ class Controller:
         now = self.clock()
         with self.lock:
             self.last_event = now
+            if self.paused:                       # hooks check the config too; this covers one in flight
+                return
             sid, ev, act = msg.get('sid', '?'), msg.get('ev', ''), msg.get('act')
             if ev == 'SessionEnd':
                 s = self.sessions.get(sid)
@@ -870,9 +913,60 @@ class Controller:
         else:
             log('hold released')
 
+    def set_paused(self, paused):
+        """Manual mode (buddy_bridge.py pause, the menu bar app's Manual): Claude Code stops changing
+        the animation; the buddy goes back to what it played before Claude (tick), and from then on
+        only the user picks. The daemon stays up so the menu bar app can still control the buddy."""
+        with self.lock:
+            self.paused = bool(paused)
+            if self.paused:
+                self.sessions.clear()
+                self.flashes.clear()
+                self.want, self.hold_until = None, 0.0
+                self.board_retry = 0.0             # restore now, not after a backoff
+        log('manual: Claude Code leaves the buddy alone' if paused else 'following Claude Code again')
+
+    def buddy(self, cmd=None):
+        """For the menu bar app (GET / POST /buddy): run one console command from BUDDY_COMMANDS on
+        the buddy, over the daemon's own link, then read its state. Returns (http code, body).
+        Picking a face here while Claude is busy lasts until the next activity."""
+        now = self.clock()
+        if now < self.away_until:
+            return 409, {'ok': False, 'error': 'holding off the buddy for another %d s' % round(self.away_until - now)}
+        with self.lock:
+            self.last_event = now                   # the daemon stays up while the app uses it
+        commands = list(getattr(self.board, 'commands', ()))
+        reply, ok = None, True
+        if cmd is not None:
+            verb = cmd.split(' ', 1)[0]
+            if verb not in commands:
+                return 400, {'ok': False, 'error': '%s is not available over %s' % (verb, self.board.describe())}
+            reply = self.board.command(cmd)
+            if reply is None:
+                self.board.release()
+                return 502, {'ok': False, 'error': 'no answer over %s' % self.board.describe()}
+            ok = reply == 'ok' or reply.startswith(verb + ' ')     # "brightness 60%"
+            if ok:
+                log('menu bar: %s' % cmd)
+        st = self.board.status()
+        if not self.active:
+            self.board.release()                    # Bluetooth: let go after the linger
+        if st is None:
+            return 502, {'ok': False, 'error': 'no answer over %s' % self.board.describe()}
+        body = {'ok': ok, 'buddy': st, 'commands': commands}
+        if reply is not None:
+            body['reply'] = reply
+        if not ok:
+            body['error'] = reply
+        return 200, body
+
     def tick(self):
         now = self.clock()
         if now < self.away_until:
+            return
+        if self.paused:
+            if self.active and self.restore(now):   # just paused: put back what played before Claude,
+                self.board.close()                  # and free the Bluetooth link at once (not after the linger)
             return
         with self.lock:
             act, urgent = self.desired(now)
@@ -915,7 +1009,8 @@ class Controller:
                 # for the menu bar app (menubar/): the link, whether it is up (None: HTTP has none),
                 # seconds left of a POST /hold, the daemon's pid
                 'link': self.board.describe(), 'connected': connected() if connected else None,
-                'hold_s': max(0, round(self.away_until - now)), 'pid': os.getpid(),
+                'hold_s': max(0, round(self.away_until - now)), 'pid': os.getpid(), 'python': sys.executable,
+                'paused': self.paused,
                 'sessions': [{'id': s.sid[:8], 'cwd': s.cwd, 'activity': s.act,
                               'waiting_for_user': s.attention is not None, 'subagents': s.agents,
                               'last_event_s': round(now - s.seen, 1)} for s in self.sessions.values()],
@@ -970,6 +1065,8 @@ def daemon_main():
                 if not ctl.active:
                     ctl.board.release()
                 return self._reply(200, st)
+            if self.path == '/buddy' and self.headers.get(HEADER):
+                return self._reply(*ctl.buddy())
             self._reply(404)
 
         def do_POST(self):
@@ -992,6 +1089,18 @@ def daemon_main():
             if self.path == '/stop':
                 stop.set()
                 return self._reply(200, {'ok': True})
+            if self.path == '/pause':
+                try:
+                    ctl.set_paused(bool(json.loads(body.decode() or '{}').get('paused', True)))
+                except (ValueError, AttributeError):
+                    return self._reply(400)
+                return self._reply(200, {'ok': True, 'paused': ctl.paused})
+            if self.path == '/buddy':
+                try:
+                    cmd = str(json.loads(body.decode() or '{}')['command']).strip()
+                except (ValueError, KeyError, TypeError, AttributeError):
+                    return self._reply(400, {'ok': False, 'error': 'body: {"command": "brightness 60"}'})
+                return self._reply(*ctl.buddy(cmd))
             self._reply(404)
 
         def log_message(self, *args):
@@ -1006,6 +1115,11 @@ def daemon_main():
         return 0                             # another daemon has the port
     server.daemon_threads = True
     threading.Thread(target=server.serve_forever, daemon=True).start()
+    try:                                     # the menu bar app starts the daemon with this Python (bleak)
+        with open(PYTHON_FILE, 'w') as f:
+            f.write(sys.executable + '\n')
+    except OSError:
+        pass
     try:
         if os.path.getsize(LOG_FILE) > 512 * 1024:
             os.replace(LOG_FILE, LOG_FILE + '.1')
@@ -1245,7 +1359,7 @@ def cmd_status(_args):
     settings = _read_settings(path)
     events = [ev for ev, groups in (settings.get('hooks') or {}).items() if HOOK_MARK in json.dumps(groups)]
     print('hooks:  %s' % ('%d events in %s' % (len(events), path) if events else 'not installed (buddy_bridge.py install)'))
-    print('config: %s%s' % (CONF_FILE, '' if cfg.get('enabled', True) else '  (paused: buddy_bridge.py resume)'))
+    print('config: %s%s' % (CONF_FILE, '' if cfg.get('enabled', True) else '  (manual, Claude Code leaves the buddy alone: buddy_bridge.py resume)'))
     try:
         _, snap = daemon_request(cfg, 'GET', '/status', timeout=1)
         if snap['active'] and snap['showing']:
@@ -1303,15 +1417,20 @@ def cmd_demo(args):
 
 
 def cmd_pause(_args, enabled=False):
+    """pause = manual: the hooks do nothing, and a running daemon puts the buddy back to what it played
+    before Claude, then leaves it to the user (it stays up for the menu bar app's controls, and frees
+    the Bluetooth link after the linger). resume = follow Claude Code again."""
     cfg = load_config()
     cfg['enabled'] = enabled
     save_config(cfg)
-    if not enabled:
-        try:
+    try:
+        code, _ = daemon_request(cfg, 'POST', '/pause', json.dumps({'paused': not enabled}).encode(), timeout=3)
+        if code == 404 and not enabled:              # a daemon from before /pause: stop it instead
             daemon_request(cfg, 'POST', '/stop', b'{}', timeout=3)
-        except OSError:
-            pass
-    print('Claude Code activity %s on the buddy' % ('shows' if enabled else 'no longer shows'))
+    except OSError:
+        pass
+    print('Following Claude Code: its activity shows on the buddy' if enabled
+          else 'Manual: Claude Code no longer changes the buddy; pick its animations yourself')
     return 0
 
 
@@ -1322,6 +1441,23 @@ def cmd_hold(args):
     except OSError:
         print('daemon not running (nothing to hold)')
     return 0
+
+
+def cmd_start(_args):
+    """Start the daemon now instead of on the next hook event (the menu bar app's buddy controls)."""
+    cfg = load_config()
+    for i in range(40):
+        try:
+            daemon_request(cfg, 'GET', '/status', timeout=0.5)
+            print('daemon running' if i else 'daemon already running')
+            return 0
+        except OSError:
+            pass
+        if i == 0:
+            spawn_daemon()
+        time.sleep(0.1)
+    print('the daemon did not start (see %s)' % LOG_FILE)
+    return 1
 
 
 def cmd_stop(_args):
@@ -1347,10 +1483,11 @@ def main(argv=None):
     d = sub.add_parser('demo', help='play each activity on the buddy')
     d.add_argument('--seconds', type=float, default=5.0)
     d.add_argument('--only', help='comma-separated activities')
-    sub.add_parser('pause', help='stop showing Claude activity')
-    sub.add_parser('resume', help='show Claude activity again')
+    sub.add_parser('pause', help='manual: Claude Code stops changing the animation (the buddy goes back first)')
+    sub.add_parser('resume', help='follow Claude Code again')
     h = sub.add_parser('hold', help='leave the buddy alone for a while (frees the Bluetooth link at once)')
     h.add_argument('seconds', type=float, nargs='?', default=120, help='0 ends the hold')
+    sub.add_parser('start', help='start the daemon now (it also starts with the next Claude Code event)')
     sub.add_parser('stop', help='stop the daemon')
     args = p.parse_args(argv)
     if args.cmd == 'hook':
@@ -1371,6 +1508,8 @@ def main(argv=None):
         return cmd_pause(args, True)
     if args.cmd == 'hold':
         return cmd_hold(args)
+    if args.cmd == 'start':
+        return cmd_start(args)
     if args.cmd == 'stop':
         return cmd_stop(args)
     p.print_help()

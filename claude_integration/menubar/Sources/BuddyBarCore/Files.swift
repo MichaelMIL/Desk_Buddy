@@ -4,6 +4,7 @@ import Foundation
 public struct BridgePaths {
     public var configFile: URL          // claude.json: host, port, enabled, ...
     public var logFile: URL             // claude-bridge.log
+    public var pythonFile: URL          // claude-python: the interpreter the daemon last ran with
     public var settingsFile: URL        // ~/.claude/settings.json, where the hooks are
 
     public init(home: URL = FileManager.default.homeDirectoryForCurrentUser,
@@ -12,6 +13,7 @@ public struct BridgePaths {
             ?? home.appendingPathComponent(".config/desk-buddy")
         configFile = dir.appendingPathComponent("claude.json")
         logFile = dir.appendingPathComponent("claude-bridge.log")
+        pythonFile = dir.appendingPathComponent("claude-python")
         settingsFile = home.appendingPathComponent(".claude/settings.json")
     }
 }
@@ -76,9 +78,28 @@ public struct HookInfo: Equatable {
     }
 
     /// The hook's own command line with another subcommand: `python3 "/…/buddy_bridge.py" pause`.
-    /// Running exactly what Claude Code runs keeps the same Python and script.
     public func command(_ subcommand: String) -> String? {
         guard let cmd = command?.trimmingCharacters(in: .whitespaces), cmd.hasSuffix(" hook") else { return nil }
         return String(cmd.dropLast(" hook".count)) + " " + subcommand
+    }
+
+    /// The script's path in the hook command (quoted or not).
+    public var script: String? {
+        guard let cmd = command else { return nil }
+        if let r = cmd.range(of: #""([^"]*buddy_bridge\.py)""#, options: .regularExpression) {
+            return String(cmd[r].dropFirst().dropLast())
+        }
+        return cmd.split(separator: " ").map(String.init).first { $0.hasSuffix("buddy_bridge.py") }
+    }
+
+    /// How to run `buddy_bridge.py <subcommand>`. The hooks say `python3`, which a GUI app's shell
+    /// may resolve to a Python without bleak (Claude Code has the terminal's PATH), so the
+    /// interpreter the daemon recorded comes first; otherwise the hook's command in a login shell.
+    public func invocation(_ subcommand: String, python: String?) -> (executable: String, arguments: [String])? {
+        if let python, !python.isEmpty, let script {
+            return (python, [script, subcommand])
+        }
+        guard let line = command(subcommand) else { return nil }
+        return ("/bin/zsh", ["-lc", line])
     }
 }

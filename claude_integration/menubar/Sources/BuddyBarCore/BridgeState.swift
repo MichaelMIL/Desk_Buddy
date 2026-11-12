@@ -3,7 +3,7 @@ import Foundation
 /// What the menu bar icon says, most important first.
 public enum BridgeState: Equatable {
     case hooksMissing                               // buddy_bridge.py install has not run
-    case paused                                     // buddy_bridge.py pause
+    case paused                                     // manual (buddy_bridge.py pause): the user picks the animation
     case notRunning                                 // no daemon: it starts with the next Claude Code event
     case holding(seconds: Int)                      // another program uses the buddy (hold)
     case buddyDown(error: String)                   // the bridge has something to show, the buddy does not answer
@@ -39,7 +39,7 @@ public enum BridgeState: Equatable {
         case .hooksMissing:
             return ("exclamationmark.triangle", "Hooks not installed", "Run buddy_bridge.py install", .problem)
         case .paused:
-            return ("pause.circle", "Paused", "Claude Code is not shown on the buddy", .quiet)
+            return ("hand.point.up.left", "Manual", "Claude Code leaves the animation to you", .quiet)
         case .notRunning:
             return ("moon.zzz", "Not running", "Starts with the next Claude Code event", .quiet)
         case .holding(let s):

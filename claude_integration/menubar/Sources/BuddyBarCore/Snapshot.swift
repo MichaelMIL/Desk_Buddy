@@ -16,9 +16,11 @@ public struct BridgeSnapshot: Decodable, Equatable {
     public var connected: Bool?         // Bluetooth link up; nil over Wi-Fi (no lasting link)
     public var holdSeconds: Int         // left of a `hold` (another program uses the buddy)
     public var pid: Int?
+    public var python: String?          // the daemon's interpreter
+    public var paused: Bool?            // manual mode, as the daemon sees it
 
     enum CodingKeys: String, CodingKey {
-        case host, active, previous, showing, activity, wanted, sessions, recent, link, connected, pid
+        case host, active, previous, showing, activity, wanted, sessions, recent, link, connected, pid, python, paused
         case boardError = "board_error", holdSeconds = "hold_s"
     }
 
@@ -47,6 +49,8 @@ public struct BridgeSnapshot: Decodable, Equatable {
         connected = try c.decodeIfPresent(Bool.self, forKey: .connected)
         holdSeconds = try c.decodeIfPresent(Int.self, forKey: .holdSeconds) ?? 0
         pid = try c.decodeIfPresent(Int.self, forKey: .pid)
+        python = try c.decodeIfPresent(String.self, forKey: .python)
+        paused = try c.decodeIfPresent(Bool.self, forKey: .paused)
     }
 
     /// The link to show: what the daemon reports, else derived from the configured host.

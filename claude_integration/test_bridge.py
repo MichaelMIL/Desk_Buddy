@@ -130,9 +130,12 @@ class Clock:
 
 
 class FakeBoard:
+    commands = bb.BUDDY_COMMANDS
+
     def __init__(self, names, current='cycle'):
         self.names, self.current, self.plays, self.up = set(names), current, [], True
-        self.releases = 0
+        self.releases = self.closes = 0
+        self.brightness, self.screen, self.theme = 100, True, ''
 
     def describe(self):
         return 'fake'
@@ -141,10 +144,33 @@ class FakeBoard:
         self.releases += 1
 
     def close(self):
-        pass
+        self.closes += 1
 
     def status(self):
-        return {'current': self.current, 'animations': sorted(self.names)} if self.up else None
+        if not self.up:
+            return None
+        return {'current': self.current, 'animations': sorted(self.names), 'brightness': self.brightness,
+                'screen': self.screen, 'theme': self.theme}
+
+    def command(self, cmd):
+        """Replies like the console in hardware/src/main.cpp."""
+        if not self.up:
+            return None
+        verb, _, arg = cmd.partition(' ')
+        if verb in ('play', 'cycle'):
+            r = self.play(arg if verb == 'play' else 'cycle')
+            return 'ok' if r == 'ok' else "no animation named '%s' (try: list)" % arg
+        if verb == 'brightness':
+            if 10 <= int(arg) <= 100:
+                self.brightness = int(arg)
+            return 'brightness %d%%' % self.brightness
+        if verb == 'screen':
+            self.screen = arg == 'on'
+            return 'ok'
+        if verb == 'theme':
+            self.theme = '' if arg == 'none' else arg
+            return 'ok'
+        return 'ok'
 
     def play(self, name):
         if not self.up:
@@ -377,7 +403,58 @@ class Display(unittest.TestCase):
         self.ctl.hold(30)
         self.clock.t += 10
         self.assertEqual(self.ctl.snapshot()['hold_s'], 20)
+        self.assertEqual(s['python'], sys.executable)
         json.dumps(s)                                            # what GET /status sends
+
+    def test_manual_mode(self):
+        self.send(pre('Read'))
+        self.run_for(1)
+        self.assertEqual(self.board.current, 'claude__reading')
+        self.ctl.set_paused(True)                                # pause / the app's Manual
+        self.run_for(1)
+        self.assertEqual(self.board.current, 'cycle')            # back to what played before Claude
+        self.assertEqual(self.board.closes, 1)                   # Bluetooth link freed at once
+        self.assertTrue(self.ctl.snapshot()['paused'])
+        self.assertEqual(self.ctl.snapshot()['sessions'], [])
+        self.send(pre('Edit', tid='e'))                          # an event already on its way
+        self.run_for(5)
+        self.assertEqual(self.board.current, 'cycle')            # Claude does not change it
+        self.assertEqual(self.ctl.buddy('play face_happy')[0], 200)   # the user picks
+        self.send(ev('Stop'))
+        self.run_for(70)
+        self.assertEqual(self.board.current, 'face_happy')       # and it stays
+        self.ctl.set_paused(False)                               # resume: follow Claude again
+        self.send(pre('Read', tid='r'))
+        self.run_for(1)
+        self.assertEqual(self.board.current, 'claude__reading')
+
+    def test_starts_paused_when_config_says_so(self):
+        ctl = bb.Controller(dict(bb.DEFAULTS, enabled=False), self.board, self.clock)
+        self.assertTrue(ctl.snapshot()['paused'])
+
+    def test_buddy_controls_for_the_menu_bar_app(self):
+        code, body = self.ctl.buddy()                            # GET /buddy: the state only
+        self.assertEqual((code, body['ok'], body['buddy']['brightness']), (200, True, 100))
+        self.assertEqual(body['commands'], list(bb.BUDDY_COMMANDS))
+        self.assertNotIn('reply', body)
+        code, body = self.ctl.buddy('brightness 40')
+        self.assertEqual((code, body['ok'], body['reply'], body['buddy']['brightness']),
+                         (200, True, 'brightness 40%', 40))
+        self.assertEqual(self.ctl.buddy('screen off')[1]['buddy']['screen'], False)
+        self.assertEqual(self.ctl.buddy('theme xmas')[1]['buddy']['theme'], 'xmas')
+        self.assertEqual(self.ctl.buddy('play face_happy')[1]['buddy']['current'], 'face_happy')
+        code, body = self.ctl.buddy('play nope')                 # the buddy says no: not ok, its words
+        self.assertEqual((code, body['ok']), (200, False))
+        self.assertIn('no animation named', body['error'])
+        self.assertEqual(self.ctl.buddy('reset')[0], 400)        # not on the list: never sent
+        self.assertGreater(self.board.releases, 0)               # Bluetooth link let go while idle
+        self.ctl.hold(30)
+        code, body = self.ctl.buddy('brightness 60')
+        self.assertEqual((code, self.board.brightness), (409, 40))
+        self.ctl.hold(0)
+        self.board.up = False
+        self.assertEqual(self.ctl.buddy('brightness 60')[0], 502)
+        self.assertEqual(self.ctl.buddy()[0], 502)
 
     def test_overrides(self):
         self.ctl.cfg['animations'] = {'reading': 'face_happy', 'thinking': ['nope', 'claude__spark']}
@@ -412,6 +489,10 @@ class FakeBleClient:
                 self.current, reply = n, 'ok'
             else:
                 reply = "no animation named '%s' (try: list)" % n
+        elif cmd.startswith('brightness '):
+            reply = 'brightness %s%%' % cmd[11:]
+        elif cmd in ('next', 'screen off'):
+            reply = 'ok'
         else:
             reply = 'commands: ...'
         out = (reply + '\n').encode()
@@ -463,6 +544,14 @@ class Bluetooth(unittest.TestCase):
         self.assertEqual(self.board.play('cycle'), 'ok')
         self.assertEqual(self.board.connects, 1)                          # one link for all of them
 
+    def test_console_command(self):
+        self.board.status()
+        self.board._on_tx(None, bytearray(b'state {"current":"cycle"}\n'))   # a stale reply is skipped
+        self.assertEqual(self.board.command('brightness 40'), 'brightness 40%')
+        self.assertEqual(self.board.command('next'), 'ok')
+        self.fake.silent = True
+        self.assertIsNone(self.board.command('screen off'))
+
     def test_stale_reply_is_not_taken(self):
         self.board.status()
         self.board._on_tx(None, bytearray(b'ok\n'))                        # left over from a timed-out command
@@ -511,8 +600,8 @@ class Bluetooth(unittest.TestCase):
 
 
 class FakeBuddy(BaseHTTPRequestHandler):
-    """The two endpoints the bridge uses, like hardware/src/net.cpp."""
-    state = {'current': 'cycle', 'plays': []}
+    """The endpoints the bridge uses, like hardware/src/net.cpp."""
+    state = {'current': 'cycle', 'plays': [], 'brightness': 100, 'screen': True, 'theme': ''}
 
     def _json(self, code, body):
         data = json.dumps(body).encode()
@@ -523,16 +612,30 @@ class FakeBuddy(BaseHTTPRequestHandler):
 
     def do_GET(self):
         if self.path == '/api/status':
-            return self._json(200, {'current': self.state['current'], 'animations': CLAUDE + ['face_happy']})
+            s = self.state
+            return self._json(200, {'current': s['current'], 'animations': CLAUDE + ['face_happy'],
+                                    'brightness': s['brightness'], 'screen': s['screen'], 'theme': s['theme']})
         self._json(404, {})
 
     def do_POST(self):
         q = urllib.parse.urlparse(self.path)
-        name = urllib.parse.parse_qs(q.query).get('name', [''])[0]
+        args = {k: v[0] for k, v in urllib.parse.parse_qs(q.query, keep_blank_values=True).items()}
+        name = args.get('name', '')
         if q.path == '/api/play' and (name == 'cycle' or name in CLAUDE):
             self.state['current'] = name
             self.state['plays'].append(name)
             return self._json(200, {'ok': True, 'current': name})
+        if q.path == '/api/brightness':
+            if not 10 <= int(args.get('value') or 0) <= 100:
+                return self._json(400, {'error': 'brightness is 10 to 100'})
+            self.state['brightness'] = int(args['value'])
+            return self._json(200, {'ok': True, 'brightness': self.state['brightness']})
+        if q.path == '/api/screen':
+            self.state['screen'] = args.get('on') == '1'
+            return self._json(200, {'ok': True, 'on': self.state['screen']})
+        if q.path == '/api/theme':
+            self.state['theme'] = name
+            return self._json(200, {'ok': True, 'theme': name})
         self._json(404, {'error': 'unknown animation'})
 
     def log_message(self, *a):
@@ -547,8 +650,66 @@ def free_port():
     return p
 
 
+class HttpBoard(unittest.TestCase):
+    """Board.command: the menu bar app's commands on the HTTP API."""
+
+    def test_commands_map_onto_endpoints(self):
+        buddy = ThreadingHTTPServer(('127.0.0.1', 0), FakeBuddy)
+        threading.Thread(target=buddy.serve_forever, daemon=True).start()
+        try:
+            b = bb.Board('127.0.0.1:%d' % buddy.server_address[1], timeout=2)
+            self.assertEqual(b.command('brightness 40'), 'ok')
+            self.assertEqual(b.command('brightness 5'), 'brightness is 10 to 100')   # the buddy's error
+            self.assertEqual(b.command('screen off'), 'ok')
+            self.assertEqual(b.command('theme xmas'), 'ok')
+            self.assertEqual(b.command('theme none'), 'ok')
+            self.assertEqual(b.command('play claude__done'), 'ok')
+            self.assertEqual(b.command('play nope'), 'unknown animation')
+            self.assertEqual(b.command('cycle'), 'ok')
+            st = b.status()
+            self.assertEqual((st['brightness'], st['screen'], st['theme'], st['current']), (40, False, '', 'cycle'))
+            self.assertNotIn('next', b.commands)
+            self.assertIn('not available', b.command('next'))
+        finally:
+            buddy.shutdown()
+            buddy.server_close()
+        self.assertIsNone(b.command('brightness 50'))           # nobody there
+
+
 class EndToEnd(unittest.TestCase):
     """The real hook command, which starts the real daemon, against a fake buddy."""
+
+    def test_start_command(self):
+        home = tempfile.mkdtemp()
+        cfg = dict(bb.DEFAULTS, host='127.0.0.1:9', port=free_port())
+        with open(os.path.join(home, 'claude.json'), 'w') as f:
+            json.dump(cfg, f)
+        env = dict(os.environ, DESK_BUDDY_HOME=home)
+
+        def run(sub):
+            r = subprocess.run([sys.executable, os.path.join(HERE, 'buddy_bridge.py'), sub],
+                               capture_output=True, env=env, timeout=10)
+            return r.returncode, r.stdout.decode().strip()
+
+        def status():
+            return bb.daemon_request(cfg, 'GET', '/status', timeout=2)[1]
+
+        def enabled():
+            with open(os.path.join(home, 'claude.json')) as f:
+                return json.load(f)['enabled']
+        try:
+            self.assertEqual(run('start'), (0, 'daemon running'))
+            self.assertEqual(run('start'), (0, 'daemon already running'))
+            self.assertEqual((status()['sessions'], status()['paused']), ([], False))
+            self.assertEqual(run('pause')[0], 0)                  # manual: the daemon stays up, paused
+            self.assertEqual((status()['paused'], enabled()), (True, False))
+            self.assertEqual(run('resume')[0], 0)
+            self.assertEqual((status()['paused'], enabled()), (False, True))
+        finally:
+            try:
+                bb.daemon_request(cfg, 'POST', '/stop', b'{}', timeout=2)
+            except OSError:
+                pass
 
     def test_hook_starts_daemon_and_drives_buddy(self):
         buddy = ThreadingHTTPServer(('127.0.0.1', 0), FakeBuddy)
@@ -588,6 +749,15 @@ class EndToEnd(unittest.TestCase):
             wait_for('claude__done')
             wait_for('cycle', timeout=6)                          # done_seconds later: back to cycling
             self.assertFalse(os.path.exists(os.path.join(home, 'claude-state.json')))
+            # the menu bar app: buddy controls through the daemon, and the daemon's Python on record
+            code, body = bb.daemon_request(cfg, 'POST', '/buddy', b'{"command": "brightness 30"}', timeout=5)
+            self.assertEqual((code, body['ok'], body['buddy']['brightness']), (200, True, 30))
+            code, body = bb.daemon_request(cfg, 'GET', '/buddy', timeout=5)
+            self.assertEqual((code, body['buddy']['current']), (200, 'cycle'))
+            self.assertEqual(bb.daemon_request(cfg, 'POST', '/buddy', b'{"command": "reset"}')[0], 400)
+            self.assertEqual(bb.daemon_request(cfg, 'POST', '/buddy', b'not json')[0], 400)
+            with open(os.path.join(home, 'claude-python')) as f:
+                self.assertEqual(f.read().strip(), sys.executable)
         finally:
             try:
                 bb.daemon_request(cfg, 'POST', '/stop', b'{}', timeout=2)

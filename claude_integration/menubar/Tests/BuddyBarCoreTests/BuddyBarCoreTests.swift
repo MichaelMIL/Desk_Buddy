@@ -26,6 +26,9 @@ final class BuddyBarCoreTests: XCTestCase {
         XCTAssertEqual(s.showing, "claude__reading")
         XCTAssertEqual(s.connected, true)
         XCTAssertEqual(s.pid, 80303)
+        XCTAssertNil(s.paused)                      // not in this reply: an older daemon
+        XCTAssertEqual(try snapshot(#"{"paused": true}"#).paused, true)
+        XCTAssertEqual(BridgeState.paused.presentation.title, "Manual")
         XCTAssertEqual(s.sessions.map(\.project), ["desk_buddies", "33800c45"])
         XCTAssertNil(s.sessions[1].activity)
         XCTAssertEqual(s.recent.last, Play(time: "14:02:11", activity: "reading", name: "claude__reading"))
@@ -103,10 +106,62 @@ final class BuddyBarCoreTests: XCTestCase {
                                      .needsYou(project: "p"), .showing(activity: "nope", animation: nil), .idle]
         symbols += states.map(\.presentation.symbol)
         symbols += ["dot.radiowaves.left.and.right", "wifi", "hand.raised", "hand.raised.slash", "pause.circle",
-                    "play.circle", "stop.circle", "doc.text.magnifyingglass", "power"]   // PanelView
+                    "play.circle", "stop.circle", "doc.text.magnifyingglass", "power",   // PanelView
+                    "repeat", "play.fill", "forward.end.fill", "sun.min", "display", "moon",
+                    "square.grid.2x2", "slider.horizontal.3"]                              // BuddyControls
         for s in Set(symbols) {
             XCTAssertNotNil(NSImage(systemSymbolName: s, accessibilityDescription: nil), s)
         }
+    }
+
+    func testBuddyReplyOverBluetooth() throws {
+        // POST /buddy through a Bluetooth daemon: the `state` reply plus `names`
+        let json = """
+        {"ok": true, "reply": "brightness 60%", "commands": ["play", "cycle", "next", "brightness", "screen", "theme"],
+         "buddy": {"current": "cycle", "cycling": true, "screen": true, "brightness": 60, "theme": "xmas", "count": 6,
+                   "animations": ["face_happy", "spinner", "xmas__santa", "xmas__lights", "claude__reading", "__odd"]}}
+        """
+        let r = try JSONDecoder().decode(BuddyReply.self, from: Data(json.utf8))
+        XCTAssertTrue(r.ok)
+        XCTAssertTrue(r.commands.contains("next"))
+        let b = try XCTUnwrap(r.buddy)
+        XCTAssertTrue(b.isCycling)
+        XCTAssertEqual(b.brightness, 60)
+        XCTAssertEqual(b.themes, ["claude", "xmas"])
+        XCTAssertEqual(b.commonFaces, ["__odd", "face_happy", "spinner"])
+        XCTAssertEqual(b.faces(in: "xmas"), ["xmas__lights", "xmas__santa"])
+    }
+
+    func testBuddyReplyOverWifiAndErrors() throws {
+        // GET /api/status carries much more; animations may also come as objects
+        let wifi = #"{"ok": true, "commands": ["play"], "buddy": {"id": "3ce36c", "current": "bear__honey","#
+            + #" "animations": [{"name": "bear__honey", "bytes": 1}], "screen": false, "brightness": 30, "theme": ""}}"#
+        let b = try XCTUnwrap(JSONDecoder().decode(BuddyReply.self, from: Data(wifi.utf8)).buddy)
+        XCTAssertEqual(b, BuddyState(current: "bear__honey", screen: false, brightness: 30, theme: "",
+                                     animations: ["bear__honey"]))
+        XCTAssertFalse(b.isCycling)
+        let err = try JSONDecoder().decode(BuddyReply.self, from: Data(#"{"ok": false, "error": "holding off the buddy"}"#.utf8))
+        XCTAssertFalse(err.ok)
+        XCTAssertEqual(err.error, "holding off the buddy")
+        XCTAssertNil(err.buddy)
+        XCTAssertEqual(BuddyState.displayName("bear__honey"), "Honey")
+        XCTAssertEqual(BuddyState.displayName("face_happy"), "Face happy")
+        XCTAssertEqual(BuddyState.displayName("cycle"), "Cycling")
+    }
+
+    func testInvocation() {
+        let h = HookInfo(events: 3, command: #"python3 "/r/claude integration/buddy_bridge.py" hook"#)
+        XCTAssertEqual(h.script, "/r/claude integration/buddy_bridge.py")
+        let direct = h.invocation("start", python: "/opt/conda/bin/python3")
+        XCTAssertEqual(direct?.executable, "/opt/conda/bin/python3")
+        XCTAssertEqual(direct?.arguments, ["/r/claude integration/buddy_bridge.py", "start"])
+        let shell = h.invocation("pause", python: nil)
+        XCTAssertEqual(shell?.executable, "/bin/zsh")
+        XCTAssertEqual(shell?.arguments, ["-lc", #"python3 "/r/claude integration/buddy_bridge.py" pause"#])
+        XCTAssertEqual(HookInfo(events: 1, command: "python3 /r/buddy_bridge.py hook").script, "/r/buddy_bridge.py")
+        XCTAssertNil(HookInfo().invocation("start", python: "/usr/bin/python3"))
+        XCTAssertEqual(BridgePaths(home: URL(fileURLWithPath: "/Users/x"), environment: [:]).pythonFile.path,
+                       "/Users/x/.config/desk-buddy/claude-python")
     }
 
     func testActivityNames() {

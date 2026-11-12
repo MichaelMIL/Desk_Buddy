@@ -156,7 +156,7 @@ optional):
 |---|---|---|
 | `host` | `desk-buddy.local` | `ble` or `ble:<device name>` for Bluetooth, otherwise the buddy's IP address or name on Wi-Fi; `DESK_BUDDY_HOST` in the environment overrides it |
 | `ble_linger_seconds` | 20 | Bluetooth: how long after Claude goes idle the link is kept before disconnecting |
-| `enabled` | `true` | `pause` / `resume` switch this |
+| `enabled` | `true` | `false` = manual; `pause` / `resume` switch this |
 | `min_seconds` | 3 | shortest time an activity stays on screen |
 | `think_after` | 8 | seconds after a tool finished with nothing new before showing thinking |
 | `done_seconds` | 60 | how long "done" stays |
@@ -178,8 +178,9 @@ the daemon with the new values.
 | `install [--host H] [--settings F]` | add the hooks (to `~/.claude/settings.json`, or e.g. a project's `.claude/settings.json`), save the host, show what each activity will play |
 | `status` | hooks installed?, daemon and its sessions, recent plays, buddy reachability, activity → animation table |
 | `demo [--seconds 5] [--only a,b]` | play each activity on the buddy, then put it back |
-| `pause` / `resume` | stop / start showing Claude (the hooks stay installed) |
+| `pause` / `resume` | manual: Claude Code stops changing the animation, the buddy goes back to what it played before Claude, and you pick from then on (the hooks stay installed; a running daemon stays up for the menu bar app's controls and lets go of the Bluetooth link at once) / follow Claude Code again |
 | `hold [seconds]` | leave the buddy alone for a while (default 120 s; frees the Bluetooth link at once); `hold 0` ends it |
+| `start` | start the daemon now (otherwise it starts with the next Claude Code event) |
 | `stop` | stop the daemon; the buddy goes back first |
 | `uninstall [--settings F]` | remove only this bridge's hook entries |
 
@@ -192,7 +193,7 @@ board.
 `menubar/` is **Buddy Bridge**, a menu bar app (macOS 13 or later, Swift).
 It shows whether the bridge is running and what it shows. The icon follows the
 activity: a book for reading, a pencil for editing, a speech bubble with "!"
-when a session waits for you. It also shows a pause sign when paused, a moon
+when a session waits for you. It also shows a pointing hand in Manual, a moon
 when the daemon is not running (normal until the next Claude Code event), a
 raised hand during a `hold`, and a warning sign when the hooks are missing or
 the buddy does not answer. Click the icon for a panel with:
@@ -200,10 +201,29 @@ the buddy does not answer. Click the icon for a panel with:
 - the state and the animation on the buddy;
 - the link (Bluetooth or Wi-Fi), whether it is connected, and what the buddy
   goes back to;
+- buddy controls: what it plays, next face (Bluetooth), a menu of every face
+  by theme, brightness, screen on/off, and the theme (one per `<theme>__`
+  prefix among the stored animations);
 - each session: project folder, activity, subagents, last event;
 - the last few animations shown;
-- Pause / Resume, "Leave the buddy alone for 2 min" (`hold`), Stop, Open log,
-  and Open at login.
+- a **Follow Claude / Manual** switch. In Manual, Claude Code stops changing
+  the animation (`pause`): the buddy goes back to what it played before
+  Claude, and you pick faces with the controls above;
+- "Leave the buddy alone for 2 min" (`hold`), Stop, Open log, and Open at
+  login.
+
+The controls go through the daemon, which owns the link (the buddy takes one
+Bluetooth connection): `GET /buddy` reads the buddy, `POST /buddy
+{"command": "brightness 60"}` sends one of `play`, `cycle`, `next`,
+`brightness`, `screen` or `theme` (over Wi-Fi each maps onto its HTTP
+endpoint; there is no `next`). Both answer `{"ok", "reply", "error",
+"buddy", "commands"}`; 409 during a `hold`, 502 when the buddy does not answer.
+The app reads the buddy only while its panel is open, so the link is free
+otherwise. If the daemon is not running, "Show buddy controls" starts it
+(`buddy_bridge.py start`) with the Python it last ran with, recorded in
+`~/.config/desk-buddy/claude-python`, because a GUI app's `python3` may lack
+bleak. A face picked while following Claude lasts until Claude's next step;
+Manual keeps it (opening the panel in Manual connects to the buddy at once).
 
 ```sh
 claude_integration/menubar/build.sh --install   # builds, copies to ~/Applications, starts it
@@ -212,8 +232,8 @@ claude_integration/menubar/build.sh --install   # builds, copies to ~/Applicatio
 It needs only the Swift toolchain that comes with Xcode or the Command Line
 Tools; `build.sh` without `--install` leaves the app in `menubar/build/`. It
 polls `GET /status` on the daemon (`127.0.0.1:47615`, header `X-Desk-Buddy:
-1`) every 1.5 s, and reads `claude.json` and `~/.claude/settings.json`. Pause
-and Resume run the hooks' own command line with `pause` / `resume`. The app
+1`) every 1.5 s, and reads `claude.json` and `~/.claude/settings.json`. The
+Follow Claude / Manual switch runs `buddy_bridge.py resume` / `pause`. The app
 keeps no state of its own. Tests: `cd claude_integration/menubar && swift
 test` (status parsing, state rules, and that every icon exists).
 

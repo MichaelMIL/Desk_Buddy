@@ -24,6 +24,16 @@ struct PanelView: View {
                 Spacer(minLength: 0)
             }
 
+            Picker("Animations", selection: Binding(get: { monitor.manual }, set: { monitor.setManual($0) })) {
+                Text("Follow Claude").tag(false)
+                Text("Manual").tag(true)
+            }
+            .pickerStyle(.segmented)
+            .labelsHidden()
+            .disabled(!monitor.hooks.installed || monitor.working)
+            .help("Follow Claude: the buddy shows what Claude Code is doing. "
+                  + "Manual: Claude Code leaves it alone and you pick the animation.")
+
             buddy(state)
             if let s = monitor.snapshot {
                 if !s.sessions.isEmpty { sessions(s.sessions) }
@@ -37,7 +47,15 @@ struct PanelView: View {
             }
         }
         .padding(14)
-        .frame(width: 320)
+        .frame(width: 340)
+        // the panel is this app's only window: key = open. The buddy is read only while it is open.
+        .onAppear { monitor.panelOpened() }
+        .onReceive(NotificationCenter.default.publisher(for: NSWindow.didBecomeKeyNotification)) { _ in
+            monitor.panelOpened()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: NSWindow.didResignKeyNotification)) { _ in
+            monitor.panelClosed()
+        }
     }
 
     // MARK: sections
@@ -62,8 +80,10 @@ struct PanelView: View {
                 }
             }
             .font(.callout)
+            BuddyControls(monitor: monitor, claudeBusy: state.isRunning && s?.active == true)
             if let s, s.active, let prev = s.previous {
-                Text("Goes back to \(prev) when Claude is idle").font(.caption).foregroundStyle(.secondary)
+                Text("Goes back to \(BuddyState.displayName(prev).lowercased()) when Claude is idle")
+                    .font(.caption).foregroundStyle(.secondary)
             }
         }
     }
@@ -115,13 +135,6 @@ struct PanelView: View {
             } else if state.isRunning {
                 MenuButton("Leave the buddy alone for 2 min", symbol: "hand.raised") { monitor.hold(120) }
             }
-            if monitor.config.enabled {
-                MenuButton("Pause", symbol: "pause.circle") { monitor.setPaused(true) }
-                    .disabled(!monitor.hooks.installed || monitor.working)
-            } else {
-                MenuButton("Resume", symbol: "play.circle") { monitor.setPaused(false) }
-                    .disabled(!monitor.hooks.installed || monitor.working)
-            }
             if state.isRunning {
                 MenuButton("Stop the bridge until the next event", symbol: "stop.circle") { monitor.stopDaemon() }
             }
@@ -157,6 +170,133 @@ struct PanelView: View {
         case .attention: return .orange
         case .problem: return .red
         }
+    }
+}
+
+/// Face, next, brightness, screen and theme, through the bridge daemon's link to the buddy.
+struct BuddyControls: View {
+    @ObservedObject var monitor: Monitor
+    let claudeBusy: Bool
+    @State private var brightness = 100.0
+    @State private var dragging = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            if monitor.daemonTooOld {
+                HStack {
+                    Text("The running bridge predates the buddy controls.").foregroundStyle(.secondary)
+                    Spacer(minLength: 4)
+                    Button("Restart it") { monitor.restartDaemon() }.controlSize(.small)
+                }
+            } else if let b = monitor.buddy {
+                controls(b)
+            } else if monitor.buddyBusy {
+                HStack(spacing: 8) {
+                    ProgressView().controlSize(.small)
+                    Text("Connecting to the buddy…").foregroundStyle(.secondary)
+                }
+            } else {
+                HStack {
+                    Button {
+                        monitor.connectBuddy()
+                    } label: {
+                        Label("Show buddy controls", systemImage: "slider.horizontal.3")
+                    }
+                    .controlSize(.small)
+                    if !monitor.daemonUp {
+                        Text("starts the bridge").font(.caption).foregroundStyle(.tertiary)
+                    }
+                }
+            }
+            if let e = monitor.buddyError {
+                Text(e).font(.caption).foregroundStyle(.red).fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        .font(.callout)
+        .padding(.top, 2)
+    }
+
+    @ViewBuilder
+    private func controls(_ b: BuddyState) -> some View {
+        HStack(spacing: 6) {
+            Image(systemName: b.isCycling ? "repeat" : "play.fill").foregroundStyle(.secondary).frame(width: 16)
+            Text(b.isCycling ? "Cycling faces" : BuddyState.displayName(b.current))
+                .lineLimit(1).truncationMode(.middle).help(b.current)
+            if monitor.buddyBusy { ProgressView().controlSize(.mini) }
+            Spacer(minLength: 4)
+            if monitor.buddyCommands.contains("next") {
+                Button { monitor.send("next") } label: { Image(systemName: "forward.end.fill") }
+                    .buttonStyle(.borderless).help("Next face")
+            }
+            facesMenu(b)
+        }
+        HStack(spacing: 6) {
+            Image(systemName: "sun.min").foregroundStyle(.secondary).frame(width: 16)
+            Slider(value: $brightness, in: 10...100) { editing in
+                dragging = editing
+                if !editing {
+                    brightness = (brightness / 5).rounded() * 5          // the buddy takes whole percents
+                    monitor.send("brightness \(Int(brightness))")
+                }
+            }
+            .controlSize(.small)
+            Text("\(Int((brightness / 5).rounded() * 5))%").monospacedDigit().foregroundStyle(.secondary)
+                .frame(width: 38, alignment: .trailing)
+        }
+        .help("Brightness")
+        .onAppear { brightness = Double(b.brightness) }
+        .onChange(of: b.brightness) { v in if !dragging { brightness = Double(v) } }
+        HStack(spacing: 6) {
+            Image(systemName: b.screen ? "display" : "moon")
+                .foregroundStyle(.secondary).frame(width: 16)
+            Toggle("Screen", isOn: Binding(get: { b.screen }, set: { monitor.send("screen \($0 ? "on" : "off")") }))
+                .toggleStyle(.switch).controlSize(.mini)
+            Spacer(minLength: 4)
+            themePicker(b)
+        }
+        if claudeBusy {
+            Text("Claude Code's next step takes the screen back; switch to Manual to keep your pick.")
+                .font(.caption).foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
+    private func facesMenu(_ b: BuddyState) -> some View {
+        Menu {
+            Button("Cycle all faces") { monitor.send("cycle") }
+            Divider()
+            ForEach(b.commonFaces, id: \.self) { n in
+                Button(BuddyState.displayName(n)) { monitor.send("play \(n)") }
+            }
+            if !b.themes.isEmpty { Divider() }
+            ForEach(b.themes, id: \.self) { t in
+                Menu(t.capitalized + (t == b.theme ? "  ✦" : "")) {
+                    ForEach(b.faces(in: t), id: \.self) { n in
+                        Button(BuddyState.displayName(n)) { monitor.send("play \(n)") }
+                    }
+                }
+            }
+        } label: {
+            Image(systemName: "square.grid.2x2")
+        }
+        .menuStyle(.borderlessButton)
+        .menuIndicator(.hidden)
+        .fixedSize()
+        .help("Play a face")
+    }
+
+    private func themePicker(_ b: BuddyState) -> some View {
+        let themes = b.themes + (b.theme.isEmpty || b.themes.contains(b.theme) ? [] : [b.theme])
+        return Picker("Theme", selection: Binding(get: { b.theme },
+                                                   set: { monitor.send("theme \($0.isEmpty ? "none" : $0)") })) {
+            Text("No theme").tag("")
+            Divider()
+            ForEach(themes, id: \.self) { Text($0.capitalized).tag($0) }
+        }
+        .pickerStyle(.menu)
+        .labelsHidden()
+        .fixedSize()
+        .help("Theme: its faces join the cycle")
     }
 }
 

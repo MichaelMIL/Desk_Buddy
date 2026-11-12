@@ -2,7 +2,8 @@ import AppKit
 import BuddyBarCore
 import ServiceManagement
 
-/// Polls the bridge daemon (GET /status on 127.0.0.1) and its files, and runs the actions.
+/// Polls the bridge daemon (GET /status on 127.0.0.1) and its files, controls the buddy through the
+/// daemon (GET / POST /buddy: its link, Bluetooth takes one connection), and runs the actions.
 @MainActor
 final class Monitor: ObservableObject {
     @Published private(set) var snapshot: BridgeSnapshot?
@@ -11,9 +12,19 @@ final class Monitor: ObservableObject {
     @Published private(set) var message: String?        // what the last action did
     @Published private(set) var working = false
 
+    // the buddy (only while the panel is open: reading it holds the Bluetooth link)
+    @Published private(set) var buddy: BuddyState?
+    @Published private(set) var buddyCommands: [String] = []
+    @Published private(set) var buddyBusy = false        // connecting, or a command in flight
+    @Published private(set) var buddyError: String?
+    @Published private(set) var daemonTooOld = false     // a daemon from before /buddy
+
     let paths = BridgePaths()
     private var poll: Task<Void, Never>?
     private var messageClear: Task<Void, Never>?
+    private var panelOpen = false
+    private var buddyFetchedAt = Date.distantPast
+    private var buddyLoading = false
     private let http: URLSession = {
         let c = URLSessionConfiguration.ephemeral
         c.connectionProxyDictionary = [:]
@@ -21,12 +32,18 @@ final class Monitor: ObservableObject {
         return URLSession(configuration: c)
     }()
 
-    var state: BridgeState { .derive(hooks: hooks, config: config, snapshot: snapshot) }
+    var state: BridgeState {
+        var c = config
+        c.enabled = !manual                        // a mode switch in flight shows at once
+        return .derive(hooks: hooks, config: c, snapshot: snapshot)
+    }
+    var daemonUp: Bool { snapshot != nil }
 
     init() {
         poll = Task { [weak self] in
             while !Task.isCancelled {
                 await self?.refresh()
+                await self?.refreshBuddyIfDue()
                 try? await Task.sleep(nanoseconds: 1_500_000_000)
             }
         }
@@ -42,20 +59,159 @@ final class Monitor: ObservableObject {
             snap = try? JSONDecoder().decode(BridgeSnapshot.self, from: data)
         }
         if snap != snapshot { snapshot = snap }
+        if snap == nil, buddy != nil { buddy = nil }      // the daemon went away: controls need it again
     }
 
-    // MARK: actions
+    // MARK: the panel
 
-    func setPaused(_ paused: Bool) {
-        guard let cmd = hooks.command(paused ? "pause" : "resume") else {
-            return say("The hooks are not installed: run buddy_bridge.py install")
+    func panelOpened() {
+        guard !panelOpen else { return }
+        panelOpen = true
+        if daemonUp {
+            Task { await loadBuddy() }
+        } else if manual && hooks.installed {
+            connectBuddy()                         // manual: the controls are the point; start the daemon
         }
+    }
+
+    func panelClosed() { panelOpen = false }
+
+    private func refreshBuddyIfDue() async {
+        guard panelOpen, daemonUp, buddy != nil, !buddyBusy,
+              Date().timeIntervalSince(buddyFetchedAt) > 4 else { return }
+        await loadBuddy(quiet: true)
+    }
+
+    // MARK: the buddy
+
+    /// Starts the daemon if needed (it starts by itself with the next Claude Code event), then reads the buddy.
+    func connectBuddy() {
+        Task {
+            buddyBusy = true
+            buddyError = nil
+            if !daemonUp {
+                let (ok, out) = await runBridge("start")
+                await refresh()
+                if !ok || !daemonUp {
+                    buddyBusy = false
+                    buddyError = ok ? "The bridge did not start" : out
+                    return
+                }
+            }
+            buddyBusy = false
+            await loadBuddy()
+        }
+    }
+
+    /// Stops an old daemon and starts the current one (after updating buddy_bridge.py).
+    func restartDaemon() {
+        Task {
+            buddyBusy = true
+            _ = await request("POST", "/stop", body: Data("{}".utf8), timeout: 3)
+            for _ in 0..<20 where daemonUp {
+                try? await Task.sleep(nanoseconds: 250_000_000)
+                await refresh()
+            }
+            daemonTooOld = false
+            buddyBusy = false
+            connectBuddy()
+        }
+    }
+
+    func loadBuddy(quiet: Bool = false) async {
+        guard !buddyLoading else { return }
+        buddyLoading = true
+        if !quiet { buddyBusy = true }
+        let r = await request("GET", "/buddy", timeout: 90)     // Bluetooth: scan + connect (+ pairing)
+        buddyLoading = false
+        if !quiet { buddyBusy = false }
+        buddyFetchedAt = Date()
+        if pending == nil { apply(r, quiet: quiet) }           // else the state is about to change anyway
+        flushPending()
+    }
+
+    /// One console command: play <name>, cycle, next, brightness <n>, screen on|off, theme <t>|none.
+    /// While another is in flight, the latest one waits and goes next (a slider sends many).
+    func send(_ command: String) {
+        optimistic(command)
+        if buddyBusy || buddyLoading {
+            pending = command
+            return
+        }
+        Task {
+            buddyBusy = true
+            let body = try? JSONSerialization.data(withJSONObject: ["command": command])
+            let r = await request("POST", "/buddy", body: body, timeout: 90)
+            buddyBusy = false
+            buddyFetchedAt = Date()
+            apply(r, quiet: false)
+            flushPending()
+        }
+    }
+
+    private var pending: String?
+
+    private func flushPending() {
+        if let p = pending, !buddyBusy, !buddyLoading {
+            pending = nil
+            send(p)
+        }
+    }
+
+    private func optimistic(_ command: String) {
+        guard var b = buddy else { return }
+        let parts = command.split(separator: " ", maxSplits: 1).map(String.init)
+        let arg = parts.count > 1 ? parts[1] : ""
+        switch parts.first {
+        case "brightness": b.brightness = Int(arg) ?? b.brightness
+        case "screen": b.screen = arg == "on"
+        case "theme": b.theme = arg == "none" ? "" : arg
+        case "play": b.current = arg
+        case "cycle": b.current = "cycle"
+        default: return
+        }
+        buddy = b
+    }
+
+    private func apply(_ r: (Int, Data)?, quiet: Bool) {
+        guard let (code, data) = r else {
+            if !quiet { buddyError = "The bridge is not running" }
+            return
+        }
+        if code == 404 {                                   // GET /buddy unknown: an older daemon
+            daemonTooOld = true
+            buddy = nil
+            return
+        }
+        guard let reply = try? JSONDecoder().decode(BuddyReply.self, from: data) else {
+            buddyError = "Unexpected reply from the bridge (\(code))"
+            return
+        }
+        if let b = reply.buddy { buddy = b }
+        if !reply.commands.isEmpty { buddyCommands = reply.commands }
+        buddyError = reply.ok ? nil : (reply.error ?? "Failed (\(code))")   // 409 hold, 502 no answer, the buddy's own refusal
+    }
+
+    // MARK: bridge actions
+
+    /// Manual (true): Claude Code stops changing the animation and the buddy goes back to what it
+    /// played before Claude; the controls pick it. Follow (false): Claude Code's activity shows again.
+    /// The switch shows the new mode at once; the file says otherwise only if the command fails.
+    @Published private(set) var manualPending: Bool?
+
+    var manual: Bool { manualPending ?? !config.enabled }
+
+    func setManual(_ manual: Bool) {
+        guard manual != self.manual else { return }
+        manualPending = manual
         working = true
         Task {
-            let (ok, out) = await Self.shell(cmd)
-            working = false
-            say(ok ? out : "Failed: \(out)")
+            let (ok, out) = await runBridge(manual ? "pause" : "resume")
             await refresh()
+            working = false
+            manualPending = nil
+            say(ok ? out : "Failed: \(out)")
+            if ok, manual, panelOpen, buddy == nil { connectBuddy() }   // the controls are the point
         }
     }
 
@@ -122,23 +278,36 @@ final class Monitor: ObservableObject {
         return (h.statusCode, data)
     }
 
-    /// Runs a command line the way Claude Code runs the hook (a login shell, so python3 is found).
-    nonisolated static func shell(_ command: String) async -> (Bool, String) {
+    /// `buddy_bridge.py <subcommand>`, with the daemon's own Python when known (it has bleak).
+    private func runBridge(_ subcommand: String) async -> (Bool, String) {
+        let recorded = snapshot?.python
+            ?? (try? String(contentsOf: paths.pythonFile, encoding: .utf8))?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let python = recorded.flatMap { FileManager.default.isExecutableFile(atPath: $0) ? $0 : nil }
+        guard let (exe, args) = hooks.invocation(subcommand, python: python) else {
+            return (false, "The hooks are not installed: run buddy_bridge.py install")
+        }
+        return await Self.run(exe, args)
+    }
+
+    nonisolated static func run(_ executable: String, _ arguments: [String]) async -> (Bool, String) {
         await withCheckedContinuation { cont in
             DispatchQueue.global().async {
                 let p = Process()
-                p.executableURL = URL(fileURLWithPath: "/bin/zsh")
-                p.arguments = ["-lc", command]
+                p.executableURL = URL(fileURLWithPath: executable)
+                p.arguments = arguments
                 let pipe = Pipe()
                 p.standardOutput = pipe
                 p.standardError = pipe
+                p.standardInput = FileHandle.nullDevice
                 do { try p.run() } catch {
                     cont.resume(returning: (false, error.localizedDescription))
                     return
                 }
+                // `start` leaves the daemon running with our pipe closed (it detaches its own stdio)
                 let out = pipe.fileHandleForReading.readDataToEndOfFile()
                 p.waitUntilExit()
-                cont.resume(returning: (p.terminationStatus == 0, String(decoding: out, as: UTF8.self)))
+                cont.resume(returning: (p.terminationStatus == 0,
+                                        String(decoding: out, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)))
             }
         }
     }
