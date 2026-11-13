@@ -203,7 +203,7 @@ the daemon with the new values.
 | `pause` / `resume` | manual: Claude Code stops changing the animation, the buddy goes back to what it played before Claude, and you pick from then on (the hooks stay installed; a running daemon stays up for the menu bar app's controls and lets go of the Bluetooth link at once) / follow Claude Code again |
 | `hold [seconds]` | leave the buddy alone for a while (default 120 s; frees the Bluetooth link at once); `hold 0` ends it |
 | `start` | start the daemon now (otherwise it starts with the next Claude Code event) |
-| `stop` | stop the daemon; the buddy goes back first |
+| `stop` | stop the daemon; the buddy goes back first, and it returns once the daemon has exited (up to 60 s), so `stop && start` starts a fresh one |
 | `uninstall [--settings F]` | remove only this bridge's hook entries |
 
 To keep one session off the buddy, start it with `DESK_BUDDY=0 claude`.

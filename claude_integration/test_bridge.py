@@ -877,6 +877,65 @@ class EndToEnd(unittest.TestCase):
             buddy.shutdown()
             buddy.server_close()
 
+    def test_stop_waits_until_the_daemon_has_exited(self):
+        """`stop` returns once the daemon has put the buddy back and exited, so `start` right after
+        starts a new one (it used to return at once, and that `start` found the old one still up)."""
+        class SlowBuddy(FakeBuddy):
+            state = dict(FakeBuddy.state, current='cycle', plays=[], stored={})
+
+            def do_POST(self):
+                if self.path.startswith('/api/play') and 'name=cycle' in self.path:
+                    time.sleep(1.5)                       # putting it back takes a while (Bluetooth, an upload)
+                super().do_POST()
+
+        buddy = ThreadingHTTPServer(('127.0.0.1', 0), SlowBuddy)
+        threading.Thread(target=buddy.serve_forever, daemon=True).start()
+        home = tempfile.mkdtemp()
+        cfg = dict(bb.DEFAULTS, host='127.0.0.1:%d' % buddy.server_address[1], port=free_port(), min_seconds=0.3)
+        with open(os.path.join(home, 'claude.json'), 'w') as f:
+            json.dump(cfg, f)
+        env = dict(os.environ, DESK_BUDDY_HOME=home)
+
+        def run(sub, stdin=b''):
+            r = subprocess.run([sys.executable, os.path.join(HERE, 'buddy_bridge.py'), sub],
+                               input=stdin, capture_output=True, env=env, timeout=15)
+            return r.returncode, r.stdout.decode().strip()
+
+        def pid():
+            return bb.daemon_request(cfg, 'GET', '/status', timeout=2)[1]['pid']
+
+        def gone(p):
+            try:
+                os.kill(p, 0)
+            except ProcessLookupError:
+                return True
+            return False
+
+        try:
+            run('hook', json.dumps(ev('UserPromptSubmit', prompt='hi')).encode())   # starts it, Claude shows
+            end = time.time() + 5
+            while SlowBuddy.state['current'] != 'claude__pondering' and time.time() < end:
+                time.sleep(0.05)
+            self.assertEqual(SlowBuddy.state['current'], 'claude__pondering')
+            first = pid()
+            t0 = time.time()
+            code, out = run('stop')
+            self.assertGreater(time.time() - t0, 1.4)              # it waited for the slow put-back
+            self.assertEqual((code, out.splitlines()[-1]), (0, 'daemon stopped'))
+            self.assertIn('waiting for the daemon', out)
+            self.assertTrue(gone(first))
+            self.assertEqual(SlowBuddy.state['current'], 'cycle')
+            self.assertEqual(run('start'), (0, 'daemon running'))   # a new daemon, not the old one
+            self.assertNotEqual(pid(), first)
+            self.assertEqual(run('stop'), (0, 'daemon stopped'))     # quick: nothing to put back
+            self.assertEqual(run('stop'), (0, 'daemon not running'))
+        finally:
+            try:
+                bb.daemon_request(cfg, 'POST', '/stop', b'{}', timeout=2)
+            except OSError:
+                pass
+            buddy.shutdown()
+            buddy.server_close()
 
 
 class LibraryUploads(unittest.TestCase):

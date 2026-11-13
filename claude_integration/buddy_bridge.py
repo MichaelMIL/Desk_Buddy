@@ -1467,6 +1467,46 @@ def spawn_daemon():
                      stderr=subprocess.DEVNULL, close_fds=True, start_new_session=True, cwd=HERE)
 
 
+def stop_daemon(cfg, wait=60.0, waiting=None):
+    """Ask a running daemon to stop and wait until its process is gone. It first puts the buddy back,
+    which over Bluetooth takes seconds (longer when that animation has to be uploaded again), and it
+    keeps the port and the Bluetooth link until it exits, so a `start`, `demo` or new address right
+    after this needs the wait. `waiting(text)` is called once if it takes more than a second.
+    Returns None when no daemon was running, else whether it exited within `wait` seconds."""
+    pid = None
+    try:
+        pid = (daemon_request(cfg, 'GET', '/status', timeout=2)[1] or {}).get('pid')
+    except OSError:
+        pass                                 # busy for a moment, maybe; /stop still tells
+    try:
+        daemon_request(cfg, 'POST', '/stop', b'{}', timeout=3)
+    except OSError:
+        return None
+    start = time.time()
+    while True:
+        if pid:
+            try:
+                os.kill(pid, 0)
+            except ProcessLookupError:
+                return True
+            except PermissionError:          # the pid now belongs to someone else's process
+                return True
+        else:                                # no pid: the port refuses once the process has exited
+            try:
+                daemon_request(cfg, 'GET', '/status', timeout=0.5)
+            except ConnectionRefusedError:
+                return True
+            except OSError:
+                pass
+        elapsed = time.time() - start
+        if elapsed > wait:
+            return False
+        if waiting and elapsed > 1:
+            waiting('waiting for the daemon to put the buddy back and exit...')
+            waiting = None
+        time.sleep(0.1)
+
+
 # ---------------------------------------------------------------------------- commands
 
 def cmd_hook(_args):
@@ -1567,11 +1607,7 @@ def cmd_install(args):
         if importlib.util.find_spec('bleak') is None:
             print('Bluetooth needs bleak in the Python that runs the hooks: %s -m pip install bleak' % sys.executable)
             return 1
-    try:                                     # a running daemon still has the old address
-        daemon_request(cfg, 'POST', '/stop', b'{}', timeout=3)
-        time.sleep(1)
-    except OSError:
-        pass
+    stop_daemon(cfg)                         # a running daemon still has the old address
 
     path = args.settings or SETTINGS_FILE
     settings = _read_settings(path)
@@ -1600,12 +1636,8 @@ def cmd_uninstall(args):
     if n:
         _write_settings(path, settings)
     print('removed %d hook entries from %s' % (n, path))
-    cfg = load_config()
-    try:
-        daemon_request(cfg, 'POST', '/stop', b'{}', timeout=3)
+    if stop_daemon(load_config()):
         print('daemon stopped')
-    except OSError:
-        pass
     return 0
 
 
@@ -1687,11 +1719,7 @@ def cmd_status(_args):
 
 def cmd_demo(args):
     cfg = load_config()
-    try:                                     # the daemon would fight over the buddy (and hold the Bluetooth link)
-        daemon_request(cfg, 'POST', '/stop', b'{}', timeout=3)
-        time.sleep(1)
-    except OSError:
-        pass
+    stop_daemon(cfg)                         # it would fight over the buddy (and hold the Bluetooth link)
     board = make_board(cfg)
     st = board.status()
     if st is None:
@@ -1767,11 +1795,15 @@ def cmd_start(_args):
 
 
 def cmd_stop(_args):
-    try:
-        daemon_request(load_config(), 'POST', '/stop', b'{}', timeout=3)
-        print('daemon stopping (the buddy goes back to what it was playing)')
-    except OSError:
+    """Stop the daemon and return once it has exited, so `stop && start` starts a fresh one."""
+    done = stop_daemon(load_config(), waiting=lambda text: print(text, flush=True))
+    if done is None:
         print('daemon not running')
+    elif done:
+        print('daemon stopped')
+    else:
+        print('the daemon is still stopping after 60 s (see %s)' % LOG_FILE)
+        return 1
     return 0
 
 
