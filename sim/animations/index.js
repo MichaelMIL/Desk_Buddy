@@ -58,4 +58,5 @@ window.ANIMATION_FILES = [
   'rude.js',
   'spicy.js',           // innuendo, kept out of the normal cycle (theme 'spicy')
   'battery.js',
+  'bluetooth.js',       // Bluetooth alerts (confused_*, connected_*): the firmware plays them itself, never cycled
 ];

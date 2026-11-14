@@ -483,8 +483,9 @@ def _push_serial(port, name, data, play, progress):
 
 def _bridge_hold(seconds):
     """Ask the Claude Code bridge (claude_integration/buddy_bridge.py) to drop its Bluetooth link
-    and stay off the buddy for `seconds` (0 ends the hold). The buddy takes one connection, and a
-    command the bridge wrote mid-upload would land in the upload data. No bridge running: ignored."""
+    and stay off the buddy for `seconds` (0 ends the hold). Both run on this Mac, so they would
+    share one link, and a command the bridge wrote mid-upload would land in the upload data. No
+    bridge running: ignored."""
     try:
         c = http.client.HTTPConnection("127.0.0.1", 47615, timeout=90)   # waits for an upload the bridge is doing
         c.request("POST", "/hold", body=json.dumps({"seconds": seconds}), headers={"X-Desk-Buddy": "1"})

@@ -89,7 +89,7 @@ Common (theme-less) groups besides the `Face:` ones: `Eat:` (`eat.js`),
 an event), `Break:` (`break.js`, taking a break from work) and `Silly:`
 (`silly.js`).
 
-`Battery:` and `Charging:` (`battery.js`) animations are alerts the firmware
+`Battery:`, `Charging:` (`battery.js`), `Confused:` and `Connected:` (`bluetooth.js`) animations are alerts the firmware
 plays by itself and never cycles: each time it picks a random one from a pool
 chosen by the board name's prefix, so a new animation joins its pool by name
 alone (`Charging: full party` → `charging_full_party` → the full pool):
@@ -101,6 +101,8 @@ alone (`Charging: full party` → `charging_full_party` → the full pool):
 | plugged | `charging_plugged*` | once when charging starts (none there: the charging pool) |
 | full | `charging_full*` | once when charged |
 | charging | other `charging_*` | every so often while it charges |
+| confused | `confused_*` | when two Bluetooth devices send commands within 3 s of each other (at most every 15 s) |
+| connected | `connected_*` | when a paired Bluetooth device connects that was away 10 minutes or more |
 
 The intervals are settings on the buddy (`alerts low|charging <min>|off`, the
 phone app's "Battery and charging" card); `hardware/README.md` has the details

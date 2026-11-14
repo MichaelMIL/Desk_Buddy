@@ -86,7 +86,8 @@ and can push it straight to the board.
   on its screen. Then the phone app ([`app/`](app/README.md)), the
   simulator's remote page (`sim/remote.html`) or any BLE UART app controls
   everything, uploads included ([BLE.md](hardware/BLE.md)). The buddy takes
-  one connection at a time.
+  two connections at once, e.g. the phone and the Mac running the Claude Code
+  bridge; when both send commands at the same moment it looks confused.
 - First boot (Wi‑Fi build): send `wifi <ssid> <password>` over Bluetooth or
   USB serial, or post it to the setup access point `DeskBuddy-xxxxxx`.
 - On your network: an HTTP API at `http://desk-buddy.local/` (name

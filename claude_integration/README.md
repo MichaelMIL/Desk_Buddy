@@ -275,7 +275,7 @@ test` (status parsing, state rules, and that every icon exists).
 - **Nothing happens.** Run `status`. "not installed": run `install`.
   "daemon: not running" is normal until the next Claude Code event. "no
   answer over Bluetooth": the buddy is out of range, another device (a phone,
-  a Chrome tab on another computer) holds its one connection, or this Mac is
+  a Chrome tab on another computer) hold both its connections, or this Mac is
   not paired. Run `install --host ble` again to pair. If no code prompt shows
   up and it still fails, the buddy forgot the bond (`ble forget`, factory
   reset, or another build was flashed), so remove "Desk Buddy" in macOS
@@ -291,9 +291,11 @@ test` (status parsing, state rules, and that every icon exists).
   another 320 KB; the build without Wi-Fi has about 3.3 MB for animations, the
   Wi-Fi build about 1.9 MB.
 - **The phone app, remote page or a Bluetooth push cannot connect.** The
-  bridge holds the link while Claude is busy with tools. `hold` or `pause`
-  frees it at once; otherwise it is free 20 s after the bridge's last
-  command. They are optional, and
+  buddy takes two devices at once, and the bridge holds one link while Claude
+  is busy with tools. `hold` or `pause` frees it at once; otherwise it is free
+  20 s after the bridge's last command. (Tapping a face on the phone while the
+  bridge plays one makes the buddy look confused for a moment, then it shows
+  the face you tapped.) They are optional, and
   `status` lists the ones on the buddy.
 - **Log.** `~/.config/desk-buddy/claude-bridge.log` lists each switch
   (`reading -> claude__reading`), buddy errors and restores.

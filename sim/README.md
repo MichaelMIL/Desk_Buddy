@@ -128,7 +128,9 @@ nothing explicit), both out of the normal cycle. Common groups
 besides the faces: eating, wanting attention, notifications, work breaks and silly
 faces (`eat.js`, `attention.js`, `notify.js`, `break.js`, `silly.js`), and the low
 battery alerts and charging faces (`battery.js`; the firmware plays a random one from
-the matching pool when the battery is low or while it charges, and never cycles them).
+the matching pool when the battery is low or while it charges, and never cycles them),
+and the Bluetooth ones (`bluetooth.js`, the same way): confused when two remotes send
+commands at once, a hello when a device connects.
 `template_*.js` hold the generic demos (eyes, bouncing ball, spinner, clock,
 confetti) in the `template` theme, for the bare template build, so they stay
 out of the other themes' cycles.

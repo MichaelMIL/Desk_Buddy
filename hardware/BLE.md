@@ -49,8 +49,24 @@ sequenceDiagram
 - **Advertising.** The service UUID is in the advertisement. The name (the
   device name, first 29 characters) is in the scan response, because one
   packet has no room for both.
-- **One connection.** While a client is connected the buddy stops
-  advertising, and starts again when it leaves.
+- **Two connections.** Two devices can be connected at once (apps on one
+  computer share that computer's connection). The buddy keeps advertising
+  while one is connected, stops when both are, and starts again when one
+  leaves. Each device gets the replies to its own commands; state
+  notifications go to both. Uploads run one at a time (`error another upload
+  is running`).
+- **Two remotes at once.** When both devices send commands that change what
+  the buddy shows (`play`, `next`, `cycle`, `screen`, `brightness`, `theme`,
+  `speed`, `loops`, `rotation`, `start`) within 3 s of each other, it plays a
+  random `confused_*` animation (the simulator's `Confused:` ones; a "Two
+  remotes at once" text screen without one), at most every 15 s, then goes on
+  with the later command. Questions (`state`, `names`, `status`, ...) never
+  count.
+- **Hello.** When a paired device connects (after the pairing code, or when a
+  bonded one re-encrypts) the buddy plays a random `connected_*` animation
+  (the simulator's `Connected:` ones; nothing without one), unless that
+  device was connected in the last 10 minutes: the Claude Code bridge
+  reconnects whenever Claude starts working.
 - **MTU.** The client negotiates it (255 from a Mac with bleak). Replies are
   split into notifications of MTU − 3 bytes, and the client joins them at the
   newline.
@@ -285,6 +301,38 @@ async def main():
 asyncio.run(main())
 ```
 
+## Firmware updates over Bluetooth
+
+Firmware built with `-DBUDDY_BLE_OTA=1` takes a new firmware image the same
+way, over Bluetooth or USB serial: `env:esp32s3_supermini_ble_ota` for the
+build without Wi-Fi (its partition table has two 640 KB app slots; switching
+to it erases the stored animations once), or the flag on the Wi-Fi build,
+which has two slots already. `config` says `"bleOtaBuild":true`.
+
+```
+> update <bytes> <md5 hex> [password]      password: only when one is set (otapass)
+< ready 2048                               or "error <reason>"
+> 2048-byte windows of firmware.bin, each answered by "ack <received>"
+< updated <bytes> bytes, restarting        or "error <reason>"
+```
+
+The image goes into the other app slot, and `Update` checks it and its MD5
+(32 hex digits) at the end: a wrong one answers `error MD5 Check Failed` and
+the buddy carries on with the old firmware. After `updated` it restarts into
+the new one 1.5 s later (time for the reply to go out); stored animations,
+settings and pairings stay. It shares the one-at-a-time rule and the 10 s
+timeout with animation uploads, and a disconnect aborts it. Other errors:
+`another upload is running`, `needs the firmware update password` / `wrong
+firmware update password`, `no update slot: this partition table has one app
+slot, flash over USB`, `too big: …`, `firmware updates are not in this build
+(BUDDY_BLE_OTA=0); flash over USB`.
+
+Over Bluetooth from a Mac it runs at about 4.6 KB/s: ~2 minutes for the
+~520 KB build without Wi-Fi. `tools/firmware/firmware.py --build wifi=off
+ble_ota=on --upload ble` builds and sends one (the firmware tool's
+"Updates over Bluetooth" setting); flash a build without the flag this way
+and the next update needs USB again.
+
 ## Inside the firmware
 
 Bluetooth commands run through the same command function as the serial
@@ -294,7 +342,7 @@ needed.
 | File | Role |
 |---|---|
 | `src/ble.h`, `src/ble.cpp` | Service and characteristics, pairing and the code screen, command queue, replies, state notifications, bonds |
-| `src/upload.h`, `src/upload.cpp` | The upload protocol, shared by Bluetooth and USB serial |
+| `src/upload.h`, `src/upload.cpp` | The upload protocol, shared by Bluetooth and USB serial, and firmware updates (`update`, `BUDDY_BLE_OTA`) |
 | `src/main.cpp` | `app_command()` (serial and Bluetooth), `app_state_json()`, `app_message_big()` (the code screen) |
 | `src/config.*` | The `ble` setting (NVS); `BUDDY_WIFI`, the build switch |
 | `src/net.cpp` | Bluetooth status and paired count in `/api/status`, `POST /api/ble/forget` (Wi-Fi build) |
@@ -320,7 +368,7 @@ needed.
 - **State.** Every visible change calls `state_changed()`, which flags both
   MQTT and Bluetooth; `bleLoop()` then refreshes the characteristic and
   notifies.
-- **Size.** NimBLE is built for one role (peripheral) and one connection,
+- **Size.** NimBLE is built for one role (peripheral) and two connections,
   without legacy pairing; pairing and bonding cost about 24 KB. The Wi-Fi
   build is 952 KB of its 1 MB update slot, the build without Wi-Fi 494 KB of
   640 KB (see the size notes in [README.md](README.md)).
@@ -346,7 +394,8 @@ requests were answered (median 186 ms); with it off, 35 of 40 (median
 
 Limits:
 
-- One client at a time; the buddy stops advertising while one is connected.
+- Two clients at a time (apps on one computer count as one); the buddy stops
+  advertising while both are connected.
 - Up to 3 paired devices; a fourth replaces the oldest.
 - Pairing needs a device that can type a 6-digit code and supports Bluetooth
   4.2 Secure Connections (any current phone or computer).

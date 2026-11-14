@@ -17,22 +17,73 @@ static const size_t MAX_LINE = 160, MAX_PENDING = 4096;
 static const uint32_t LINE_IDLE_MS = 150;     // a write without a newline ends a command after this pause
 static const uint32_t PAIR_SCREEN_MS = 60000; // the code leaves the screen after this, paired or not
 static const uint32_t FAIL_SCREEN_MS = 2500;
+static const uint32_t CLASH_MS = 3000;        // commands from both devices this close together: the buddy is confused
+static const uint32_t HELLO_AWAY_MS = 600000; // the "connected" animation only for a device away at least this long
+static const int LINKS = CONFIG_BT_NIMBLE_MAX_CONNECTIONS;   // 2 (platformio.ini)
+
+/* Everything one paired device should read: command replies and upload acks.
+ * Appends to its link's `pending`, which bleLoop sends as TX notifications to that
+ * device only (the other one does not see them). */
+class BleOut : public Print {
+ public:
+  String *pending = nullptr;
+  size_t write(uint8_t c) override { *pending += (char)c; return 1; }
+};
+
+/* One connected device. The NimBLE task sets the volatile flags; bleLoop (Arduino loop)
+ * owns the rest. A slot is reused only after bleLoop has cleared it (`gone`). */
+struct Link {
+  volatile bool used = false, secured = false, gone = false, hello = false;
+  volatile uint16_t handle = 0;
+  uint8_t addr[6] = {};                       // the device's identity address (after pairing / re-encryption)
+  volatile uint32_t lastRxAt = 0;
+  StreamBufferHandle_t rx = nullptr;          // NimBLE task -> loop task, 4 KB > one upload window
+  String line;                                // command being assembled
+  String pending;                             // reply text not yet notified
+  uint32_t lastActionAt = 0;                  // last command that changed what the buddy shows
+  BleOut out;
+};
 
 static bool started = false;
 static NimBLEServer *server = nullptr;
 static NimBLECharacteristic *txChr = nullptr, *stateChr = nullptr;
-static StreamBufferHandle_t rx = nullptr;     // NimBLE task -> loop task (one writer, one reader), 4 KB > one upload window
-static volatile uint32_t lastRxAt = 0;
-static volatile uint16_t connHandle = 0;
-static volatile bool connected = false, connEvent = false, stateDirty = true;
+static Link links[LINKS];
+static volatile bool connEvent = false, stateDirty = true;
 // pairing (set by the NimBLE task, acted on in bleLoop)
-static volatile bool secured = false;          // this link is encrypted AND authenticated (paired with the code)
 static volatile uint32_t passkey = 0;
 static volatile bool showCode = false, authEvent = false, authOk = false;
 // loop task only
-static String line;                           // command being assembled
-static String pending;                        // reply text not yet notified
 static uint32_t codeShownAt = 0, failShownAt = 0;
+
+/* When each device (by identity address) was last connected, so the bridge, which
+ * reconnects whenever Claude starts working, does not get a "hello" every time. */
+struct Seen { uint8_t addr[6]; uint32_t at; bool used; };
+static Seen seen[4];
+
+static bool seenRecently(const uint8_t *addr) {
+  for (auto &e : seen) if (e.used && !memcmp(e.addr, addr, 6)) return millis() - e.at < HELLO_AWAY_MS;
+  return false;
+}
+
+static void markSeen(const uint8_t *addr) {
+  Seen *slot = &seen[0];
+  for (auto &e : seen) {
+    if (e.used && !memcmp(e.addr, addr, 6)) { slot = &e; break; }
+    if (!e.used || (int32_t)(e.at - slot->at) < 0) slot = &e;   // a free one, else the oldest
+  }
+  memcpy(slot->addr, addr, 6); slot->at = millis(); slot->used = true;
+}
+
+static Link *linkOf(uint16_t handle) {
+  for (auto &l : links) if (l.used && l.handle == handle) return &l;
+  return nullptr;
+}
+
+static int linkCount(bool securedOnly) {
+  int n = 0;
+  for (auto &l : links) if (l.used && (l.secured || !securedOnly)) n++;
+  return n;
+}
 
 void bleStateChanged() { stateDirty = true; }
 
@@ -40,8 +91,12 @@ int bleBondCount() { return started ? NimBLEDevice::getNumBonds() : -1; }
 
 String bleStatus() {
   if (!started) return "off";   // (always on in a build without Wi-Fi)
-  if (connected) return secured ? String("connected, paired") : String("connected, not paired");
-  return "advertising as '" + cfg.name.substring(0, 29) + "', " + String(NimBLEDevice::getNumBonds()) + " paired";
+  int n = linkCount(false), paired = linkCount(true);
+  String adv = "advertising as '" + cfg.name.substring(0, 29) + "', " + String(NimBLEDevice::getNumBonds()) + " paired";
+  if (n == 0) return adv;
+  String s = n == 1 ? String(paired ? "connected, paired" : "connected, not paired")
+                    : String(n) + " connected, " + (paired == n ? "both paired" : String(paired) + " paired");
+  return n < LINKS ? s + "; " + adv : s;
 }
 
 void bleForgetAll() {
@@ -53,22 +108,23 @@ void bleForgetAll() {
   Serial.println("bluetooth: forgot all paired devices");
 }
 
-/* Everything the paired device should read: command replies and upload acks.
- * Appends to `pending`, which bleLoop sends as TX notifications. */
-class BleOut : public Print {
- public:
-  size_t write(uint8_t c) override { pending += (char)c; return 1; }
-};
-static BleOut bleOut;
-
 class ServerCB : public NimBLEServerCallbacks {
   void onConnect(NimBLEServer *, ble_gap_conn_desc *desc) override {
-    connHandle = desc->conn_handle; connected = true; secured = false; connEvent = true;
+    Link *slot = nullptr;
+    for (auto &l : links) if (!l.used && !l.gone) { slot = &l; break; }
+    if (!slot) { server->disconnect(desc->conn_handle); return; }   // the last one's slot is still being cleared
+    slot->handle = desc->conn_handle; slot->secured = false; slot->lastRxAt = 0;
+    slot->used = true; connEvent = true;
     // ask for security right away: a bonded device re-encrypts silently, a new one
     // gets the pairing prompt (and the code appears on the buddy's screen)
     NimBLEDevice::startSecurity(desc->conn_handle);
+    if (linkCount(false) < LINKS) NimBLEDevice::startAdvertising();   // room for one more
   }
-  void onDisconnect(NimBLEServer *) override { connected = false; secured = false; connEvent = true; }   // advertising restarts by itself
+  void onDisconnect(NimBLEServer *, ble_gap_conn_desc *desc) override {
+    Link *l = linkOf(desc->conn_handle);
+    if (l) { l->gone = true; l->used = false; l->secured = false; }
+    connEvent = true;                          // advertising restarts by itself
+  }
 
   // Passkey entry: the buddy displays a fresh 6-digit code, the other device types it in.
   uint32_t onPassKeyRequest() override {
@@ -85,16 +141,22 @@ class ServerCB : public NimBLEServerCallbacks {
       NimBLEDevice::deleteBond(NimBLEAddress(desc->peer_id_addr));
       server->disconnect(desc->conn_handle);
     }
-    secured = ok; authOk = ok; authEvent = true; stateDirty = true;
+    Link *l = linkOf(desc->conn_handle);
+    if (l) {
+      l->secured = ok;
+      if (ok) { memcpy(l->addr, desc->peer_id_addr.val, 6); l->hello = true; }   // bleLoop says hello
+    }
+    authOk = ok; authEvent = true; stateDirty = true;
   }
 };
 
 class RxCB : public NimBLECharacteristicCallbacks {
-  void onWrite(NimBLECharacteristic *c) override {
-    if (!secured) return;                               // the stack already refuses unauthenticated writes; belt and braces
+  void onWrite(NimBLECharacteristic *c, ble_gap_conn_desc *desc) override {
+    Link *l = linkOf(desc->conn_handle);
+    if (!l || !l->secured) return;                      // the stack already refuses unauthenticated writes; belt and braces
     std::string v = c->getValue();
-    lastRxAt = millis();                                // before the data, so bleLoop never sees data with an old time
-    xStreamBufferSend(rx, v.data(), v.size(), 0);       // drops what does not fit
+    l->lastRxAt = millis();                             // before the data, so bleLoop never sees data with an old time
+    xStreamBufferSend(l->rx, v.data(), v.size(), 0);    // drops what does not fit
   }
 };
 
@@ -104,19 +166,46 @@ static void setState() {
   stateChr->setValue((const uint8_t *)s.c_str(), s.length());
 }
 
-static void run(String cmd) {
+/* Commands that change what the buddy shows or how it plays (not the questions:
+ * state, names, status, config, ...). Two devices sending these at once confuse it. */
+static bool isAction(const String &cmd) {
+  int sp = cmd.indexOf(' ');
+  String w = sp < 0 ? cmd : cmd.substring(0, sp);
+  return w == "play" || w == "next" || w == "cycle" || w == "screen" || w == "brightness" || w == "theme" ||
+         w == "speed" || w == "loops" || w == "rotation" || w == "start";
+}
+
+static void run(Link &l, String cmd) {
   cmd.trim();
   if (cmd.isEmpty()) return;
-  Serial.printf("ble: %s\n", cmd.c_str());
-  if (pending.length() > MAX_PENDING) return;          // client is not reading its replies
-  size_t before = pending.length();
-  app_command(cmd, bleOut);
-  if (pending.length() == before) pending += "ok\n";  // every command answers
+  int me = &l - links;
+  Serial.printf("ble %d: %s\n", me + 1, cmd.c_str());
+  if (l.pending.length() > MAX_PENDING) return;        // this client is not reading its replies
+  size_t before = l.pending.length();
+  app_command(cmd, l.out);
+  if (l.pending.length() == before) l.pending += "ok\n";  // every command answers
+  if (!isAction(cmd)) return;
+  uint32_t now = millis();
+  l.lastActionAt = now;
+  for (auto &o : links)
+    if (&o != &l && o.used && o.secured && o.lastActionAt && now - o.lastActionAt < CLASH_MS) {
+      Serial.println("bluetooth: two devices at once");
+      app_confused();                                  // then back to what this (the later) command chose
+      break;
+    }
+}
+
+/* One TX notification to one device (NimBLE 1.4's notify() goes to every subscriber).
+ * Sent whether or not it subscribed (a bonded device's restored subscription is not
+ * always reported); a client that did not ask for them ignores them. */
+static void notifyOne(Link &l, const uint8_t *data, size_t len) {
+  os_mbuf *om = ble_hs_mbuf_from_flat(data, len);
+  if (om) ble_gattc_notify_custom(l.handle, txChr->getHandle(), om);
 }
 
 void bleBegin() {
   if (!cfg.ble && BUDDY_WIFI) return;                  // without Wi-Fi, Bluetooth is the only wireless link: always on
-  rx = xStreamBufferCreate(4096, 1);
+  for (auto &l : links) { l.rx = xStreamBufferCreate(4096, 1); l.out.pending = &l.pending; }
   NimBLEDevice::init(cfg.name.substring(0, 29).c_str());
   // LE Secure Connections with MITM protection and bonding; legacy pairing is not
   // compiled in (platformio.ini). The buddy can only display, so the method is passkey entry.
@@ -162,7 +251,7 @@ static void pairingScreen() {
       else { app_message("Bluetooth", "pairing failed"); failShownAt = millis(); }
     }
   }
-  if (codeShownAt && (!connected || millis() - codeShownAt > PAIR_SCREEN_MS)) {
+  if (codeShownAt && (linkCount(false) == linkCount(true) || millis() - codeShownAt > PAIR_SCREEN_MS)) {
     codeShownAt = 0;
     Serial.println("bluetooth: pairing abandoned");
     app_resume();
@@ -175,41 +264,58 @@ void bleLoop() {
   if (connEvent) {
     connEvent = false;
     Serial.printf("bluetooth: %s\n", bleStatus().c_str());
-    if (!connected) {
-      if (uploadActive(bleOut)) uploadAbort("Bluetooth disconnected");   // only our own upload; one over USB carries on
-      line = ""; pending = "";
+    for (auto &l : links) {
+      if (!l.gone) continue;
+      if (l.addr[0] | l.addr[1] | l.addr[2] | l.addr[3] | l.addr[4] | l.addr[5]) markSeen(l.addr);
+      memset(l.addr, 0, sizeof(l.addr)); l.hello = false;
+      if (uploadActive(l.out)) uploadAbort("Bluetooth disconnected");   // only its own upload; others carry on
+      xStreamBufferReset(l.rx);
+      l.line = ""; l.pending = ""; l.lastActionAt = 0;
+      l.gone = false;                                  // the slot can take a new connection
     }
   }
   pairingScreen();
 
-  // received bytes -> commands, one per line, or upload data while an upload
-  // started here runs (RxCB only queues them on a secured link)
-  uint8_t buf[256];
-  size_t n;
-  while ((n = xStreamBufferReceive(rx, buf, sizeof(buf), 0)) > 0) {
-    for (size_t i = 0; i < n; i++) {
-      if (uploadActive(bleOut)) { size_t used = uploadFeed(buf + i, n - i); i += (used ? used : n - i) - 1; continue; }
-      if (buf[i] == '\n' || buf[i] == '\r') { run(line); line = ""; }
-      else if (line.length() < MAX_LINE) line += (char)buf[i];
-    }
+  for (auto &l : links) {
+    if (!l.used || !l.hello || codeShownAt) continue;  // after the pairing screen has gone
+    l.hello = false;
+    bool back = seenRecently(l.addr);
+    markSeen(l.addr);
+    if (!back) app_connected();
   }
-  if (line.length() && !uploadActive(bleOut) && millis() - lastRxAt > LINE_IDLE_MS) { run(line); line = ""; }
+
+  for (auto &l : links) {
+    if (!l.used) continue;
+    // received bytes -> commands, one per line, or upload data while an upload
+    // started on this link runs (RxCB only queues them on a secured link)
+    uint8_t buf[256];
+    size_t n;
+    while ((n = xStreamBufferReceive(l.rx, buf, sizeof(buf), 0)) > 0) {
+      for (size_t i = 0; i < n; i++) {
+        if (uploadActive(l.out)) { size_t used = uploadFeed(buf + i, n - i); i += (used ? used : n - i) - 1; continue; }
+        if (buf[i] == '\n' || buf[i] == '\r') { run(l, l.line); l.line = ""; }
+        else if (l.line.length() < MAX_LINE) l.line += (char)buf[i];
+      }
+    }
+    if (l.line.length() && !uploadActive(l.out) && millis() - l.lastRxAt > LINE_IDLE_MS) { run(l, l.line); l.line = ""; }
+  }
 
   if (stateDirty) {
     stateDirty = false;
     setState();                                        // reads need a paired link (READ_AUTHEN)
-    if (connected && secured) stateChr->notify();
+    if (linkCount(true)) stateChr->notify();           // to every subscribed, encrypted link
   }
 
-  // replies: a few notifications per pass, only while NimBLE has buffers
-  // (notify() in NimBLE-Arduino 1.4 does not handle running out of them)
-  if (pending.length() && connected && secured) {
-    uint16_t mtu = server->getPeerMTU(connHandle);
+  // replies, to the device that asked: a few notifications per pass, only while
+  // NimBLE has buffers (it does not handle running out of them)
+  for (auto &l : links) {
+    if (!l.pending.length() || !l.used || !l.secured) continue;
+    uint16_t mtu = server->getPeerMTU(l.handle);
     size_t chunk = mtu > 23 ? mtu - 3 : 20;
-    for (int k = 0; k < 4 && pending.length() && os_msys_num_free() >= 4; k++) {
-      size_t len = pending.length() < chunk ? pending.length() : chunk;
-      txChr->notify((const uint8_t *)pending.c_str(), len);
-      pending.remove(0, len);
+    for (int k = 0; k < 4 && l.pending.length() && os_msys_num_free() >= 4; k++) {
+      size_t len = l.pending.length() < chunk ? l.pending.length() : chunk;
+      notifyOne(l, (const uint8_t *)l.pending.c_str(), len);
+      l.pending.remove(0, len);
     }
   }
 }

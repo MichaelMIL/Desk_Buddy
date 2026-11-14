@@ -1,0 +1,11 @@
+# Desk buddy, build without Wi-Fi with firmware updates over Bluetooth
+# (env:esp32s3_supermini_ble_ota), 4 MB flash: two 640 KB app slots (an update goes
+# into the other one) + 2.69 MB LittleFS for animations. The firmware is ~520 KB.
+# nvs sits where the other builds have it, so settings and Bluetooth bonds survive a
+# switch; the file system does not (it moves).
+# Name,   Type, SubType, Offset,   Size,     Flags
+nvs,      data, nvs,     0x9000,   0x5000,
+otadata,  data, ota,     0xe000,   0x2000,
+app0,     app,  ota_0,   0x10000,  0xA0000,
+app1,     app,  ota_1,   0xB0000,  0xA0000,
+spiffs,   data, spiffs,  0x150000, 0x2B0000,

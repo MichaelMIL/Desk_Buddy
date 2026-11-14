@@ -543,9 +543,9 @@ class BleError(Exception):
 
 class BleBoard:
     """The buddy over Bluetooth LE: its console commands (state, names, play) over the Nordic UART
-    Service (hardware/BLE.md), with bleak. The buddy takes one connection at a time, so the link is
-    held only while Claude is active and dropped `linger` seconds after release(); the phone app
-    and the simulator's Bluetooth push can connect in between.
+    Service (hardware/BLE.md), with bleak. The buddy takes two connections, but the link is still
+    held only while Claude is active and dropped `linger` seconds after release(), so the buddy
+    stays free for the phone app and the simulator's Bluetooth push.
 
     bleak runs on an asyncio loop in its own thread; status() and play() may be called from any
     thread and are serialised on that loop. The first connection needs pairing: the buddy shows a

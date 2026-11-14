@@ -41,10 +41,14 @@ PlatformIO firmware that plays what the simulator exports.
   `hardware/BLE.md`. Two builds: `esp32s3_supermini` (Wi-Fi) and
   `esp32s3_supermini_ble` (`BUDDY_WIFI=0`: Bluetooth + USB only, 3.3 MB
   LittleFS; switching builds erases stored animations). `-DBUDDY_BLE=0`
-  leaves Bluetooth out (`ble.h` stubs), for either build. Battery level:
+  leaves Bluetooth out (`ble.h` stubs), for either build;
+  `esp32s3_supermini_ble_ota` (`-DBUDDY_BLE_OTA=1`, two 640 KB app slots)
+  updates its firmware over Bluetooth (`update` command, `upload.cpp`). Battery level:
   `hardware/src/battery.h` (100k/100k divider on GPIO 1; `bat`/`batLow` in
   the state JSON, which every client shows; `chg` from the charger's pads on
-  GPIO 2/4); `battery_*` and `charging_*` animations are alerts the firmware
+  GPIO 2/4); `battery_*`, `charging_*`, `confused_*` (two Bluetooth devices
+  sending commands at once) and `connected_*` (a device connecting; both in
+  `ble.cpp`) animations are alerts the firmware
   plays itself, at random from pools by name prefix (`pool_of()` in
   `main.cpp`, mirrored by `alertPoolOf` in the app and `poolOf` in
   `sim/remote.html`; `alerts` command), and never cycles. `BUDDY_BATTERY=0` (the
@@ -83,7 +87,7 @@ PlatformIO firmware that plays what the simulator exports.
   tests `python3 claude_integration/test_bridge.py`. Its `ACTIVITIES` table
   names `claude__<slug>` animations, so renaming a `Claude: …` animation
   means updating it there. Once installed, this repo's own Claude sessions
-  drive the board too and hold its one Bluetooth link while busy; run
+  drive the board too and hold one of its two Bluetooth links while busy; run
   `buddy_bridge.py pause` (or `hold <s>`) while testing on it. The macOS
   menu bar app `claude_integration/menubar/` (Swift; `swift test`,
   `build.sh --install`) reads the daemon's `GET /status`, so keep that

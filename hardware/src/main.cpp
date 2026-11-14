@@ -39,6 +39,7 @@
  *   ap                      start the setup access point now
  *   reset                   erase all settings and reboot
  *   upload <name> <bytes>   receive an animation on this channel (protocol in upload.h)
+ *   update <bytes> <md5> [password]   receive a firmware image (BUDDY_BLE_OTA builds, upload.h)
  *   reboot
  *
  * A paired Bluetooth device runs the same commands (app_command).
@@ -176,10 +177,12 @@ static void draw_loading(bool full) {
 
 // ---- animations -------------------------------------------------------------
 
+static int pool_of(const String &n);
+
 static bool in_cycle(size_t idx) {
   const String &n = storeEntry(idx).name;
   if (!storeInTheme(n, cfg.theme)) return false;          // other themes' animations stay hidden
-  if (cfg.cycleList.isEmpty()) return !n.startsWith("battery_") && !n.startsWith("charging_");   // alerts, played by battery_alerts()
+  if (cfg.cycleList.isEmpty()) return pool_of(n) < 0;     // alerts (battery_*, charging_*, confused_*, connected_*) play on events
   String list = "," + cfg.cycleList + ",";
   return list.indexOf("," + n + ",") >= 0;
 }
@@ -378,7 +381,6 @@ void app_resume() {
   else { msg1 = "no animations"; msg2 = "push one from the sim"; mode = MODE_MESSAGE; mode_dirty = true; }
 }
 
-#if BUDDY_BATTERY
 static bool show_alert(const char *name, const char *l1, const char *big, const char *l2) {
   Lock l;
   if (alert_on || !screen_on || mode != MODE_ANIM) return false;   // not over a pairing code, an upload or a dark screen
@@ -396,12 +398,16 @@ static bool show_alert(const char *name, const char *l1, const char *big, const 
 }
 
 /* Alert pools, by name: battery_critical* -> critical, other battery_* -> low,
- * charging_plugged* -> plugged, charging_full* -> full, other charging_* -> charging.
- * So a new "Charging: full ..." animation in the simulator joins its pool by itself. */
-enum Pool { POOL_LOW, POOL_CRITICAL, POOL_PLUGGED, POOL_CHARGING, POOL_FULL, POOL_COUNT };
-static const char *const POOL_NAMES[POOL_COUNT] = {"low", "critical", "plugged", "charging", "full"};
+ * charging_plugged* -> plugged, charging_full* -> full, other charging_* -> charging,
+ * confused_* -> confused (two Bluetooth devices at once), connected_* -> connected (a
+ * Bluetooth device connected). So a new "Charging: full ..." animation in the simulator
+ * joins its pool by itself. */
+enum Pool { POOL_LOW, POOL_CRITICAL, POOL_PLUGGED, POOL_CHARGING, POOL_FULL, POOL_CONFUSED, POOL_CONNECTED, POOL_COUNT };
+static const char *const POOL_NAMES[POOL_COUNT] = {"low", "critical", "plugged", "charging", "full", "confused", "connected"};
 
 static int pool_of(const String &n) {
+  if (n.startsWith("confused_")) return POOL_CONFUSED;
+  if (n.startsWith("connected_")) return POOL_CONNECTED;
   if (n.startsWith("battery_critical")) return POOL_CRITICAL;
   if (n.startsWith("battery_")) return POOL_LOW;
   if (n.startsWith("charging_plugged")) return POOL_PLUGGED;
@@ -437,16 +443,37 @@ static int play_pool(int pool, String &shown) {
   shown = pick(p, last[p]);
   if (shown.isEmpty() && p == POOL_CRITICAL) shown = pick(p = POOL_LOW, last[POOL_LOW]);
   if (shown.isEmpty() && p == POOL_PLUGGED) shown = pick(p = POOL_CHARGING, last[POOL_CHARGING]);
-  if (shown.isEmpty() && pool == POOL_CHARGING) return 0;
+  if (shown.isEmpty() && (pool == POOL_CHARGING || pool == POOL_CONNECTED)) return 0;   // no text screen for these
   BatteryInfo b = batteryGet();
   char pct[8] = "";
   if (b.present) snprintf(pct, sizeof(pct), "%u%%", b.pct);
   bool low = pool == POOL_LOW || pool == POOL_CRITICAL;
-  if (!show_alert(shown.c_str(), low ? "Battery low" : pool == POOL_FULL ? "Battery charged" : "Charging", pct,
-                  low ? "connect USB-C to charge" : "")) return -1;
+  const char *l1 = low ? "Battery low" : pool == POOL_FULL ? "Battery charged" : pool == POOL_CONFUSED ? "Two remotes at once" : "Charging";
+  const char *l2 = low ? "connect USB-C to charge" : pool == POOL_CONFUSED ? "one at a time, please" : "";
+  if (!show_alert(shown.c_str(), l1, pool == POOL_CONFUSED ? "?" : pct, l2)) return -1;
   if (shown.length()) last[p] = shown;
   return 1;
 }
+
+/* Two Bluetooth devices sent commands within a few seconds of each other (ble.cpp): a
+ * random confused_* animation (a text screen without one), at most every 15 s, then
+ * back to what the later command chose. */
+void app_confused() {
+  static uint32_t last = 0;
+  if (last && millis() - last < 15000) return;
+  String shown;
+  if (play_pool(POOL_CONFUSED, shown) > 0) last = millis();
+}
+
+/* A paired Bluetooth device connected (ble.cpp, not for one that was here in the last
+ * 10 minutes): a random connected_* animation, nothing without one or when the screen
+ * is busy. */
+void app_connected() {
+  String shown;
+  play_pool(POOL_CONNECTED, shown);
+}
+
+#if BUDDY_BATTERY
 
 /* Between half and one and a half times `minutes`: the alerts come at random times. */
 static uint32_t random_gap(uint32_t minutes) {
@@ -511,7 +538,7 @@ static void alerts_command(const String &arg, Print &out) {
   if (what == "test") {
     int p = -1;
     for (int i = 0; i < POOL_COUNT; i++) if (v == POOL_NAMES[i]) p = i;
-    if (p < 0) { out.println("alerts test low|critical|plugged|charging|full"); return; }
+    if (p < 0) { out.println("alerts test low|critical|plugged|charging|full|confused|connected"); return; }
     { Lock l; if (alert_on) alert_end(); }
     String shown;
     int r = play_pool(p, shown);
@@ -529,7 +556,7 @@ static void alerts_command(const String &arg, Print &out) {
     if (m < -1 || m > 120 || (m == 0 && v != "0")) { out.println("alerts charging off|0|<minutes 1-120> (0: only when plugged in and when charged)"); return; }
     cfg.alertCharging = m; configSave();
   } else if (what.length()) {
-    out.println("alerts [low off|<min>] [charging off|0|<min>] [test low|critical|plugged|charging|full]");
+    out.println("alerts [low off|<min>] [charging off|0|<min>] [test low|critical|plugged|charging|full|confused|connected]");
     return;
   }
   out.println("alerts " + alerts_json());
@@ -568,7 +595,7 @@ String app_state_json() {
 /* Settings and status as one line of JSON, for clients ("config" command). */
 static String app_config_json() {
   Lock l;
-  String s = "{\"name\":" + jsonStr(cfg.name) + ",\"version\":\"" FW_VERSION "\",\"wifiBuild\":" + (BUDDY_WIFI ? "true" : "false") + ",\"bleBuild\":" + (BUDDY_BLE ? "true" : "false");
+  String s = "{\"name\":" + jsonStr(cfg.name) + ",\"version\":\"" FW_VERSION "\",\"wifiBuild\":" + (BUDDY_WIFI ? "true" : "false") + ",\"bleBuild\":" + (BUDDY_BLE ? "true" : "false") + ",\"bleOtaBuild\":" + (BUDDY_BLE_OTA ? "true" : "false");
   s += ",\"speed\":" + String(cfg.speed) + ",\"loops\":" + String(cfg.loops) + ",\"rotation\":" + String(cfg.rotation);
   s += ",\"cycleList\":" + jsonStr(cfg.cycleList) + ",\"start\":" + jsonStr(cfg.anim);
   s += ",\"count\":" + String(storeCount()) + ",\"freeKb\":" + String(storeFreeBytes() / 1024) + ",\"totalKb\":" + String(storeTotalBytes() / 1024);
@@ -697,6 +724,13 @@ void app_command(const String &line, Print &out) {
     int s2 = arg.indexOf(' ');
     long bytes = s2 > 0 ? arg.substring(s2 + 1).toInt() : 0;
     uploadStart(s2 > 0 ? arg.substring(0, s2) : arg, bytes > 0 ? (size_t)bytes : 0, out);
+  } else if (cmd == "update") {                     // firmware over Bluetooth / USB serial (BUDDY_BLE_OTA, upload.h)
+    int a = arg.indexOf(' '), b = a > 0 ? arg.indexOf(' ', a + 1) : -1;
+    long bytes = a > 0 ? arg.substring(0, a).toInt() : 0;
+    String md5 = a > 0 ? (b > 0 ? arg.substring(a + 1, b) : arg.substring(a + 1)) : String();
+    String pass = b > 0 ? arg.substring(b + 1) : String();
+    pass.trim();
+    updateStart(bytes > 0 ? (size_t)bytes : 0, md5, pass, out);
   } else if (cmd == "reboot") {
     out.println("rebooting"); delay(200); ESP.restart();
   } else {
@@ -704,7 +738,7 @@ void app_command(const String &line, Print &out) {
 #if BUDDY_WIFI
                 "wifi <ssid> <pass> | mqtt <host> [port] [user] [pass] | prefix <p> | ha on|off | appass <p> | otapass <p> | ap | "
 #endif
-                "name <n> | rotation 0-3 | loops <n> | speed <pct> | theme <t>|none | screen on|off | brightness <pct> | ble on|off|forget | upload <name> <bytes> | reset | reboot");
+                "name <n> | rotation 0-3 | loops <n> | speed <pct> | theme <t>|none | screen on|off | brightness <pct> | ble on|off|forget | upload <name> <bytes> | update <bytes> <md5> [pass] | reset | reboot");
   }
 }
 

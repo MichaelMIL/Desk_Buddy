@@ -3,7 +3,7 @@ import BuddyBarCore
 import ServiceManagement
 
 /// Polls the bridge daemon (GET /status on 127.0.0.1) and its files, controls the buddy through the
-/// daemon (GET / POST /buddy: its link, Bluetooth takes one connection), and runs the actions.
+/// daemon (GET / POST /buddy: its link; the buddy takes two Bluetooth connections), and runs the actions.
 @MainActor
 final class Monitor: ObservableObject {
     @Published private(set) var snapshot: BridgeSnapshot?

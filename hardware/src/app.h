@@ -25,6 +25,8 @@ void app_message(const char *l1, const char *l2); // show text on the screen and
 void app_message_big(const char *l1, const char *big, const char *l2); // same, with a large middle line; turns the display on if off
 void app_loading(const char *label, int percent); // loading ring (percent -1 = indeterminate) and pause playback
 void app_resume();                    // back to the animation after app_message / app_loading
+void app_confused();                  // two Bluetooth devices sent commands at once: a confused_* animation (ble.cpp)
+void app_connected();                 // a paired Bluetooth device connected: a connected_* animation (ble.cpp)
 uint32_t app_frames_rendered();       // counter, for diagnostics
 
 /* Run one console command ("play face_happy", "brightness 40", ...) and write

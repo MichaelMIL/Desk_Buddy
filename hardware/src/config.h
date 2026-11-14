@@ -13,6 +13,12 @@
 #ifndef BUDDY_BLE
 #define BUDDY_BLE 1
 #endif
+/* -DBUDDY_BLE_OTA=1 adds firmware updates over Bluetooth and USB serial (the "update"
+ * command, upload.h). It needs two app slots: the Wi-Fi build has them, the build without
+ * Wi-Fi gets them from env:esp32s3_supermini_ble_ota (partitions_ble_ota.csv). */
+#ifndef BUDDY_BLE_OTA
+#define BUDDY_BLE_OTA 0
+#endif
 /* -DBUDDY_BATTERY=0 (the *_nobat environments) leaves out the battery
  * measurement and the low battery alert (battery.h): for buddies on USB power. */
 #ifndef BUDDY_BATTERY

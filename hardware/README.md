@@ -139,7 +139,9 @@ alerts                      settings and pools as JSON
 alerts low 5                low battery: about every 5 minutes (1-120); "off" for none
 alerts charging 10          while charging: about every 10 minutes (1-120); 0 = only
                             when plugged in and when charged; "off" for none
-alerts test charging        play one from a pool now (low, critical, plugged, charging, full)
+alerts test charging        play one from a pool now (low, critical, plugged, charging, full,
+                            confused: confused_*, for two Bluetooth devices at once,
+                            connected: connected_*, for a device connecting)
 ```
 
 `alerts` answers `alerts {"low":5,"charging":10,"pools":{"low":["battery_low",…],
@@ -163,6 +165,15 @@ flash) erases the stored animations; push them again afterwards
 (`sim/test/push_all.sh ble` or `usb`). Settings and Bluetooth bonds are kept.
 In code the switch is `BUDDY_WIFI` (`src/config.h`): with 0, `net.cpp` and
 `mqtt.cpp` compile to nothing and their headers become empty stubs.
+
+The build without Wi-Fi can also update its firmware over Bluetooth:
+`esp32s3_supermini_ble_ota` (`-DBUDDY_BLE_OTA=1`, `partitions_ble_ota.csv`)
+splits the flash into two 640 KB app slots and 2.69 MB for animations
+(instead of one slot and 3.3 MB). Flash it once over USB (that erases the
+animations, as any partition change does); later firmware goes over
+Bluetooth with the `update` command, about 2 minutes, keeping the animations
+([BLE.md](BLE.md#firmware-updates-over-bluetooth)). On the Wi-Fi build the
+flag alone adds the same command next to the update over Wi-Fi.
 
 Bluetooth can be left out too, with the build flag `-DBUDDY_BLE=0` (no
 environment of its own; e.g. `PLATFORMIO_BUILD_FLAGS=-DBUDDY_BLE=0 pio run`):
@@ -246,7 +257,11 @@ Bluefruit Connect) can type the console commands above, and
 (Chrome/Edge; open it through `./sim/serve.sh`). Only paired devices get in:
 on the first connection the buddy shows a 6-digit code on its screen and the
 phone asks for it (LE Secure Connections, bonds kept; `ble forget` forgets
-them). A paired device can run every command, including uploads.
+them). A paired device can run every command, including uploads. Two devices
+can be connected at once (each gets its own replies); when both send commands
+within 3 s of each other the buddy plays a random `confused_*` animation, then
+follows the later one, and a device connecting after 10 minutes or more away
+gets a `connected_*` hello ([BLE.md](BLE.md)).
 
 How it works, the UUIDs, every command, the upload protocol, the state JSON,
 clients and troubleshooting: [BLE.md](BLE.md).
@@ -339,7 +354,7 @@ with the linker map (`.pio/build/esp32s3_supermini/firmware.map`):
 |---|---|---|
 | printf/vfprintf from the chip ROM, sprintf from newlib-nano (as ESP-IDF's `CONFIG_NEWLIB_NANO_FORMAT`): **no `%f` / `%ll` in printf formats** | `slim.py` | 56 KB |
 | no C++ unwind tables (nothing catches exceptions; uncaught ones abort either way) | `platformio.ini` | 51 KB |
-| NimBLE: peripheral role only, one connection | `platformio.ini` | 38 KB |
+| NimBLE: peripheral role only, two connections | `platformio.ini` | 38 KB |
 | no core dump writer (nothing read the dumps) | `src/no_coredump.c` | 11 KB |
 | no web pages or captive portal (removed; the API stays) | `src/net.cpp` | ~14 KB |
 | no ESP Insights log hooks (esp_diagnostics) | `slim.py` | 2 KB |
