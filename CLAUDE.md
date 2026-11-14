@@ -27,6 +27,8 @@ PlatformIO firmware that plays what the simulator exports.
   or with `usb` / `ble` as the address over USB serial / Bluetooth (stored on
   LittleFS, no reflash). `sim/test/export_all.sh` + `pio run -t
   upload` compiles them in instead (built-in fallback, limited space).
+- Wiring and parts: `hardware/PINOUT.md` (every GPIO, parts list, battery and
+  charger wiring); keep it in step when a pin or a part changes.
 - Firmware: `cd hardware && pio run -t upload` over USB, or
   `hardware/ota.sh <address>` over Wi-Fi. The OTA app slots are 1 MB and the
   firmware is ~960 KB with Bluetooth, so watch the "Flash:" line when adding

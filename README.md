@@ -162,6 +162,9 @@ The other themes have builds too, see [The body](#the-body).
 | CS | GPIO 10 |
 | RST | GPIO 8 |
 
+Parts list, every pin and every wire (display, battery, charger) in one place:
+[hardware/PINOUT.md](hardware/PINOUT.md).
+
 Optional battery level: two 100 kΩ resistors in series from the LiPo's B+ to
 GND, their middle on GPIO 1 (wiring, charger and calibration in
 [hardware/README.md](hardware/README.md#battery-level-optional)). The charge

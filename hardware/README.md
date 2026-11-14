@@ -7,6 +7,9 @@ an HTTP API for scripts and uploads ([API.md](API.md)).
 
 ## Wiring
 
+All of it on one page, with the parts list and a check after each step:
+[PINOUT.md](PINOUT.md).
+
 | Display pin | ESP32-S3 SuperMini | Notes |
 |---|---|---|
 | VCC | 3V3 | module has its own 3.3 V regulator, 3.3 V or 5 V both work |
