@@ -166,7 +166,8 @@ Optional battery level: two 100 kΩ resistors in series from the LiPo's B+ to
 GND, their middle on GPIO 1 (wiring, charger and calibration in
 [hardware/README.md](hardware/README.md#battery-level-optional)). The charge
 shows in every app and the bridge, and at 15 % the buddy shows a low battery
-face every few minutes.
+face every few minutes. Buddies without a battery can use the `*_nobat`
+builds, which leave the battery code out.
 
 ## The body
 
@@ -226,6 +227,7 @@ rebuilds the PDF).
 cd hardware && pio run -t upload                              # Wi-Fi build, USB
 hardware/ota.sh 192.168.50.99                                 # Wi-Fi build, OTA
 cd hardware && pio run -e esp32s3_supermini_ble -t upload     # build without Wi-Fi (USB only)
+cd hardware && pio run -e esp32s3_supermini_nobat -t upload   # without battery level (also _ble_nobat)
 
 # push every animation to the buddy: an address, or usb / ble
 sim/test/push_all.sh 192.168.50.99

@@ -1,13 +1,11 @@
 #include "battery.h"
-#include "config.h"
+#if BUDDY_BATTERY                 // else battery.h has stubs and this file is empty
 #include "ble.h"
 #include "mqtt.h"
-#if BAT_PIN >= 0
 #include <driver/adc.h>
 #include <driver/gpio.h>
 #include <driver/rtc_io.h>
 #include <esp_adc_cal.h>
-#endif
 
 static BatteryInfo info = {};
 
@@ -40,18 +38,9 @@ String batteryStateJson() {
 }
 
 String batteryText() {
-  if (BAT_PIN < 0) return "not measured in this build";
   if (!info.present) return "none (nothing on GPIO " + String(BAT_PIN) + ")";
   return String(info.critical ? "critical, " : info.low ? "low, " : "") + String(info.pct) + "% (" + String(info.mv) + " mV)";
 }
-
-#if BAT_PIN < 0
-
-void batteryBegin() {}
-void batteryLoop() {}
-void batteryCommand(const String &, Print &out) { out.println("battery {\"present\":false}"); }
-
-#else
 
 static const uint32_t SAMPLE_MS = 2000;       // one reading (16 samples averaged) every 2 s
 static const uint32_t PROBE_MS = 30000;       // pull-down check for a divider this often
@@ -165,4 +154,4 @@ void batteryCommand(const String &arg, Print &out) {
   out.println("battery " + batteryJson());
 }
 
-#endif
+#endif  // BUDDY_BATTERY

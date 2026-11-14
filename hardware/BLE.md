@@ -197,7 +197,7 @@ can come from Bluetooth, MQTT, the HTTP API, serial or the battery.
 | `brightness` | 10 to 100 (percent) |
 | `theme` | Selected theme, `""` for none |
 | `count` | Number of stored animations; when it changes, send `names` again |
-| `bat` | Battery charge 0 to 100 (percent), `null` without a battery. Firmware before the battery measurement leaves it out: treat that as `null`. Changes notify when they reach 2 %, or 1 % that lasts a minute |
+| `bat` | Battery charge 0 to 100 (percent), `null` without a battery. Firmware before the battery measurement and the builds without it (`*_nobat`) leave it out: treat that as `null`. Changes notify when they reach 2 %, or 1 % that lasts a minute |
 | `batLow` | `true` while the battery is low (15 % and below, until it is back at 20 %); the buddy shows its low battery face then |
 
 The themes are the `<theme>__` prefixes in the `names` list (`xmas__santa`

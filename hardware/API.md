@@ -63,8 +63,8 @@ Errors answer `{"error":"<reason>"}`; unknown paths answer 404.
 
 `current` is the playing animation or `cycle`. `ap` is the setup access point's
 name while it is up, else `null`. `bleBonds` is -1 with Bluetooth off.
-`battery` is `{"present": false}` with nothing wired to the battery pin;
-otherwise the cell voltage (`mv`), the charge (`pct`, 0-100) and whether it
+`battery` is `{"present": false}` with nothing wired to the battery pin, and
+missing in a build without battery level (`esp32s3_supermini_nobat`); otherwise the cell voltage (`mv`), the charge (`pct`, 0-100) and whether it
 counts as low (`low`: 15 % and below, until back at 20 %). See
 [README.md](README.md#battery-level-optional).
 Passwords are never returned; `apPassSet` and `otaPassSet` say whether one

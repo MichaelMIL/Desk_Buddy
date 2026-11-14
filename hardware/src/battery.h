@@ -15,10 +15,16 @@
  * is reported then, and nothing on the buddy reacts to the noise.
  *
  * Other resistors: -DBAT_R_TOP=<kΩ> -DBAT_R_BOTTOM=<kΩ>; another pin (ADC1 only,
- * GPIO 1-10; ADC2 does not work while Wi-Fi runs): -DBAT_PIN=<gpio>; none: -DBAT_PIN=-1.
- * "battery cal <mV>" corrects resistor tolerance against a multimeter. */
+ * GPIO 1-10; ADC2 does not work while Wi-Fi runs): -DBAT_PIN=<gpio>.
+ * "battery cal <mV>" corrects resistor tolerance against a multimeter.
+ *
+ * Built with -DBUDDY_BATTERY=0 (config.h; the *_nobat environments) none of
+ * this is compiled in: the functions below are stubs, the state, config and
+ * /api/status carry no battery fields (clients then show none, as with older
+ * firmware) and the low battery alert never plays. */
 #pragma once
 #include <Arduino.h>
+#include "config.h"
 
 #ifndef BAT_PIN
 #define BAT_PIN 1
@@ -35,13 +41,14 @@
 #define BAT_CRITICAL_PCT 5
 
 struct BatteryInfo {
-  bool present;            // a cell is connected (false: nothing on the pin, or BAT_PIN -1)
+  bool present;            // a cell is connected (false: nothing on the pin, or a build without battery)
   uint16_t mv;             // cell voltage (filtered)
   uint8_t pct;             // 0..100, from a LiPo discharge curve
   bool low;                // <= BAT_LOW_PCT, with hysteresis
   bool critical;           // <= BAT_CRITICAL_PCT
 };
 
+#if BUDDY_BATTERY
 void batteryBegin();
 void batteryLoop();        // Arduino loop (core 1): samples every 2 s, never blocks
 BatteryInfo batteryGet();
@@ -49,3 +56,11 @@ String batteryJson();      // {"present":true,"mv":3912,"pct":64,"low":false} or
 String batteryStateJson(); // ,"bat":64,"batLow":false  (",bat":null when there is none), for app_state_json
 String batteryText();      // "64% (3912 mV)", "low, 12% (3650 mV)", "none (nothing on GPIO 1)"
 void batteryCommand(const String &arg, Print &out);   // "battery", "battery cal <mV>", "battery cal reset"
+#else
+inline void batteryBegin() {}
+inline void batteryLoop() {}
+inline BatteryInfo batteryGet() { return {}; }
+inline String batteryStateJson() { return String(); }
+inline String batteryText() { return "not in this build (BUDDY_BATTERY=0)"; }
+inline void batteryCommand(const String &arg, Print &out) { out.println(arg.length() ? "battery: not in this build (BUDDY_BATTERY=0)" : "battery {\"present\":false}"); }
+#endif

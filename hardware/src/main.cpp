@@ -375,6 +375,7 @@ void app_resume() {
   else { msg1 = "no animations"; msg2 = "push one from the sim"; mode = MODE_MESSAGE; mode_dirty = true; }
 }
 
+#if BUDDY_BATTERY
 static bool show_alert(const char *name, const char *l1, const char *big, const char *l2) {
   Lock l;
   if (alert_on || !screen_on || mode != MODE_ANIM) return false;   // not over a pairing code, an upload or a dark screen
@@ -387,14 +388,31 @@ static bool show_alert(const char *name, const char *l1, const char *big, const 
     mode = MODE_MESSAGE; mode_dirty = true;
     alert_on = true; alert_until = millis() + ALERT_TEXT_MS;
   }
-  Serial.printf("alert: %s\n", name);
+  Serial.printf("alert: %s\n", alert_until ? "text" : name);
   return true;
 }
 
-/* Low battery: the alert when it gets low, then every 5 minutes (every minute when critical). */
+/* Which low battery animation plays: battery_critical when critical (if the buddy
+ * has it), else the battery_* animations on the buddy take turns in name order
+ * (battery_critical not among them); "" when there are none (text screen). */
+static String next_battery_alert(const String &last, bool critical) {
+  Lock l;
+  if (critical && storeFind("battery_critical") >= 0) return "battery_critical";
+  String first, next;
+  for (size_t i = 0; i < storeCount(); i++) {
+    const String &n = storeEntry(i).name;
+    if (!n.startsWith("battery_") || n == "battery_critical") continue;
+    if (first.isEmpty() || n < first) first = n;
+    if (n > last && (next.isEmpty() || n < next)) next = n;
+  }
+  return next.length() ? next : first;
+}
+
+/* Low battery: an alert when it gets low, then every 5 minutes (every minute when critical). */
 static void battery_alerts() {
   static uint32_t last = 0, tried = 0;
   static bool shown = false;
+  static String played;                          // the last battery_* shown, for taking turns
   BatteryInfo b = batteryGet();
   if (!b.present || !b.low) { shown = false; return; }
   if (shown && millis() - last < (b.critical ? 60000UL : 300000UL)) return;
@@ -402,8 +420,13 @@ static void battery_alerts() {
   tried = millis();
   char pct[8];
   snprintf(pct, sizeof(pct), "%u%%", b.pct);
-  if (show_alert("battery_low", "Battery low", pct, "connect USB-C to charge")) { shown = true; last = millis(); }
+  String name = next_battery_alert(played, b.critical);
+  if (show_alert(name.c_str(), "Battery low", pct, "connect USB-C to charge")) {
+    shown = true; last = millis();
+    if (name.length() && name != "battery_critical") played = name;
+  }
 }
+#endif
 
 // ---- serial console -------------------------------------------------------------
 
@@ -441,7 +464,10 @@ static String app_config_json() {
   s += ",\"speed\":" + String(cfg.speed) + ",\"loops\":" + String(cfg.loops) + ",\"rotation\":" + String(cfg.rotation);
   s += ",\"cycleList\":" + jsonStr(cfg.cycleList) + ",\"start\":" + jsonStr(cfg.anim);
   s += ",\"count\":" + String(storeCount()) + ",\"freeKb\":" + String(storeFreeBytes() / 1024) + ",\"totalKb\":" + String(storeTotalBytes() / 1024);
-  s += ",\"bonds\":" + String(bleBondCount()) + ",\"battery\":" + batteryJson();
+  s += ",\"bonds\":" + String(bleBondCount());
+#if BUDDY_BATTERY
+  s += ",\"battery\":" + batteryJson();
+#endif
 #if BUDDY_WIFI
   s += ",\"wifi\":{\"ssid\":" + jsonStr(cfg.ssid) + ",\"connected\":" + (netConnected() ? "true" : "false") + ",\"ip\":" + jsonStr(netIp());
   s += ",\"ap\":" + jsonStr(netApActive() ? netApSsid() : String()) + ",\"apPassSet\":" + (cfg.apPass.length() ? "true" : "false") + "}";
@@ -647,7 +673,9 @@ void loop() {
   mqttLoop();
   bleLoop();
   uploadPoll();
+#if BUDDY_BATTERY
   batteryLoop();
   battery_alerts();
+#endif
   delay(1);
 }

@@ -41,7 +41,8 @@ PlatformIO firmware that plays what the simulator exports.
   LittleFS; switching builds erases stored animations). Battery level:
   `hardware/src/battery.h` (100k/100k divider on GPIO 1; `bat`/`batLow` in
   the state JSON, which every client shows); `battery_*` animations are
-  alerts the firmware plays itself and never cycles. The DBA1 decoder's
+  alerts the firmware plays itself and never cycles. `BUDDY_BATTERY=0` (the
+  `*_nobat` envs) compiles it out; clients must treat missing `bat` as none. The DBA1 decoder's
   single source is `hardware/lib/dba_player/` (`lzma_dec.c` unpacks the DBAL
   container; `sim/lib/lzma.js` mirrors it). `sim/lib/dba.js` and
   `sim/tools/dba.py` must encode byte-identically (`run_tests.sh` checks). The ESP32 WebServer does not parse query

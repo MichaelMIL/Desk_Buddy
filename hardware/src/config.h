@@ -8,6 +8,11 @@
 #ifndef BUDDY_WIFI
 #define BUDDY_WIFI 1
 #endif
+/* -DBUDDY_BATTERY=0 (the *_nobat environments) leaves out the battery
+ * measurement and the low battery alert (battery.h): for buddies on USB power. */
+#ifndef BUDDY_BATTERY
+#define BUDDY_BATTERY 1
+#endif
 #ifndef FW_VERSION
 #define FW_VERSION "dev"
 #endif

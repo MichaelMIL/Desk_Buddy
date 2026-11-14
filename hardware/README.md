@@ -51,7 +51,10 @@ cell + (B+) ──[ 100 kΩ ]──┬──[ 100 kΩ ]── GND
 - Another pin: `-DBAT_PIN=<gpio>` in `platformio.ini`, ADC1 only (GPIO 1-10;
   ADC2 does not work while Wi-Fi is on); GPIO 1-7 are free on the SuperMini's
   other pin row. Other resistors: `-DBAT_R_TOP=<kΩ> -DBAT_R_BOTTOM=<kΩ>` (keep the
-  pin under 3 V at 4.2 V). `-DBAT_PIN=-1` leaves it out.
+  pin under 3 V at 4.2 V).
+- **No battery?** The normal builds work without one (they report no
+  battery), but the `*_nobat` builds leave the battery code out entirely,
+  ~11 KB less firmware (see [Two builds](#two-builds)).
 
 The buddy reads the pin every 2 s and turns the voltage into a percentage
 with a LiPo discharge curve (from the voltage alone, so expect ±5-10 %; it
@@ -62,11 +65,13 @@ it reports no battery instead of noise. With a multimeter on the cell,
 tolerance; `battery cal reset` undoes it.
 
 At 15 % the battery counts as low (until it is back at 20 %): the buddy plays
-`battery_low` (the simulator's "Battery: low") between faces, at once and then
-every 5 minutes, every minute at 5 % and below, and goes back to what it
-played. Without `battery_low` on the buddy it shows "Battery low" and the
-percentage for 5 s instead. Animations named `battery_*` never join the cycle
-(unless a cycle list names them).
+a low battery animation between faces (twice), at once and then every 5
+minutes, every minute at 5 % and below, and goes back to what it played. The
+`battery_*` animations on the buddy (the simulator's `Battery:` ones) take
+turns in name order; at 5 % and below it plays `battery_critical` instead,
+when the buddy has it. With none on the buddy it shows "Battery low" and the
+percentage for 5 s. Animations named `battery_*` never join the cycle (unless
+a cycle list names them).
 The charge is in `battery`, `status`, `state` (`bat`, `batLow`), `config`,
 `GET /api/status`, MQTT and Home Assistant, the phone app, `sim/remote.html`
 and the Claude Code menu bar app.
@@ -88,6 +93,22 @@ flash) erases the stored animations; push them again afterwards
 In code the switch is `BUDDY_WIFI` (`src/config.h`): with 0, `net.cpp` and
 `mqtt.cpp` compile to nothing and their headers become empty stubs.
 
+Each build also comes without the [battery level](#battery-level-optional),
+for buddies that always run on USB power:
+
+| | With battery level (default) | Without |
+|---|---|---|
+| Wi-Fi build | `esp32s3_supermini` (~969 KB) | `esp32s3_supermini_nobat` (~958 KB) |
+| Build without Wi-Fi | `esp32s3_supermini_ble` (~509 KB) | `esp32s3_supermini_ble_nobat` (~499 KB) |
+
+Without it there is no battery code, reading or low battery alert; the state,
+`config` and `/api/status` carry no battery fields, so the apps, the bridge
+and the menu bar show none, and `status` says "battery: not in this build".
+Switching between a build and its `_nobat` twin keeps the stored animations
+(same partition table). Over Wi-Fi: `hardware/ota.sh --nobat <address>`. In
+code the switch is `BUDDY_BATTERY` (`src/config.h`): with 0, `battery.cpp`
+compiles to nothing and `battery.h` has stubs.
+
 ## Build, flash, monitor
 
 ```sh
@@ -95,6 +116,7 @@ cd hardware
 pio run                                   # build (Wi-Fi build)
 pio run -t upload                         # flash over the SuperMini's USB port
 pio run -e esp32s3_supermini_ble -t upload   # the build without Wi-Fi
+pio run -e esp32s3_supermini_nobat -t upload # no battery level (also esp32s3_supermini_ble_nobat)
 pio device monitor                        # 115200 baud
 ```
 
