@@ -4,4 +4,4 @@ node_modules/
 hardware/.pio/
 hardware/.vscode/
 sim/test/out/
-tools/fw_builder/out/
+tools/firmware/out/

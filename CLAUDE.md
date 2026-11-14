@@ -85,10 +85,13 @@ PlatformIO firmware that plays what the simulator exports.
   menu bar app `claude_integration/menubar/` (Swift; `swift test`,
   `build.sh --install`) reads the daemon's `GET /status`, so keep that
   snapshot's keys in step with `menubar/Sources/BuddyBarCore/Snapshot.swift`.
-- Firmware builder: `tools/fw_builder/fw_builder.py` (browser GUI, or
-  `--list` / `--plan` / `--build k=v [--upload usb|ota:<host>]`) builds
-  `hardware/` from settings in `tools/fw_builder/options.json` (base env +
-  `-D` flags via `PLATFORMIO_BUILD_FLAGS`, build dir `hardware/.pio/fw_builder`,
-  output in `tools/fw_builder/out/`). A new compile-time firmware option
-  (`BUDDY_*` in `config.h`) gets an entry there; tests
-  `python3 tools/fw_builder/test_fw_builder.py`.
+- Firmware build and flash: `tools/firmware/firmware.py` (browser GUI with a
+  Build and a Flash tab, or `--list` / `--plan` / `--build k=v [--upload
+  usb|ota:<host>]`) builds `hardware/` from settings in
+  `tools/firmware/options.json` (base env + `-D` flags via
+  `PLATFORMIO_BUILD_FLAGS`, build dir `hardware/.pio/firmware_tool`) into
+  `tools/firmware/out/deskbuddy_<settings>_<version>{.bin,_factory.bin,.json}`.
+  `flash.html` writes a `_factory.bin` over Web Serial (esptool-js), skipping
+  the nvs partition unless told otherwise. A new compile-time firmware option
+  (`BUDDY_*` in `config.h`) gets an entry in `options.json`; tests
+  `python3 tools/firmware/test_firmware.py`.

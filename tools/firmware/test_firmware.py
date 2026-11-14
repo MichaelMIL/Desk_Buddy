@@ -1,13 +1,14 @@
 #!/usr/bin/env python3
-"""Tests for fw_builder.py's settings -> build plan logic (no PlatformIO needed):
-    python3 tools/fw_builder/test_fw_builder.py"""
+"""Tests for firmware.py: settings -> build plan, the factory image (no PlatformIO needed):
+    python3 tools/firmware/test_firmware.py"""
 import json
 import os
 import sys
+import tempfile
 import unittest
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-import fw_builder as fb  # noqa: E402
+import firmware as fb  # noqa: E402
 
 DOC = {
     "base_env": "base",
@@ -36,7 +37,7 @@ class Plan(unittest.TestCase):
         self.assertEqual(p["env"], "base")
         self.assertEqual(p["flags"], [])
         self.assertEqual(p["errors"], [])
-        self.assertTrue(p["name"].endswith("-wifi-ble-pa"))
+        self.assertTrue(p["name"].endswith("_wifi_ble_pa_" + fb.fw_version()))
         self.assertTrue(p["wifi_build"])
 
     def test_bool_env_and_flags(self):
@@ -44,7 +45,7 @@ class Plan(unittest.TestCase):
         self.assertEqual(p["env"], "nowifi_env")
         self.assertEqual(p["flags"], ["-DBUDDY_BLE=0"])
         self.assertEqual(p["warnings"], ["USB only"])
-        self.assertTrue(p["name"].endswith("-nowifi-noble-pa"))
+        self.assertTrue(p["name"].endswith("_nowifi_noble_pa_" + fb.fw_version()))
         self.assertFalse(p["wifi_build"])
 
     def test_forces(self):
@@ -53,7 +54,7 @@ class Plan(unittest.TestCase):
         self.assertEqual(p["flags"], ["-DBUDDY_BLE=0"])
         self.assertEqual(p["forced"], {"wifi": "Serial only", "ble": "Serial only"})
         self.assertEqual((p["values"]["wifi"], p["values"]["ble"]), (False, False))
-        self.assertTrue(p["name"].endswith("-serial-pa"))
+        self.assertTrue(p["name"].endswith("_serial_pa_" + fb.fw_version()))
         self.assertEqual(p["warnings"], ["USB only"])
         self.assertEqual(fb.plan(DOC, {"serial": False}, YES)["forced"], {})
         self.assertTrue(any("BUDDY_BLE" in e for e in fb.plan(DOC, {"serial": True}, NO)["errors"]))
@@ -61,7 +62,7 @@ class Plan(unittest.TestCase):
     def test_choice_and_number(self):
         p = fb.plan(DOC, {"pins": "b", "spi": "20"}, YES)
         self.assertEqual(p["flags"], ["-DPINS_B=1", "-DSPI_MHZ=20"])
-        self.assertTrue(p["name"].endswith("-pb-spi20"))
+        self.assertTrue(p["name"].endswith("_pb_spi20_" + fb.fw_version()))
         self.assertEqual(fb.plan(DOC, {"spi": 40}, YES)["flags"], [])   # default: no flag
 
     def test_errors(self):
@@ -99,6 +100,32 @@ class Plan(unittest.TestCase):
         p = fb.plan(DOC, {}, YES)
         self.assertEqual(fb.command(p)[-2:], ["-e", "base"])
         self.assertEqual(fb.command(p, {"type": "usb", "port": "/dev/x"})[-4:], ["-t", "upload", "--upload-port", "/dev/x"])
+
+
+class Factory(unittest.TestCase):
+    def test_merge(self):
+        with tempfile.TemporaryDirectory() as d:
+            def blob(name, data):
+                p = os.path.join(d, name)
+                with open(p, "wb") as f:
+                    f.write(data)
+                return p
+            parts = [(0x10000, blob("app", b"\xe9APP")), (0x0, blob("boot", b"\xe9BOOT")), (0x8000, blob("pt", b"\xaa\x50PT"))]
+            n = fb.make_factory(parts, os.path.join(d, "out.bin"))
+            with open(os.path.join(d, "out.bin"), "rb") as f:
+                img = f.read()
+            self.assertEqual(n, 0x10004)
+            self.assertEqual(img[:5], b"\xe9BOOT")
+            self.assertEqual(img[5:0x8000], b"\xff" * (0x8000 - 5))
+            self.assertEqual(img[0x8000:0x8004], b"\xaa\x50PT")
+            self.assertEqual(img[0x10000:], b"\xe9APP")
+            with self.assertRaises(RuntimeError):
+                fb.make_factory([(0, blob("big", b"x" * 0x9000)), (0x8000, parts[2][1])], os.path.join(d, "bad.bin"))
+
+    def test_out_names(self):
+        self.assertTrue(fb.OUT_RE.match("deskbuddy_wifi_ble_bat_2026.11.14d_factory.bin"))
+        for bad in ("../firmware.py", "deskbuddy_/../x.bin", "other.bin", "deskbuddy_x.json"):
+            self.assertFalse(fb.OUT_RE.match(bad), bad)
 
 
 class RealOptions(unittest.TestCase):

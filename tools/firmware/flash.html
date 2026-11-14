@@ -1,0 +1,336 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Desk Buddy flasher</title>
+<!-- Flash page: writes a full firmware image (deskbuddy_..._factory.bin) to the buddy from the
+     browser over Web Serial with esptool-js (Chrome or Edge). Served by firmware.py, it lists
+     the builds in out/; opened anywhere else it takes a file. -->
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header>
+  <h1>Desk Buddy firmware</h1>
+  <nav class="tabs"><a href="index.html" id="tab-build">Build</a><a href="flash.html" class="on">Flash</a></nav>
+  <span class="sub" id="sub"></span>
+</header>
+<main>
+  <div>
+    <section class="card hidden" id="nosupport">
+      <div class="msg err">This browser cannot talk to USB serial devices. Use Chrome or Edge on a computer.</div>
+    </section>
+    <section class="card">
+      <h2>Firmware</h2>
+      <div id="builds" class="modes"></div>
+      <div class="mode" style="margin-top:10px">
+        <input type="radio" name="src" value="file" id="src-file"><label for="src-file">A file:</label>
+        <div class="extra"><input type="file" id="file" accept=".bin,application/octet-stream" aria-label="Firmware file"></div>
+      </div>
+      <div id="img-info"></div>
+    </section>
+    <section class="card">
+      <h2>Options</h2>
+      <div class="opt">
+        <label class="name" for="keep">Keep settings</label>
+        <span class="switch"><input type="checkbox" id="keep" role="switch" checked><span></span></span>
+        <div class="help">Leaves the settings partition alone: Wi-Fi, name, theme and Bluetooth pairings stay. Off: they are reset.</div>
+      </div>
+      <div class="opt">
+        <label class="name" for="erase">Erase everything first</label>
+        <span class="switch"><input type="checkbox" id="erase" role="switch"><span></span></span>
+        <div class="help">A clean start: also wipes the settings and the stored animations (erasing the whole chip adds a little time).</div>
+      </div>
+      <div class="opt">
+        <label class="name" for="anyport">Show every serial port</label>
+        <span class="switch"><input type="checkbox" id="anyport" role="switch"><span></span></span>
+        <div class="help">The port picker lists only Espressif USB devices (the SuperMini's own USB) unless this is on.</div>
+      </div>
+    </section>
+    <section class="card">
+      <h2>Buddy</h2>
+      <dl>
+        <dt>Board</dt><dd id="d-chip">not connected</dd>
+        <dt>Layout</dt><dd id="d-layout">–</dd>
+      </dl>
+      <div id="d-msgs"></div>
+      <div class="actions">
+        <button id="connect" type="button">Connect</button>
+        <button class="primary" id="flash" type="button" disabled>Flash</button>
+        <button id="disconnect" type="button" class="hidden">Disconnect</button>
+      </div>
+      <div class="progress hidden" id="progress"><div></div></div>
+    </section>
+  </div>
+  <section class="card logcard">
+    <div class="loghead"><h2>Log</h2><span class="status" id="status">idle</span></div>
+    <pre id="log"></pre>
+    <div class="result" id="result">
+      <div class="msg note">Plug the buddy into this computer with a USB-C data cable, then Connect and pick its port.
+        Close anything else using that port first (a serial monitor, <code>sim/test/push_all.sh usb</code>).
+        If it is not found: hold BOOT, tap RESET, release BOOT, and connect again.</div>
+    </div>
+  </section>
+</main>
+<script type="module">
+const ESPTOOL = 'https://unpkg.com/esptool-js@0.7.0/bundle.js';
+const ESPRESSIF_VID = 0x303a;
+const $ = id => document.getElementById(id);
+const q = new URLSearchParams(location.search);
+let token = q.get('t') || '';
+try { if (token) sessionStorage.setItem('fwb-token', token); else token = sessionStorage.getItem('fwb-token') || ''; } catch (e) {}
+if (q.get('t')) { q.delete('t'); history.replaceState(null, '', location.pathname + (q.toString() ? '?' + q : '')); }
+const store = {
+  get(k, d) { try { const v = localStorage.getItem('fwb-' + k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } },
+  set(k, v) { try { localStorage.setItem('fwb-' + k, JSON.stringify(v)); } catch (e) {} },
+};
+function el(tag, attrs = {}, ...kids) {
+  const e = document.createElement(tag);
+  for (const [k, v] of Object.entries(attrs)) {
+    if (k === 'class') e.className = v; else if (k === 'text') e.textContent = v;
+    else if (k.startsWith('on')) e.addEventListener(k.slice(2), v); else e.setAttribute(k, v);
+  }
+  for (const k of kids) if (k != null) e.append(k);
+  return e;
+}
+const kb = n => n >= 1048576 ? (n / 1048576).toFixed(2).replace(/\.?0+$/, '') + ' MB' : Math.round(n / 1024) + ' KB';
+const hex = n => '0x' + n.toString(16);
+
+// ---- log ------------------------------------------------------------------------------
+const logEl = $('log');
+function log(s, nl = true) {
+  const atEnd = logEl.scrollTop + logEl.clientHeight >= logEl.scrollHeight - 30;
+  logEl.append(s + (nl ? '\n' : ''));
+  if (atEnd) logEl.scrollTop = logEl.scrollHeight;
+}
+const terminal = { clean() { logEl.textContent = ''; }, writeLine: s => log(s), write: s => log(s, false) };
+function setStatus(s, cls = s) { const st = $('status'); st.textContent = s; st.className = 'status ' + cls; }
+
+// ---- images and partition tables ------------------------------------------------------
+/* Partition table entries (32 bytes, magic AA 50) starting at `base` in `b`. */
+function parseTable(b, base) {
+  const dv = new DataView(b.buffer, b.byteOffset, b.byteLength), parts = [];
+  for (let o = base; o + 32 <= Math.min(b.length, base + 0xC00); o += 32) {
+    if (b[o] === 0xAA && b[o + 1] === 0x50) {
+      const label = new TextDecoder().decode(b.subarray(o + 12, o + 28)).replace(/\0.*$/s, '');
+      parts.push({ type: b[o + 2], subtype: b[o + 3], offset: dv.getUint32(o + 4, true), size: dv.getUint32(o + 8, true), label });
+    } else if (b[o] === 0xEB && b[o + 1] === 0xEB) continue;   // MD5 of the table
+    else break;
+  }
+  return parts;
+}
+function describe(parts) {
+  const apps = parts.filter(p => p.type === 0), fs = parts.find(p => p.type === 1 && (p.subtype === 0x82 || p.subtype === 0x83));
+  if (!apps.length) return 'unknown';
+  const ota = apps.some(p => p.subtype >= 0x10 && p.subtype < 0x20);
+  return (ota ? 'Wi-Fi build: ' + apps.length + ' app slots of ' + kb(apps[0].size) : 'without Wi-Fi: one ' + kb(apps[0].size) + ' app slot')
+    + (fs ? ', ' + kb(fs.size) + ' for animations' : '');
+}
+const sig = parts => JSON.stringify(parts.map(p => [p.type, p.subtype, p.offset, p.size]));
+const fsOf = parts => parts.find(p => p.type === 1 && (p.subtype === 0x82 || p.subtype === 0x83));
+
+/* A full image starts with the bootloader (0xE9) and has a partition table at 0x8000 and an app. */
+function checkImage(img) {
+  if (img.length < 0x9000 || img[0] !== 0xE9) return { error: 'Not a full firmware image. Pick a deskbuddy_…_factory.bin (the plain .bin is the app alone, for updates over Wi-Fi).' };
+  const parts = parseTable(img, 0x8000), app = parts.find(p => p.type === 0);
+  if (!app) return { error: 'No partition table at 0x8000: not a full image (pick a …_factory.bin).' };
+  if (img.length <= app.offset || img[app.offset] !== 0xE9) return { error: 'The image has no app at ' + hex(app.offset) + '.' };
+  if (img.length > app.offset + app.size) return { error: 'The app is larger than its partition (' + kb(img.length - app.offset) + ' > ' + kb(app.size) + ').' };
+  return { parts, app };
+}
+
+/* What to write: the whole image, or everything except the settings (nvs) partition. */
+function segments(img, parts, keep) {
+  const nvs = parts.find(p => p.type === 1 && p.subtype === 2);
+  if (!keep || !nvs || nvs.offset >= img.length) return [{ data: img, address: 0 }];
+  const end = nvs.offset + nvs.size, segs = [{ data: img.slice(0, nvs.offset), address: 0 }];
+  if (end < img.length) segs.push({ data: img.slice(end), address: end });
+  return segs;
+}
+
+// ---- choosing the firmware ------------------------------------------------------------
+let image = null, imageName = '', imageParts = null, builds = [];
+
+function showImage() {
+  const box = $('img-info');
+  box.textContent = '';
+  imageParts = null;
+  if (!image) return update();
+  const c = checkImage(image);
+  if (c.error) box.append(el('div', { class: 'msg err', text: c.error }));
+  else {
+    imageParts = c.parts;
+    box.append(el('div', { class: 'msg note' }, el('code', { text: imageName }), ' · ' + kb(image.length) + ' · ' + describe(c.parts)));
+  }
+  update();
+}
+
+async function useBuild(b) {
+  image = null; imageName = b.factory;
+  showImage();
+  try {
+    const r = await fetch('/out/' + encodeURIComponent(b.factory), { headers: { 'X-Token': token } });
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    image = new Uint8Array(await r.arrayBuffer());
+  } catch (e) { $('img-info').append(el('div', { class: 'msg err', text: 'Could not load ' + b.factory + ': ' + e.message })); return; }
+  showImage();
+}
+
+function settingsText(v) {
+  if (!v) return '';
+  if (v.serial) return 'USB serial only' + (v.battery === false ? ', no battery' : '');
+  return [v.wifi === false ? 'no Wi-Fi' : 'Wi-Fi', v.ble === false ? 'no Bluetooth' : 'Bluetooth', v.battery === false ? 'no battery' : 'battery'].join(', ');
+}
+
+async function loadBuilds() {
+  const box = $('builds');
+  if (!token) { box.append(el('div', { class: 'sub', text: 'Builds appear here when this page is opened from firmware.py.' })); $('tab-build').classList.add('hidden'); return; }
+  let res;
+  try {
+    const r = await fetch('/api/builds', { headers: { 'X-Token': token } });
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    res = await r.json();
+  } catch (e) { box.append(el('div', { class: 'sub', text: 'Could not list the builds (' + e.message + ').' })); return; }
+  builds = res.builds;
+  if (!builds.length) box.append(el('div', { class: 'sub' }, 'No builds yet: make one on the ', el('a', { href: 'index.html', text: 'Build' }), ' page.'));
+  const want = q.get('build');
+  builds.forEach((b, i) => {
+    const id = 'b-' + i, when = new Date(b.built * 1000);
+    const inp = el('input', { type: 'radio', name: 'src', value: b.name, id });
+    inp.addEventListener('change', () => useBuild(b));
+    box.append(el('div', { class: 'mode' }, inp,
+      el('label', { for: id }, el('code', { text: b.name }),
+        el('div', { class: 'sub', text: settingsText(b.values) + ' · ' + kb(b.factory_bytes) + ' · ' + when.toLocaleString() }))));
+  });
+  const pick = builds.findIndex(b => b.name === want);
+  if (builds.length) { const i = pick >= 0 ? pick : 0; $('b-' + i).checked = true; useBuild(builds[i]); }
+}
+
+$('file').addEventListener('change', async () => {
+  const f = $('file').files[0];
+  if (!f) return;
+  $('src-file').checked = true;
+  image = new Uint8Array(await f.arrayBuffer());
+  imageName = f.name;
+  showImage();
+});
+$('src-file').addEventListener('change', () => { if (!$('file').files[0]) { image = null; showImage(); $('file').click(); } else $('file').dispatchEvent(new Event('change')); });
+
+// ---- the board ------------------------------------------------------------------------
+let esp = null, transport = null, loader = null, deviceParts = null, busy = false;
+
+function update() {
+  const ready = !!loader && !!imageParts && !busy;
+  $('flash').disabled = !ready;
+  $('connect').classList.toggle('hidden', !!loader);
+  $('connect').disabled = busy || !('serial' in navigator);
+  $('disconnect').classList.toggle('hidden', !loader);
+  $('disconnect').disabled = busy;
+  $('keep').disabled = $('erase').checked;
+  const msgs = $('d-msgs');
+  msgs.textContent = '';
+  if (loader && imageParts && deviceParts) {
+    if (!deviceParts.length) msgs.append(el('div', { class: 'msg note', text: 'The board has no partition table yet (new or erased): everything is written.' }));
+    else if (sig(deviceParts) !== sig(imageParts)) {
+      const fsMoves = sig([fsOf(deviceParts) || {}]) !== sig([fsOf(imageParts) || {}]);
+      msgs.append(el('div', { class: 'msg warn', text: 'This changes the partition table (' + describe(deviceParts) + ' → ' + describe(imageParts) + ').'
+        + (fsMoves ? ' The animations stored on the buddy are erased: push them again afterwards (sim/test/push_all.sh usb).' : '') }));
+    }
+  }
+  if ($('erase').checked) msgs.append(el('div', { class: 'msg warn', text: 'Erase everything first: settings, pairings and animations go.' }));
+}
+$('keep').addEventListener('change', () => { store.set('keep', $('keep').checked); update(); });
+$('erase').addEventListener('change', update);
+$('anyport').addEventListener('change', () => store.set('anyport', $('anyport').checked));
+
+async function connect() {
+  busy = true; update();
+  setStatus('connecting', 'running');
+  try {
+    esp = esp || await import(ESPTOOL);
+    const port = await navigator.serial.requestPort($('anyport').checked ? {} : { filters: [{ usbVendorId: ESPRESSIF_VID }] });
+    transport = new esp.Transport(port, false);
+    loader = new esp.ESPLoader({ transport, baudrate: 921600, terminal, debugLogging: false });
+    const desc = await loader.main();
+    const chip = loader.chip.CHIP_NAME || desc;
+    if (!/ESP32-S3/i.test(chip)) throw new Error('This is an ' + chip + ', not the buddy\'s ESP32-S3.');
+    let mac = '';
+    try { mac = await loader.chip.readMac(loader); } catch (e) {}
+    let size = '';
+    try { size = await loader.detectFlashSize() || ''; } catch (e) {}
+    $('d-chip').textContent = chip + (size ? ', ' + size + ' flash' : '') + (mac ? ', ' + mac : '');
+    try { deviceParts = parseTable(await loader.readFlash(0x8000, 0xC00), 0); } catch (e) { deviceParts = null; log('could not read the partition table: ' + e.message); }
+    $('d-layout').textContent = deviceParts ? (deviceParts.length ? describe(deviceParts) : 'empty') : 'unknown';
+    setStatus('connected', 'ok');
+  } catch (e) {
+    const m = String(e && e.message || e);
+    if (/No port selected/i.test(m)) setStatus('idle');
+    else {
+      setStatus('failed');
+      log('error: ' + m);
+      if (/open/i.test(m)) log('The port is busy: close anything else using it (serial monitor, push_all.sh, PlatformIO upload) and try again.');
+      else log('Not answering? Hold BOOT, tap RESET, release BOOT, then Connect again.');
+    }
+    await disconnect(true);
+  }
+  busy = false; update();
+}
+
+async function disconnect(quiet) {
+  try { if (transport) await transport.disconnect(); } catch (e) {}
+  transport = null; loader = null; deviceParts = null;
+  if (!quiet) { $('d-chip').textContent = 'not connected'; $('d-layout').textContent = '–'; setStatus('idle'); }
+  update();
+}
+
+async function flash() {
+  if (!loader || !imageParts) return;
+  const erase = $('erase').checked, segs = segments(image, imageParts, $('keep').checked && !erase);
+  const total = segs.reduce((n, s) => n + s.data.length, 0), done = [0];
+  for (const s of segs) done.push(done[done.length - 1] + s.data.length);
+  busy = true; update();
+  const bar = $('progress');
+  bar.classList.remove('hidden');
+  bar.firstElementChild.style.width = '0%';
+  setStatus('flashing', 'running');
+  log('writing ' + imageName + ': ' + segs.map(s => hex(s.address) + '..' + hex(s.address + s.data.length)).join(', ') + (erase ? ' (after erasing everything)' : ''));
+  try {
+    await loader.writeFlash({
+      fileArray: segs, flashMode: 'keep', flashFreq: 'keep', flashSize: 'keep', eraseAll: erase, compress: true,
+      reportProgress(i, written, all) {
+        const pct = (done[i] + segs[i].data.length * (all ? written / all : 0)) / total * 100;
+        bar.firstElementChild.style.width = pct.toFixed(1) + '%';
+        setStatus('flashing ' + Math.floor(pct) + '%', 'running');
+      },
+    });
+    bar.firstElementChild.style.width = '100%';
+    log('restarting the buddy');
+    try { await loader.after('hard_reset'); } catch (e) { log('reset: ' + e.message + ' (press RESET on the board)'); }
+    setStatus('done', 'ok');
+    $('result').textContent = '';
+    $('result').append(el('div', { class: 'msg note', text: 'Flashed. The buddy restarts with the new firmware.' + (erase ? ' It starts empty: set it up again and push the animations.' : '') }));
+    await disconnect(true);
+    $('d-chip').textContent = 'not connected';
+    $('d-layout').textContent = '–';
+  } catch (e) {
+    setStatus('failed');
+    log('error: ' + (e && e.message || e));
+    log('Nothing is lost by trying again: Connect and Flash. If the buddy does not start, flash with "Erase everything first".');
+  }
+  busy = false; update();
+}
+
+$('connect').addEventListener('click', connect);
+$('disconnect').addEventListener('click', () => disconnect(false));
+$('flash').addEventListener('click', flash);
+
+if (!('serial' in navigator)) $('nosupport').classList.remove('hidden');
+$('keep').checked = store.get('keep', true);
+$('anyport').checked = store.get('anyport', false);
+$('sub').textContent = 'flash from the browser · esptool-js 0.7.0';
+update();
+loadBuilds();
+window.flasher = { parseTable, checkImage, segments, describe };   // for tests
+</script>
+</body>
+</html>

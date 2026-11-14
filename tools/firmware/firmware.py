@@ -1,17 +1,25 @@
 #!/usr/bin/env python3
 """
-fw_builder.py - build (and flash) the desk buddy firmware with your own settings.
+firmware.py - build the desk buddy firmware with your own settings, and flash it.
 
-  python3 tools/fw_builder/fw_builder.py                 the GUI, in your browser
-  python3 tools/fw_builder/fw_builder.py --list          the settings and their defaults
-  python3 tools/fw_builder/fw_builder.py --plan wifi=off battery=off      what a build would do
-  python3 tools/fw_builder/fw_builder.py --build wifi=off [--upload usb[:PORT] | --upload ota:HOST]
+  python3 tools/firmware/firmware.py                 the GUI in your browser: Build and Flash pages
+  python3 tools/firmware/firmware.py --list          the settings and their defaults
+  python3 tools/firmware/firmware.py --plan wifi=off battery=off      what a build would do
+  python3 tools/firmware/firmware.py --build wifi=off [--upload usb[:PORT] | --upload ota:HOST[@PASSWORD]]
 
 The settings are in options.json (README.md has the format, so adding one is an edit
 there). Each picks the PlatformIO base environment and/or adds -D flags. A build runs
 `pio run -e <env>` in hardware/ with the flags in PLATFORMIO_BUILD_FLAGS and its own
-build directory (hardware/.pio/fw_builder), so it leaves the normal builds alone, and
-copies firmware.bin to tools/fw_builder/out/<name>.bin.
+build directory (hardware/.pio/firmware_tool), so it leaves the normal builds alone.
+Each build lands in tools/firmware/out/ as
+
+  deskbuddy_<settings>_<version>.bin          the app, for updates over Wi-Fi
+  deskbuddy_<settings>_<version>_factory.bin  bootloader + partition table + app in one
+                                              image from 0x0: what the web flasher writes
+  deskbuddy_<settings>_<version>.json         what it was built with, sizes
+
+The Flash page (flash.html) writes a factory image from the browser over Web Serial
+(Chrome or Edge), skipping the settings partition so Wi-Fi and pairing survive.
 
 The GUI server binds 127.0.0.1 only; its API needs the random token from the URL it
 opens, so other web pages cannot start builds or uploads.
@@ -28,6 +36,7 @@ import shutil
 import subprocess
 import sys
 import threading
+import time
 import webbrowser
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
@@ -36,9 +45,12 @@ REPO = os.path.normpath(os.path.join(HERE, "..", ".."))
 HW = os.path.join(REPO, "hardware")
 OPTIONS_FILE = os.path.join(HERE, "options.json")
 OUT_DIR = os.path.join(HERE, "out")
-BUILD_DIR = os.path.join(HW, ".pio", "fw_builder")
+BUILD_DIR = os.path.join(HW, ".pio", "firmware_tool")
+PAGES = {"/": "index.html", "/index.html": "index.html", "/flash.html": "flash.html", "/style.css": "style.css"}
+CTYPES = {".html": "text/html; charset=utf-8", ".css": "text/css; charset=utf-8"}
 HOST_RE = re.compile(r"^[A-Za-z0-9.\-]{1,253}(?::\d{1,5})?$")
 PORT_RE = re.compile(r"^[\w./\-:]{1,200}$")
+OUT_RE = re.compile(r"^deskbuddy_[a-z0-9_.\-]{1,120}\.bin$")
 SIZE_RE = re.compile(r"^(RAM|Flash):\s+\[.*\]\s+([\d.]+)%\s+\(used (\d+) bytes from (\d+) bytes\)")
 TRUE, FALSE = {"1", "true", "on", "yes", "y"}, {"0", "false", "off", "no", "n"}
 
@@ -161,11 +173,11 @@ def plan(doc, values=None, supported=macro_supported):
                 errors.append("%s and %s need different base environments (%s, %s)" % (env_from, o["label"], env, e["env"]))
             env, env_from = e["env"], o["label"]
         flags += [f.format(value=v) for f in e.get("flags", [])]
-        if e.get("slug") and o["id"] not in forced:          # "serial", not "serial-nowifi-noble"
+        if e.get("slug") and o["id"] not in forced:          # "serial", not "serial_nowifi_noble"
             slug.append(e["slug"].format(value=v))
     warnings = [w["text"] for w in doc.get("warnings", []) if all(vals.get(k) == v for k, v in w["when"].items())]
     notes = [o["upload_note"] for o in doc["options"] if o.get("upload_note")]
-    name = "desk-buddy-%s%s" % (fw_version(), "".join("-" + s for s in slug))
+    name = "_".join(["deskbuddy"] + slug + [fw_version()])
     return {"env": env, "flags": flags, "values": vals, "forced": forced, "name": name, "warnings": warnings,
             "errors": errors, "upload_notes": notes, "wifi_build": env == doc["base_env"]}   # base_env is the Wi-Fi build
 
@@ -185,6 +197,67 @@ def command(p, upload=None, pio="pio", hw=HW):
     return cmd
 
 
+def build_env(p):
+    """The environment variables for building `p` (also for asking pio about that build)."""
+    env = os.environ.copy()
+    env.pop("PLATFORMIO_BUILD_FLAGS", None)
+    if p["flags"]:
+        env["PLATFORMIO_BUILD_FLAGS"] = " ".join(p["flags"])
+    env["PLATFORMIO_BUILD_DIR"] = BUILD_DIR
+    return env
+
+
+def flash_layout(pio, p):
+    """[(offset, path)] of everything besides the app, and the app's offset, from PlatformIO."""
+    r = subprocess.run([pio, "project", "metadata", "-d", HW, "-e", p["env"], "--json-output"],
+                       capture_output=True, text=True, env=build_env(p), timeout=180)
+    out = r.stdout
+    if "{" not in out:
+        raise RuntimeError("pio project metadata: %s" % (r.stderr.strip() or out.strip() or "no output"))
+    extra = json.loads(out[out.index("{"):])[p["env"]]["extra"]
+    return [(int(i["offset"], 16), i["path"]) for i in extra["flash_images"]], int(extra.get("application_offset", "0x10000"), 16)
+
+
+def make_factory(parts, dst):
+    """One image from 0x0: each (offset, path) at its offset, 0xFF in between (like esptool merge_bin)."""
+    parts = sorted(parts)
+    blobs = []
+    for off, path in parts:
+        with open(path, "rb") as f:
+            blobs.append((off, f.read()))
+    for (a, da), (b, _) in zip(blobs, blobs[1:]):
+        if a + len(da) > b:
+            raise RuntimeError("flash images overlap at 0x%x" % b)
+    end = max(off + len(d) for off, d in blobs)
+    buf = bytearray(b"\xff" * end)
+    for off, d in blobs:
+        buf[off:off + len(d)] = d
+    with open(dst, "wb") as f:
+        f.write(buf)
+    return len(buf)
+
+
+def list_builds():
+    """The builds in out/, newest first, from their .json files."""
+    res = []
+    try:
+        names = os.listdir(OUT_DIR)
+    except OSError:
+        return res
+    for n in names:
+        if not n.endswith(".json"):
+            continue
+        try:
+            with open(os.path.join(OUT_DIR, n)) as f:
+                b = json.load(f)
+        except (OSError, ValueError):
+            continue
+        if os.path.exists(os.path.join(OUT_DIR, b.get("factory", ""))):
+            res.append(b)
+    res.sort(key=lambda b: b.get("built", 0), reverse=True)
+    return res
+
+
 def list_ports(pio):
     """Serial ports from `pio device list`; Espressif USB ones first."""
     try:
@@ -201,7 +274,7 @@ def list_ports(pio):
 # ---- a build ------------------------------------------------------------------------
 
 class Job:
-    """One `pio run`, its log, and (after a good build) the copy in out/ and an upload."""
+    """One `pio run`, its log, then the files in out/ and an upload."""
 
     def __init__(self, p, upload=None, pio="pio", echo=False):
         self.plan, self.upload, self.pio, self.echo = p, upload, pio, echo
@@ -227,11 +300,7 @@ class Job:
             self.status = "failed"
 
     def _run(self):
-        p, env = self.plan, os.environ.copy()
-        env.pop("PLATFORMIO_BUILD_FLAGS", None)
-        if p["flags"]:
-            env["PLATFORMIO_BUILD_FLAGS"] = " ".join(p["flags"])
-        env["PLATFORMIO_BUILD_DIR"] = BUILD_DIR
+        p, env = self.plan, build_env(self.plan)
         cmd = command(p, self.upload, self.pio)
         self.log("$ %s%s" % ("PLATFORMIO_BUILD_FLAGS=%s " % shlex.quote(env["PLATFORMIO_BUILD_FLAGS"]) if p["flags"] else "", shlex.join(cmd)))
         self.proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, env=env,
@@ -251,19 +320,34 @@ class Job:
             self.log("pio exited with %d" % rc)
             self.status = "failed"
             return
-        src = os.path.join(BUILD_DIR, p["env"], "firmware.bin")
-        os.makedirs(OUT_DIR, exist_ok=True)
-        dst = os.path.join(OUT_DIR, p["name"] + ".bin")
-        shutil.copyfile(src, dst)
-        self.result["bin"] = os.path.relpath(dst, REPO)
-        self.result["bytes"] = os.path.getsize(dst)
-        self.log("firmware: %s (%d KB)" % (self.result["bin"], self.result["bytes"] // 1024))
+        self._save()
         if self.upload and self.upload.get("type") == "ota":
-            self._ota(dst)
+            self._ota(os.path.join(OUT_DIR, p["name"] + ".bin"))
             return
         if self.upload and self.upload.get("type") == "usb":
             self.result["uploaded"] = "usb"
         self.status = "ok"
+
+    def _save(self):
+        """Copies the app to out/, makes the factory image and the .json next to them."""
+        p = self.plan
+        os.makedirs(OUT_DIR, exist_ok=True)
+        app = os.path.join(BUILD_DIR, p["env"], "firmware.bin")
+        app_out, fac_out = p["name"] + ".bin", p["name"] + "_factory.bin"
+        shutil.copyfile(app, os.path.join(OUT_DIR, app_out))
+        images, app_off = flash_layout(self.pio, p)
+        size = make_factory(images + [(app_off, app)], os.path.join(OUT_DIR, fac_out))
+        info = {"name": p["name"], "app": app_out, "factory": fac_out, "version": fw_version(), "env": p["env"],
+                "flags": p["flags"], "values": p["values"], "wifi_build": p["wifi_build"], "built": int(time.time()),
+                "app_bytes": os.path.getsize(app), "factory_bytes": size, "app_offset": app_off,
+                "flash": self.result.get("flash"), "ram": self.result.get("ram")}
+        with open(os.path.join(OUT_DIR, p["name"] + ".json"), "w") as f:
+            json.dump(info, f, indent=1)
+        rel = os.path.relpath(OUT_DIR, REPO)
+        self.result.update({"name": p["name"], "bin": os.path.join(rel, app_out), "factory": os.path.join(rel, fac_out),
+                            "bytes": info["app_bytes"], "factory_bytes": size})
+        self.log("app: %s (%d KB%s)" % (self.result["bin"], info["app_bytes"] // 1024, ", for updates over Wi-Fi" if p["wifi_build"] else ""))
+        self.log("full image: %s (%d KB, from 0x0: the web flasher writes this)" % (self.result["factory"], size // 1024))
 
     def _ota(self, path):
         host, pw = self.upload["host"], self.upload.get("password") or ""
@@ -319,7 +403,7 @@ class State:
 
 
 class Handler(BaseHTTPRequestHandler):
-    server_version = "fw_builder"
+    server_version = "deskbuddy-firmware"
 
     def log_message(self, *a):
         pass
@@ -333,12 +417,12 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(data)
 
-    def _allowed(self, api):
+    def _allowed(self, needs_token):
         host = self.headers.get("Host", "")
         if host not in ("127.0.0.1:%d" % State.port, "localhost:%d" % State.port):   # DNS rebinding
             self._send(403, {"error": "bad host"})
             return False
-        if api and not hmac.compare_digest(self.headers.get("X-Token", ""), State.token):
+        if needs_token and not hmac.compare_digest(self.headers.get("X-Token", ""), State.token):
             self._send(403, {"error": "bad token"})
             return False
         return True
@@ -351,11 +435,18 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_GET(self):
         path = self.path.split("?")[0]
-        if not self._allowed(path.startswith("/api/")):
+        if not self._allowed(path.startswith("/api/") or path.startswith("/out/")):
             return
-        if path in ("/", "/index.html"):
-            with open(os.path.join(HERE, "index.html"), "rb") as f:
-                return self._send(200, body=f.read(), ctype="text/html; charset=utf-8")
+        if path in PAGES:
+            name = PAGES[path]
+            with open(os.path.join(HERE, name), "rb") as f:
+                return self._send(200, body=f.read(), ctype=CTYPES[os.path.splitext(name)[1]])
+        if path.startswith("/out/"):
+            name = path[5:]
+            if not OUT_RE.match(name) or not os.path.isfile(os.path.join(OUT_DIR, name)):
+                return self._send(404, {"error": "not found"})
+            with open(os.path.join(OUT_DIR, name), "rb") as f:
+                return self._send(200, body=f.read(), ctype="application/octet-stream")
         if path == "/api/options":
             _macros.clear()                          # the firmware may have changed since
             doc = load_options()
@@ -363,6 +454,8 @@ class Handler(BaseHTTPRequestHandler):
                 o["supported"] = not o.get("requires") or macro_supported(o["requires"])
             return self._send(200, {"doc": doc, "version": fw_version(), "pio": State.pio,
                                     "out_dir": os.path.relpath(OUT_DIR, REPO)})
+        if path == "/api/builds":
+            return self._send(200, {"builds": list_builds(), "out_dir": os.path.relpath(OUT_DIR, REPO)})
         if path == "/api/ports":
             return self._send(200, {"ports": list_ports(State.pio) if State.pio else []})
         if path == "/api/job":
@@ -417,9 +510,9 @@ def serve(port=0, open_browser=True):
     httpd = ThreadingHTTPServer(("127.0.0.1", port), Handler)
     State.port = httpd.server_address[1]
     url = "http://127.0.0.1:%d/?t=%s" % (State.port, State.token)
-    print("Desk Buddy firmware builder: %s" % url, flush=True)
+    print("Desk Buddy firmware: %s" % url, flush=True)
     if not State.pio:
-        print("warning: PlatformIO (pio) not found; install it to build", flush=True)
+        print("warning: PlatformIO (pio) not found; the Flash page works, building does not", flush=True)
     if open_browser:
         webbrowser.open(url)
     try:
@@ -453,7 +546,7 @@ def parse_upload(s):
 
 
 def main():
-    ap = argparse.ArgumentParser(description="Build the desk buddy firmware with your own settings (GUI without arguments).")
+    ap = argparse.ArgumentParser(description="Build the desk buddy firmware with your own settings and flash it (GUI without arguments).")
     g = ap.add_mutually_exclusive_group()
     g.add_argument("--list", action="store_true", help="show the settings")
     g.add_argument("--plan", nargs="*", metavar="NAME=VALUE", help="show what a build with these settings does")
@@ -484,8 +577,9 @@ def main():
         if err:
             sys.exit("error: " + err)
         if a.plan is not None:
-            print("env:    %s\nflags:  %s\noutput: %s.bin\ncommand: %s%s" % (
-                p["env"], " ".join(p["flags"]) or "(none)", os.path.join(os.path.relpath(OUT_DIR, REPO), p["name"]),
+            rel = os.path.relpath(OUT_DIR, REPO)
+            print("env:    %s\nflags:  %s\noutput: %s.bin, %s_factory.bin\ncommand: %s%s" % (
+                p["env"], " ".join(p["flags"]) or "(none)", os.path.join(rel, p["name"]), os.path.join(rel, p["name"]),
                 "PLATFORMIO_BUILD_FLAGS=%s " % shlex.quote(" ".join(p["flags"])) if p["flags"] else "", shlex.join(command(p, up))))
             return
         pio = find_pio()

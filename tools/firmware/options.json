@@ -1,5 +1,5 @@
 {
-  "about": "Settings for fw_builder.py. Each option picks the PlatformIO base environment ('env'), adds -D flags ('flags'), can force other options ('forces'), and names the output file ('slug'). Format: README.md.",
+  "about": "Settings for firmware.py. Each option picks the PlatformIO base environment ('env'), adds -D flags ('flags'), can force other options ('forces'), and names the output file ('slug'). Format: README.md.",
   "base_env": "esp32s3_supermini",
   "options": [
     {
