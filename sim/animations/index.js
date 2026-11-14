@@ -56,5 +56,6 @@ window.ANIMATION_FILES = [
   'break.js',
   'silly.js',
   'rude.js',
+  'spicy.js',           // innuendo, kept out of the normal cycle (theme 'spicy')
   'battery.js',
 ];

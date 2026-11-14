@@ -104,7 +104,9 @@ and can push it straight to the board.
   spinner, a clock, confetti) and seasonal or occasion ones
   (`halloween`, `xmas`, `space`, `ocean`, `birthday`, `valentine`,
   `summer`, `stpatricks`), a `rude` theme (the middle finger, a fart, an
-  eye roll, talk to the hand) that stays out of the normal cycle, plus a `claude` theme in Claude's coral and
+  eye roll, talk to the hand) and a `spicy` one (cheeky innuendo: an eyebrow
+  wiggle, the eggplant and the peach, hot and bothered, a rattling "do not
+  disturb" sign, "wrap it up") that stay out of the normal cycle, plus a `claude` theme in Claude's coral and
   cream, most of it about coding with Claude Code (36 animations): the CLI
   spinner "Pondering…", reading and grepping files, a diff being edited, a
   todo list ticking off, a permission prompt, a build that breaks and gets
@@ -116,7 +118,7 @@ and can push it straight to the board.
   `[] + {}`, TypeScript's red squiggles, Java's long class names (and
   coffee), a C segfault, a very nervous `DROP TABLE`, a bash pipeline, and a
   polyglot ring of file extensions. Every theme has at least three
-  animations; the simulator has 110 in all.
+  animations; the simulator has 167 in all.
 
 ## Claude Code on the buddy
 

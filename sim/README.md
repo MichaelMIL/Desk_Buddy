@@ -123,7 +123,8 @@ animations play in every theme). The shipped themes are in
 `animations/theme_*.js`: one per build variant (dj, cat, bear, bunny, king,
 unicorn, skeleton, gamer, bee, devil, dragon, robot, builder, hacker, scientist), seasonal or
 occasion ones (halloween, xmas, space, ocean, birthday, valentine, summer), claude, and
-rude (`rude.js`: the finger, a fart and so on, out of the normal cycle). Common groups
+rude (`rude.js`: the finger, a fart and so on) and spicy (`spicy.js`: cheeky innuendo,
+nothing explicit), both out of the normal cycle. Common groups
 besides the faces: eating, wanting attention, notifications, work breaks and silly
 faces (`eat.js`, `attention.js`, `notify.js`, `break.js`, `silly.js`), and the low
 battery alerts and charging faces (`battery.js`; the firmware plays a random one from

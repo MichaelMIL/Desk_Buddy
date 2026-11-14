@@ -75,8 +75,10 @@ theme prefix is dropped from the board name. Existing themes: the build variants
 `devil`, `dragon`, `robot`, `builder` (hard hat), `hacker` (hood), `scientist`
 (goggles, wild hair) and the seasons/occasions `halloween`, `xmas`,
 `space`, `ocean`, `birthday`, `valentine`, `summer`, and `claude` (see `theme_*.js`),
-`rude` (the finger, a fart, an eye roll, talk to the hand: `rude.js`, kept out of the
-normal cycle), plus
+`rude` (the finger, a fart, an eye roll, talk to the hand: `rude.js`) and `spicy`
+(innuendo, never explicit: an eyebrow wiggle, the eggplant and the peach, hot and
+bothered, "do not disturb", "wrap it up": `spicy.js`), both kept out of the normal
+cycle, plus
 `template` for the bare template build: the generic demos (eyes, bouncing ball, spinner,
 clock, confetti) that used to play in every theme (`template_*.js`). A new theme name creates a new
 theme automatically. Build-variant animations keep the standard face and add
