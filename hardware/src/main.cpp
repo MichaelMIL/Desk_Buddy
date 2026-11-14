@@ -17,6 +17,8 @@
  *   next | cycle [a,b|all]  skip / resume cycling (optionally set the cycle list)
  *   status                  wifi / mqtt / animation / battery state
  *   battery [cal <mV>|cal reset]  battery level as JSON; calibrate against a multimeter (battery.h)
+ *   alerts [low off|<min>] [charging off|0|<min>] [test <pool>]   low battery / charging animations:
+ *                           settings and pools as JSON; "test" plays one from a pool now
  *   wifi <ssid> <password>  save Wi-Fi credentials and reboot ("quote" an SSID with spaces)
  *   mqtt <host> [port] [user] [password]   save broker settings and reboot
  *   prefix <topic prefix>   MQTT topic prefix (default deskbuddy/<id>)
@@ -392,66 +394,144 @@ static bool show_alert(const char *name, const char *l1, const char *big, const 
   return true;
 }
 
-/* The next animation on the buddy named <prefix>..., in name order after `last`
- * (wrapping round), leaving out `skip1` and `skip2`; "" when there is none. */
-static String next_named(const char *prefix, const String &last, const char *skip1, const char *skip2 = "") {
-  Lock l;
-  String first, next;
-  for (size_t i = 0; i < storeCount(); i++) {
-    const String &n = storeEntry(i).name;
-    if (!n.startsWith(prefix) || n == skip1 || n == skip2) continue;
-    if (first.isEmpty() || n < first) first = n;
-    if (n > last && (next.isEmpty() || n < next)) next = n;
-  }
-  return next.length() ? next : first;
+/* Alert pools, by name: battery_critical* -> critical, other battery_* -> low,
+ * charging_plugged* -> plugged, charging_full* -> full, other charging_* -> charging.
+ * So a new "Charging: full ..." animation in the simulator joins its pool by itself. */
+enum Pool { POOL_LOW, POOL_CRITICAL, POOL_PLUGGED, POOL_CHARGING, POOL_FULL, POOL_COUNT };
+static const char *const POOL_NAMES[POOL_COUNT] = {"low", "critical", "plugged", "charging", "full"};
+
+static int pool_of(const String &n) {
+  if (n.startsWith("battery_critical")) return POOL_CRITICAL;
+  if (n.startsWith("battery_")) return POOL_LOW;
+  if (n.startsWith("charging_plugged")) return POOL_PLUGGED;
+  if (n.startsWith("charging_full")) return POOL_FULL;
+  if (n.startsWith("charging_")) return POOL_CHARGING;
+  return -1;
 }
 
-static bool on_buddy(const char *name) { Lock l; return storeFind(name) >= 0; }
+/* A random animation from the pool, not `avoid` when there is another; "" when it is empty. */
+static String pick(int pool, const String &avoid) {
+  Lock l;
+  size_t n = 0, skip = 0;
+  for (size_t i = 0; i < storeCount(); i++)
+    if (pool_of(storeEntry(i).name) == pool) { n++; if (storeEntry(i).name == avoid) skip = 1; }
+  if (n == 0) return "";
+  if (n == 1) skip = 0;
+  size_t k = esp_random() % (n - skip);
+  for (size_t i = 0; i < storeCount(); i++) {
+    const String &name = storeEntry(i).name;
+    if (pool_of(name) != pool || (skip && name == avoid)) continue;
+    if (k-- == 0) return name;
+  }
+  return "";
+}
+
+/* Plays a random animation from the pool as an alert. An empty critical pool uses
+ * the low one, an empty plugged pool the charging one; with nothing to play, a text
+ * screen (but nothing for the every-few-minutes charging pool). 1 shown (`shown` says
+ * what, "" for the text), 0 nothing to show, -1 not now (screen off or busy). */
+static int play_pool(int pool, String &shown) {
+  static String last[POOL_COUNT];                // not the same one twice in a row
+  int p = pool;
+  shown = pick(p, last[p]);
+  if (shown.isEmpty() && p == POOL_CRITICAL) shown = pick(p = POOL_LOW, last[POOL_LOW]);
+  if (shown.isEmpty() && p == POOL_PLUGGED) shown = pick(p = POOL_CHARGING, last[POOL_CHARGING]);
+  if (shown.isEmpty() && pool == POOL_CHARGING) return 0;
+  BatteryInfo b = batteryGet();
+  char pct[8] = "";
+  if (b.present) snprintf(pct, sizeof(pct), "%u%%", b.pct);
+  bool low = pool == POOL_LOW || pool == POOL_CRITICAL;
+  if (!show_alert(shown.c_str(), low ? "Battery low" : pool == POOL_FULL ? "Battery charged" : "Charging", pct,
+                  low ? "connect USB-C to charge" : "")) return -1;
+  if (shown.length()) last[p] = shown;
+  return 1;
+}
+
+/* Between half and one and a half times `minutes`: the alerts come at random times. */
+static uint32_t random_gap(uint32_t minutes) {
+  uint32_t ms = minutes * 60000UL;
+  return ms / 2 + esp_random() % (ms + 1);
+}
 
 /* Battery alerts between the faces; each plays twice (once if it does not loop), then
- * playback resumes. A text screen stands in when the buddy has no such animation.
- * - Low (15 %, off the charger): at once, then every 5 minutes, every minute when
- *   critical (5 %). battery_critical when critical, else the other battery_* in turn.
- * - Plugged in (the charger's CHRG pad): charging_plugged_in, then every 10 minutes
- *   while charging the other charging_* in turn (no text screen for those).
- * - Charged (STDBY): charging_full, once per time on the charger. */
+ * playback resumes:
+ * - low (15 %, off the charger, cfg.alertLow > 0): at once, then about every
+ *   cfg.alertLow minutes (about every minute when critical, 5 %), from the low pool
+ *   (critical pool when critical);
+ * - plugged in (the charger's CHRG pad, cfg.alertCharging >= 0): the plugged pool, then
+ *   about every cfg.alertCharging minutes while charging the charging pool (0: never);
+ * - charged (STDBY): the full pool, once per time on the charger. */
 static void battery_alerts() {
-  static uint32_t tried = 0, lowAt = 0, chgAt = 0;
-  static bool lowShown = false, chgShown = false, fullShown = false;
-  static String lowPlayed, chgPlayed;          // the last ones shown, for taking turns
+  static uint32_t tried = 0, lowNext = 0, chgNext = 0;
+  static bool lowShown = false, plugShown = false, fullShown = false;
   BatteryInfo b = batteryGet();
   uint32_t now = millis();
   bool charger = b.charging || b.full;
-  if (!charger) chgShown = fullShown = false;  // a TP4056 that tops up after "full" is not a new plug-in
-  bool low = b.present && b.low && !charger;
+  if (!charger) plugShown = fullShown = false;  // a TP4056 that tops up after "full" is not a new plug-in
+  bool low = b.present && b.low && !charger && cfg.alertLow > 0;
   if (!low) lowShown = false;
-  enum { DUE_FULL, DUE_CHARGING, DUE_LOW } what;   // (LOW is an Arduino macro)
-  if (b.full && !fullShown) what = DUE_FULL;
-  else if (b.charging && (!chgShown || now - chgAt >= 600000UL)) what = DUE_CHARGING;
-  else if (low && (!lowShown || now - lowAt >= (b.critical ? 60000UL : 300000UL))) what = DUE_LOW;
+  bool chg = cfg.alertCharging >= 0;
+  int pool;
+  if (chg && b.full && !fullShown) pool = POOL_FULL;
+  else if (chg && b.charging && !plugShown) pool = POOL_PLUGGED;
+  else if (chg && b.charging && cfg.alertCharging > 0 && (int32_t)(now - chgNext) >= 0) pool = POOL_CHARGING;
+  else if (low && (!lowShown || (int32_t)(now - lowNext) >= 0)) pool = b.critical ? POOL_CRITICAL : POOL_LOW;
   else return;
   if (now - tried < 1000) return;              // screen off or busy: look again in a second
   tried = now;
-  char pct[8] = "";
-  if (b.present) snprintf(pct, sizeof(pct), "%u%%", b.pct);
-  if (what == DUE_FULL) {
-    if (show_alert("charging_full", "Battery charged", pct, "")) fullShown = true;
-  } else if (what == DUE_CHARGING) {
-    String name = !chgShown && on_buddy("charging_plugged_in") ? String("charging_plugged_in")
-                : next_named("charging_", chgPlayed, "charging_full", "charging_plugged_in");
-    if (name.isEmpty() && chgShown) { chgAt = now; return; }   // the text screen only when plugged in
-    if (show_alert(name.c_str(), "Charging", pct, "")) {
-      chgShown = true; chgAt = now;
-      if (name != "charging_plugged_in") chgPlayed = name;
-    }
-  } else {
-    String name = b.critical && on_buddy("battery_critical") ? String("battery_critical")
-                : next_named("battery_", lowPlayed, "battery_critical");
-    if (show_alert(name.c_str(), "Battery low", pct, "connect USB-C to charge")) {
-      lowShown = true; lowAt = now;
-      if (name != "battery_critical") lowPlayed = name;
+  String shown;
+  if (play_pool(pool, shown) < 0) return;
+  if (pool == POOL_FULL) fullShown = true;
+  else if (pool == POOL_PLUGGED || pool == POOL_CHARGING) { plugShown = true; chgNext = now + random_gap(cfg.alertCharging); }
+  else { lowShown = true; lowNext = now + random_gap(b.critical ? 1 : cfg.alertLow); }
+}
+
+/* The settings and the pools as one line of JSON ("alerts"). */
+static String alerts_json() {
+  String pools[POOL_COUNT];
+  {
+    Lock l;
+    for (size_t i = 0; i < storeCount(); i++) {
+      const String &n = storeEntry(i).name;
+      int p = pool_of(n);
+      if (p >= 0) pools[p] += (pools[p].length() ? "," : "") + jsonStr(n);
     }
   }
+  String s = "{\"low\":" + String(cfg.alertLow) + ",\"charging\":" + String(cfg.alertCharging) + ",\"pools\":{";
+  for (int p = 0; p < POOL_COUNT; p++) s += String(p ? "," : "") + "\"" + POOL_NAMES[p] + "\":[" + pools[p] + "]";
+  return s + "}}";
+}
+
+/* "alerts", "alerts low off|<minutes>", "alerts charging off|0|<minutes>", "alerts test <pool>". */
+static void alerts_command(const String &arg, Print &out) {
+  int sp = arg.indexOf(' ');
+  String what = sp < 0 ? arg : arg.substring(0, sp), v = sp < 0 ? String() : arg.substring(sp + 1);
+  v.trim();
+  if (what == "test") {
+    int p = -1;
+    for (int i = 0; i < POOL_COUNT; i++) if (v == POOL_NAMES[i]) p = i;
+    if (p < 0) { out.println("alerts test low|critical|plugged|charging|full"); return; }
+    { Lock l; if (alert_on) alert_end(); }
+    String shown;
+    int r = play_pool(p, shown);
+    if (r < 0) out.println("alerts: not now (the screen is off or showing something else)");
+    else if (r == 0) out.printf("alerts: the %s pool is empty\n", POOL_NAMES[p]);
+    else out.printf("alerts: playing %s\n", shown.length() ? shown.c_str() : "the text screen (no animation in the pool)");
+    return;
+  }
+  if (what == "low" && v.length()) {
+    int m = v == "off" ? 0 : v.toInt();
+    if (m < 0 || m > 120 || (m == 0 && v != "off" && v != "0")) { out.println("alerts low off|<minutes 1-120>"); return; }
+    cfg.alertLow = m; configSave();
+  } else if (what == "charging" && v.length()) {
+    int m = v == "off" ? -1 : v.toInt();
+    if (m < -1 || m > 120 || (m == 0 && v != "0")) { out.println("alerts charging off|0|<minutes 1-120> (0: only when plugged in and when charged)"); return; }
+    cfg.alertCharging = m; configSave();
+  } else if (what.length()) {
+    out.println("alerts [low off|<min>] [charging off|0|<min>] [test low|critical|plugged|charging|full]");
+    return;
+  }
+  out.println("alerts " + alerts_json());
 }
 #endif
 
@@ -493,7 +573,7 @@ static String app_config_json() {
   s += ",\"count\":" + String(storeCount()) + ",\"freeKb\":" + String(storeFreeBytes() / 1024) + ",\"totalKb\":" + String(storeTotalBytes() / 1024);
   s += ",\"bonds\":" + String(bleBondCount());
 #if BUDDY_BATTERY
-  s += ",\"battery\":" + batteryJson();
+  s += ",\"battery\":" + batteryJson() + ",\"alerts\":{\"low\":" + String(cfg.alertLow) + ",\"charging\":" + String(cfg.alertCharging) + "}";
 #endif
 #if BUDDY_WIFI
   s += ",\"wifi\":{\"ssid\":" + jsonStr(cfg.ssid) + ",\"connected\":" + (netConnected() ? "true" : "false") + ",\"ip\":" + jsonStr(netIp());
@@ -561,6 +641,12 @@ void app_command(const String &line, Print &out) {
     print_status(out);
   } else if (cmd == "battery") {
     batteryCommand(arg, out);
+  } else if (cmd == "alerts") {
+#if BUDDY_BATTERY
+    alerts_command(arg, out);
+#else
+    out.println("alerts: not in this build (BUDDY_BATTERY=0)");
+#endif
   } else if (cmd == "ble" && arg == "forget") {
     bleForgetAll(); out.println("forgot all paired Bluetooth devices (remove the buddy on those devices too)");
   } else if (cmd == "ble") {
@@ -611,7 +697,7 @@ void app_command(const String &line, Print &out) {
   } else if (cmd == "reboot") {
     out.println("rebooting"); delay(200); ESP.restart();
   } else {
-    out.println("commands: list | names | state | config | delete <n> | play <name> | next | cycle [a,b|all] | start <name>|cycle | status | battery [cal <mV>] | "
+    out.println("commands: list | names | state | config | delete <n> | play <name> | next | cycle [a,b|all] | start <name>|cycle | status | battery [cal <mV>] | alerts [low|charging <min>|test <pool>] | "
 #if BUDDY_WIFI
                 "wifi <ssid> <pass> | mqtt <host> [port] [user] [pass] | prefix <p> | ha on|off | appass <p> | otapass <p> | ap | "
 #endif

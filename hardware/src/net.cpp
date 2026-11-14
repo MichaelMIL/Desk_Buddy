@@ -60,7 +60,11 @@ static void handleStatus() {
   s += ",\"mqttUser\":" + jsonStr(cfg.mqttUser) + ",\"mqttPrefix\":" + jsonStr(cfg.mqttPrefix) + ",\"haDiscovery\":" + String(cfg.haDiscovery ? "true" : "false") + ",\"ble\":" + String(cfg.ble ? "true" : "false");
   s += ",\"anim\":" + jsonStr(cfg.anim) + ",\"name\":" + jsonStr(cfg.name) + ",\"apPassSet\":" + String(cfg.apPass.length() ? "true" : "false") + ",\"otaPassSet\":" + String(cfg.otaPass.length() ? "true" : "false");   // never the passwords themselves
   s += ",\"cycleList\":" + jsonStr(cfg.cycleList) + ",\"rotation\":" + String(cfg.rotation) + ",\"loops\":" + String(cfg.loops);
-  s += ",\"speed\":" + String(cfg.speed) + ",\"screenOn\":" + String(cfg.screenOn ? "true" : "false") + "}}";
+  s += ",\"speed\":" + String(cfg.speed) + ",\"screenOn\":" + String(cfg.screenOn ? "true" : "false");
+#if BUDDY_BATTERY
+  s += ",\"alertLow\":" + String(cfg.alertLow) + ",\"alertCharging\":" + String(cfg.alertCharging);
+#endif
+  s += "}}";
   server.send(200, "application/json", s);
 }
 
@@ -130,6 +134,8 @@ static void handleConfig() {
   if (server.hasArg("rotation")) cfg.rotation = server.arg("rotation").toInt() & 3;
   if (server.hasArg("loops")) { int v = server.arg("loops").toInt(); if (v >= 1 && v <= 50) cfg.loops = v; }
   if (server.hasArg("speed")) { int v = server.arg("speed").toInt(); if (v >= 25 && v <= 400) cfg.speed = v; }
+  if (server.hasArg("alertLow")) { int v = server.arg("alertLow").toInt(); if (v >= 0 && v <= 120) cfg.alertLow = v; }
+  if (server.hasArg("alertCharging")) { int v = server.arg("alertCharging").toInt(); if (v >= -1 && v <= 120) cfg.alertCharging = v; }
   cfg.screenOn = app_screen_on();
   cfg.brightness = app_brightness_get();
   configSave();

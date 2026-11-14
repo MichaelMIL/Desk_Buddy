@@ -14,8 +14,13 @@ What it does:
   prompt asks for it, and the app waits (up to 90 s) and explains the step.
   Later connections re-encrypt with the stored bond, no code.
 - **Battery:** the buddy's charge in the app bar, red with an alert icon when
-  the buddy reports it low; nothing without a battery (or with older firmware).
+  the buddy reports it low, a bolt while it charges; nothing without a battery
+  (or with older firmware).
   The device status sheet shows the voltage line.
+- **Battery and charging:** how often the buddy shows its low battery and
+  charging animations (it picks at random from a pool per state: low,
+  critical, plugged in, while charging, charged) and which animations are in
+  each pool, with a **Try** button per pool. Hidden on firmware without it.
 - **Remote:** a picture of the round screen with the playing face, cycle /
   next / screen on-off, brightness, the faces (common ones plus the selected
   theme's, as on the device), theme picker, speed, loops per face, rotation,

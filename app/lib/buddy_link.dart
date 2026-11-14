@@ -86,6 +86,11 @@ class BuddyLink extends ChangeNotifier {
   List<String> names = const [];
   PlaybackSettings settings = const PlaybackSettings();
 
+  /// When the buddy shows its battery / charging animations; null until it
+  /// answered `alerts` (firmware before it, or built without battery, never does).
+  AlertSettings? alerts;
+  bool _quietAlerts = false;
+
   /// The latest `status` report, one entry per line.
   List<String> statusLines = const [];
 
@@ -427,6 +432,24 @@ class BuddyLink extends ChangeNotifier {
   Future<void> setLoops(int loops) => send('loops ${loops.clamp(loopsRange.min, loopsRange.max)}');
   Future<void> setRotation(int quarterTurns) => send('rotation ${quarterTurns & 3}');
 
+  /// Low battery animations about every [minutes] (0: off).
+  Future<void> setLowAlerts(int minutes) => send('alerts low ${minutes <= 0 ? 'off' : minutes.clamp(1, 120)}');
+
+  /// Charging animations about every [minutes] while charging; 0: only when
+  /// plugged in and when charged; negative: off.
+  Future<void> setChargingAlerts(int minutes) => send('alerts charging ${minutes < 0 ? 'off' : minutes.clamp(0, 120)}');
+
+  /// Plays a random animation from [pool] now, as the buddy would.
+  Future<void> testAlert(AlertPool pool) => send('alerts test ${pool.name}');
+
+  /// Asks for the alert settings without logging the question, nor the
+  /// refusal of firmware that does not know `alerts`.
+  Future<void> refreshAlerts() {
+    if (!isReady) return Future.value();
+    _quietAlerts = true;
+    return send('alerts');
+  }
+
   /// Sets which faces cycle (empty: all) and starts cycling. Returns false
   /// when the list does not fit in one command.
   bool setCycleList(List<String> faces) {
@@ -535,6 +558,7 @@ class BuddyLink extends ChangeNotifier {
     onConnected?.call(deviceId!, deviceName);
     _setState(first); // asks for names: the list is empty
     refreshStatus(); // speed, loops, rotation and the cycle list
+    refreshAlerts();
   }
 
   Future<BuddyState> _readStateUntilPaired(
@@ -690,6 +714,13 @@ class BuddyLink extends ChangeNotifier {
       }
     }
     final reply = parseReply(line);
+    if (_quietAlerts &&
+        (reply is AlertsReply || line.startsWith('commands: ') || line.startsWith('alerts: not in this build'))) {
+      _quietAlerts = false; // the answer to refreshAlerts(): no log, no snackbar
+      alerts = reply is AlertsReply ? reply.alerts : null;
+      notifyListeners();
+      return;
+    }
 
     // status: keep the report; hide the ones the app asked for itself
     if (reply is SettingsReply && line.startsWith('animation: ')) _statusCapture = [];
@@ -724,6 +755,9 @@ class BuddyLink extends ChangeNotifier {
       case SettingsReply(:final settings):
         this.settings = this.settings.merge(settings);
         if (!quiet) _log(line, LogKind.reply);
+      case AlertsReply(:final alerts):
+        this.alerts = alerts;
+        _log(line, LogKind.reply);
       case ErrorReply():
         _log(line, LogKind.error);
         _notice(line);

@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:math';
 
+import 'package:desk_buddy/protocol.dart';
 import 'package:desk_buddy/transport.dart';
 
 /// A buddy in memory that answers like the firmware (hardware/src/main.cpp,
@@ -70,6 +71,9 @@ class FakeBuddy implements BuddyTransport {
 
   /// The charger's state as sent in the state's `chg`: 'charging', 'full' or null.
   String? charger;
+
+  /// `alerts` settings (null: firmware without the command).
+  int? alertLow = 5, alertCharging = 10;
 
   /// Leave `bat`/`batLow` out of the state, like firmware without the battery measurement.
   bool oldFirmware = false;
@@ -196,6 +200,18 @@ class FakeBuddy implements BuddyTransport {
         reply(battery == null
             ? 'battery {"present":false}'
             : 'battery {"present":true,"mv":3900,"pct":$battery,"low":$batteryLow}');
+      case 'alerts' when alertLow != null:
+        final w = arg.split(' ');
+        if (w[0] == 'test') {
+          final pick = names.firstWhere(
+              (n) => alertPoolOf(n)?.name == w[1] || (w[1] == 'critical' && alertPoolOf(n) == AlertPool.low),
+              orElse: () => '');
+          reply('alerts: playing $pick');
+          return;
+        }
+        if (w[0] == 'low' && w.length > 1) alertLow = w[1] == 'off' ? 0 : int.parse(w[1]);
+        if (w[0] == 'charging' && w.length > 1) alertCharging = w[1] == 'off' ? -1 : int.parse(w[1]);
+        reply('alerts {"low":$alertLow,"charging":$alertCharging,"pools":{}}');
       case 'status':
         reply("animation: $current${cycling ? ' (cycling)' : ''}, theme '$theme', screen ${screen ? 'on' : 'off'}, "
             "brightness $brightness%, rotation $rotation, speed $speed%, loops $loops, cycle list '$cycleList', frames rendered 42");

@@ -57,7 +57,8 @@ Errors answer `{"error":"<reason>"}`; unknown paths answer 404.
   "config": {"ssid": "home", "mqttHost": "", "mqttPort": 1883, "mqttUser": "",
              "mqttPrefix": "deskbuddy/3ce36c", "haDiscovery": true, "ble": true,
              "anim": "", "name": "Desk Buddy", "apPassSet": false, "otaPassSet": false,
-             "cycleList": "", "rotation": 0, "loops": 3, "speed": 100, "screenOn": true}
+             "cycleList": "", "rotation": 0, "loops": 3, "speed": 100, "screenOn": true,
+             "alertLow": 5, "alertCharging": 10}
 }
 ```
 
@@ -88,6 +89,8 @@ Send only the fields to change. The buddy saves them and reboots.
 | `rotation` | 0 to 3 (× 90°) |
 | `loops` | 1 to 50, loops per face while cycling |
 | `speed` | 25 to 400, playback speed in percent |
+| `alertLow` | 0 to 120: low battery animations about every N minutes, 0 = off ([README](README.md#battery-and-charging-animations)) |
+| `alertCharging` | -1 to 120: while charging about every N minutes, 0 = only when plugged in and charged, -1 = off |
 | `apPass` + `apPassSet=1` | Setup access point password, at least 8 characters (empty = open) |
 | `otaPass` + `otaPassSet=1` | Firmware update password (empty = none) |
 

@@ -18,12 +18,13 @@ Future<void> settle(WidgetTester tester) async {
 void main() {
   setUp(() => SharedPreferences.setMockInitialValues({}));
 
-  Future<(FakeBuddy, BuddyLink)> connected(WidgetTester tester) async {
+  Future<(FakeBuddy, BuddyLink)> connected(WidgetTester tester, {void Function(FakeBuddy)? setup}) async {
     // a tall phone, so the whole remote is built without scrolling
     tester.view.physicalSize = const Size(1290, 7200);
     tester.view.devicePixelRatio = 3;
     addTearDown(tester.view.reset);
     final b = FakeBuddy();
+    setup?.call(b);
     final link = BuddyLink(transportFactory: (_) => b, retryDelay: const Duration(milliseconds: 5));
     await tester.runAsync(() async {
       await link.connect('id', name: 'Desk Buddy');
@@ -74,6 +75,49 @@ void main() {
     await settle(tester);
     expect(find.text('99%'), findsNothing);
     expect(find.byIcon(Icons.battery_full_rounded), findsNothing);
+  });
+
+  testWidgets('battery and charging animations: when, the pools, and trying one', (tester) async {
+    final (b, link) = await connected(
+      tester,
+      setup: (b) => b.names = [...b.names, 'battery_low', 'battery_sos', 'charging_plugged_in', 'charging_zap'],
+    );
+    final card = find.text('BATTERY AND CHARGING');
+    await tester.scrollUntilVisible(find.text('Charged'), 300);
+    await tester.ensureVisible(find.text('Charged'));
+    await tester.pumpAndSettle();
+    expect(card, findsOneWidget);
+    expect(find.text('Every ~5 min'), findsOneWidget);
+    expect(find.text('Every ~10 min'), findsOneWidget);
+    expect(find.textContaining('low, sos'), findsOneWidget);
+    expect(find.textContaining('None on the buddy (instead, at 5 %'), findsOneWidget);
+
+    await tester.tap(find.descendant(of: find.widgetWithText(ListTile, 'Plugged in'), matching: find.text('Try')));
+    await settle(tester);
+    expect(b.commands, contains('alerts test plugged'));
+
+    await tester.tap(find.text('Every ~5 min'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Off').last);
+    await settle(tester);
+    expect(b.commands, contains('alerts low off'));
+    expect(link.alerts?.low, 0);
+
+    await tester.tap(find.text('Every ~10 min'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Plug-in and full only').last);
+    await settle(tester);
+    expect(b.commands, contains('alerts charging 0'));
+    expect(link.alerts?.charging, 0);
+  });
+
+  testWidgets('firmware without alerts: no card, and no complaint about the question', (tester) async {
+    final (b, link) = await connected(tester, setup: (b) => b.alertLow = null);
+    expect(b.commands, contains('alerts'));
+    expect(link.alerts, isNull);
+    expect(find.text('BATTERY AND CHARGING'), findsNothing);
+    expect(find.byType(SnackBar), findsNothing);
+    expect(link.log.where((l) => l.text.startsWith('commands: ')), isEmpty);
   });
 
   test('battery icon follows the charge', () {

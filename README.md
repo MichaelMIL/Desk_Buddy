@@ -167,9 +167,13 @@ GND, their middle on GPIO 1 (wiring, charger and calibration in
 [hardware/README.md](hardware/README.md#battery-level-optional)). The charge
 shows in every app and the bridge, and at 15 % the buddy shows a low battery
 face every few minutes. Two more wires from the charger's CHRG/STDBY pads to
-GPIO 2 and 4 (through diodes) let it react to being plugged in and charged.
-Buddies without a battery can use the `*_nobat` builds, which leave the
-battery code out.
+GPIO 2 and 4 (through diodes) let it react to being plugged in, charging and
+charged. It picks each of these at random from a pool per state (by the
+animation's name), at random times; how often is a setting in the phone app
+and `sim/remote.html`, or `alerts` on the console
+([details](hardware/README.md#battery-and-charging-animations)). Buddies
+without a battery can use the `*_nobat` builds, which leave the battery code
+out.
 
 ## The body
 

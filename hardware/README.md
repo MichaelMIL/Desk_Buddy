@@ -65,13 +65,10 @@ it reports no battery instead of noise. With a multimeter on the cell,
 tolerance; `battery cal reset` undoes it.
 
 At 15 % the battery counts as low (until it is back at 20 %): the buddy plays
-a low battery animation between faces (twice), at once and then every 5
-minutes, every minute at 5 % and below, and goes back to what it played. The
-`battery_*` animations on the buddy (the simulator's `Battery:` ones) take
-turns in name order; at 5 % and below it plays `battery_critical` instead,
-when the buddy has it. With none on the buddy it shows "Battery low" and the
-percentage for 5 s. Animations named `battery_*` never join the cycle (unless
-a cycle list names them).
+a low battery animation between faces (twice, or once if it does not loop),
+at once and then about every 5 minutes, about every minute at 5 % and below,
+and goes back to what it played. See [Battery and charging
+animations](#battery-and-charging-animations) for which one and how often.
 The charge is in `battery`, `status`, `state` (`bat`, `batLow`), `config`,
 `GET /api/status`, MQTT and Home Assistant, the phone app, `sim/remote.html`
 and the Claude Code menu bar app.
@@ -98,17 +95,10 @@ Other pins: `-DBAT_CHRG_PIN=<gpio> -DBAT_STDBY_PIN=<gpio>`, `-1` for none;
 GPIO 3 is a strapping pin, keep it free. A change counts once it holds for
 2 s (a TP4056 without a cell blinks CHRG).
 
-What the buddy does with it (each plays like a low battery alert, then
-playback resumes):
-
-- **Plugged in:** `charging_plugged_in` at once, then every 10 minutes while
-  charging the other `charging_*` animations in turn (`charging_full` not
-  among them). Without any, "Charging" as text when plugged in.
-- **Charged** (STDBY): `charging_full` once (or "Battery charged" as text).
-  A top-up after "full" is not a new plug-in.
-- **No low battery alerts** while on the charger.
-
-`charging_*` animations never join the cycle either. `state` and the battery
+What the buddy does with it: an animation when plugged in, more about every
+10 minutes while charging, one when charged (a top-up after "full" is not a
+new plug-in), and no low battery alerts while on the charger; see the next
+section. `state` and the battery
 JSON carry `"chg":"charging"` or `"chg":"full"` while on the charger (absent
 otherwise); the apps, `sim/remote.html` and the menu bar show a bolt or
 "charged". The voltage reads high while charging, so the percentage does too.
@@ -116,6 +106,43 @@ One catch: the TP4056 ends a charge when the current falls to a tenth of its
 setting, and the buddy (~100 mA, powered from OUT+) draws through it too, so
 on a 1 A module "full" can come late or not at all; a module set to less
 current (a larger R_PROG) or a load-sharing charger avoids that.
+
+#### Battery and charging animations
+
+The buddy picks these from five pools, by the animation's name, so a new
+simulator animation joins its pool by itself (`Charging: full party` becomes
+`charging_full_party`, in the full pool):
+
+| Pool | Names | Plays |
+|---|---|---|
+| low | `battery_*` (not critical) | at once when the battery gets low, then about every `low` minutes |
+| critical | `battery_critical*` | instead of low at 5 % and below, about every minute (none: the low pool) |
+| plugged | `charging_plugged*` | when charging starts (none: the charging pool) |
+| charging | other `charging_*` | about every `charging` minutes while charging |
+| full | `charging_full*` | once, when the charger is done |
+
+Each time it plays a random one from the pool (not the same one twice in a
+row when there is another), at a random time between half and one and a half
+times the interval, then goes back to what it played. With an empty pool it
+shows a text screen ("Battery low" and the percentage, "Charging", "Battery
+charged") for 5 s, except for the every-few-minutes charging pool. These
+animations never join the cycle (unless a cycle list names them).
+
+Settings (saved; the phone app's "Battery and charging" card and
+`sim/remote.html` have them too):
+
+```
+alerts                      settings and pools as JSON
+alerts low 5                low battery: about every 5 minutes (1-120); "off" for none
+alerts charging 10          while charging: about every 10 minutes (1-120); 0 = only
+                            when plugged in and when charged; "off" for none
+alerts test charging        play one from a pool now (low, critical, plugged, charging, full)
+```
+
+`alerts` answers `alerts {"low":5,"charging":10,"pools":{"low":["battery_low",…],
+"critical":[…],"plugged":[…],"charging":[…],"full":[…]}}`; `config` has
+`"alerts":{"low":5,"charging":10}`. Over Wi-Fi, `POST /api/config` takes
+`alertLow` and `alertCharging`.
 
 ## Two builds
 
@@ -192,7 +219,8 @@ Console commands (USB serial at 115200, or a paired Bluetooth device):
 dimming: the backlight is hard-wired, so pixel values are scaled),
 `ble on|off|forget`, `upload <name> <bytes>`, `start <name>|cycle`,
 `ha on|off`, `appass <password>`, `otapass <password>`, `ap`,
-`battery [cal <mV>|cal reset]`, `reset`, `reboot`. `names`, `state` and `config` print one machine-readable line
+`battery [cal <mV>|cal reset]`, `alerts [low off|<min>] [charging off|0|<min>]
+[test <pool>]`, `reset`, `reboot`. `names`, `state` and `config` print one machine-readable line
 (comma-separated names / state JSON / settings JSON). Quote a Wi-Fi name
 with spaces: `wifi "My Home" <password>`.
 

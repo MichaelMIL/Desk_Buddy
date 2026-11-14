@@ -167,6 +167,70 @@ class PlaybackSettings {
       (cycleList ?? '').split(',').map((s) => s.trim()).where((s) => s.isNotEmpty).toList();
 }
 
+/// The pools the buddy picks its battery and charging animations from, by
+/// name as in the firmware: `battery_critical…` critical, other `battery_…`
+/// low, `charging_plugged…` plugged, `charging_full…` full, other
+/// `charging_…` charging.
+enum AlertPool {
+  low('Battery low', 'about every few minutes while low (15 %)'),
+  critical('Battery critical', 'instead, at 5 % and below'),
+  plugged('Plugged in', 'when charging starts'),
+  charging('While charging', 'about every few minutes'),
+  full('Charged', 'once, when the charger is done');
+
+  const AlertPool(this.label, this.when);
+  final String label, when;
+}
+
+AlertPool? alertPoolOf(String name) {
+  if (name.startsWith('battery_critical')) return AlertPool.critical;
+  if (name.startsWith('battery_')) return AlertPool.low;
+  if (name.startsWith('charging_plugged')) return AlertPool.plugged;
+  if (name.startsWith('charging_full')) return AlertPool.full;
+  if (name.startsWith('charging_')) return AlertPool.charging;
+  return null;
+}
+
+/// The animations in each pool, in name order.
+Map<AlertPool, List<String>> alertPools(Iterable<String> names) {
+  final pools = {for (final p in AlertPool.values) p: <String>[]};
+  for (final n in names) {
+    final p = alertPoolOf(n);
+    if (p != null) pools[p]!.add(n);
+  }
+  for (final l in pools.values) {
+    l.sort();
+  }
+  return pools;
+}
+
+/// When the buddy shows them (`alerts`): [low] about every N minutes while
+/// the battery is low, 0 = off; [charging] about every N minutes while
+/// charging, 0 = only when plugged in and when charged, -1 = off. The
+/// buddy picks at random from the pool and at random times around N.
+class AlertSettings {
+  const AlertSettings({required this.low, required this.charging});
+  final int low, charging;
+
+  static AlertSettings? tryParse(String json) {
+    try {
+      final m = jsonDecode(json);
+      if (m is! Map<String, dynamic>) return null;
+      final low = m['low'], charging = m['charging'];
+      if (low is! int || charging is! int) return null;
+      return AlertSettings(low: low, charging: charging);
+    } on FormatException {
+      return null;
+    }
+  }
+
+  @override
+  bool operator ==(Object other) => other is AlertSettings && other.low == low && other.charging == charging;
+
+  @override
+  int get hashCode => Object.hash(low, charging);
+}
+
 /// One reply line from TX, classified.
 sealed class Reply {
   const Reply(this.line);
@@ -188,6 +252,12 @@ class NamesReply extends Reply {
 class StateReply extends Reply {
   const StateReply(super.line, this.state);
   final BuddyState state;
+}
+
+/// `alerts {...}`: the battery / charging animation settings.
+class AlertsReply extends Reply {
+  const AlertsReply(super.line, this.alerts);
+  final AlertSettings alerts;
 }
 
 /// A line that changes a playback setting: `speed 150%`, `loops 3`,
@@ -225,6 +295,10 @@ Reply parseReply(String line) {
   if (line.startsWith('state ')) {
     final s = BuddyState.tryParse(line.substring(6));
     if (s != null) return StateReply(line, s);
+  }
+  if (line.startsWith('alerts {')) {
+    final a = AlertSettings.tryParse(line.substring(7));
+    if (a != null) return AlertsReply(line, a);
   }
   RegExpMatch? m;
   if ((m = _speedRe.firstMatch(line)) != null) {

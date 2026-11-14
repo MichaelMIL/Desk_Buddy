@@ -65,6 +65,16 @@ progress{width:100%;margin-top:8px}.msg{color:var(--accent);min-height:1.2em;fon
 <div class="msg" id="pmsg"></div>
 </div></details>
 
+<details id="alertCard" open hidden><summary><h2>Battery &amp; charging</h2></summary><div class="card">
+<div class="row">
+  <div><label>Low battery animations <small>(from 15 %; every minute at 5 %)</small></label><select id="alLow"></select></div>
+  <div><label>Charging animations <small>(the charger's pads wired)</small></label><select id="alChg"></select></div>
+</div>
+<div class="dim" style="margin-top:6px">Each time a random animation from the pool, at a random time around the interval. An animation joins a pool by its name (<code>battery_critical…</code>, <code>battery_…</code>, <code>charging_plugged…</code>, <code>charging_full…</code>, <code>charging_…</code>).</div>
+<table id="pools"></table>
+<div class="msg" id="almsg"></div>
+</div></details>
+
 <details open><summary><h2>Animations</h2></summary><div class="card">
 <div class="dim" id="fs"></div>
 <table id="anims"></table>
@@ -218,6 +228,7 @@ function render() {
 }
 
 function renderLists() {
+  renderAlerts();
   const ss = $('#start'), cur = cfg ? (cfg.start || 'cycle') : ss.value;
   ss.innerHTML = '';
   for (const n of ['cycle', ...names]) ss.add(new Option(n === 'cycle' ? 'cycle through the faces' : label(n), n));
@@ -247,8 +258,45 @@ function renderLists() {
   }
 }
 
+/* Battery and charging animations: the buddy's settings (config "alerts") and its pools, by name as in the firmware. */
+const POOLS = [['low', 'Battery low', 'while low'], ['critical', 'Battery critical', 'instead, at 5 % and below'],
+  ['plugged', 'Plugged in', 'when charging starts'], ['charging', 'While charging', 'every few minutes'], ['full', 'Charged', 'once, when done']];
+const poolOf = n => n.startsWith('battery_critical') ? 'critical' : n.startsWith('battery_') ? 'low' : n.startsWith('charging_plugged') ? 'plugged'
+  : n.startsWith('charging_full') ? 'full' : n.startsWith('charging_') ? 'charging' : null;
+function renderAlerts() {
+  const a = cfg && cfg.alerts;                           // absent before alert settings and in builds without battery
+  $('#alertCard').hidden = !a;
+  if (!a) return;
+  const opts = (sel, list, cur, label) => {
+    if (document.activeElement === sel) return;
+    sel.innerHTML = '';
+    for (const v of [...new Set([...list, cur])].sort((x, y) => x - y)) sel.add(new Option(label(v), v));
+    sel.value = cur;
+  };
+  opts($('#alLow'), [0, 2, 5, 10, 15, 30], a.low, m => m ? 'about every ' + m + ' min' : 'off');
+  opts($('#alChg'), [-1, 0, 5, 10, 15, 30, 60], a.charging, m => m < 0 ? 'off' : m ? 'about every ' + m + ' min' : 'plug-in and full only');
+  const t = $('#pools'); t.innerHTML = '';
+  for (const [p, label, when] of POOLS) {
+    const members = names.filter(n => poolOf(n) === p).sort().map(n => n.replace(/^(battery|charging)_/, '').replace(/_/g, ' '));
+    const tr = t.insertRow(), td = tr.insertCell(), b = document.createElement('b'), w = document.createElement('small'), m = document.createElement('small');
+    b.textContent = label + ' '; w.textContent = when; m.textContent = members.length ? members.join(', ') : 'none on the buddy';
+    td.append(b, w, document.createElement('br'), m);
+    const btn = document.createElement('button'); btn.className = 'fit'; btn.textContent = 'Try'; btn.onclick = () => tryPool(p);
+    const r = tr.insertCell(); r.className = 'r'; r.append(btn);
+  }
+}
+async function tryPool(p) { try { say('#almsg', await ask('alerts test ' + p, /^alerts[: ]/)); } catch (e) { say('#almsg', e.message, true); } }
+async function setAlert(what, v) {
+  try {
+    const r = await ask('alerts ' + what + ' ' + v, /^alerts[: ]/);
+    if (!r.startsWith('alerts {')) return say('#almsg', r, true);
+    const a = JSON.parse(r.slice(7)); cfg.alerts = { low: a.low, charging: a.charging }; renderAlerts(); say('#almsg', 'saved');
+  } catch (e) { say('#almsg', e.message, true); }
+}
+
 function renderConfig() {
   if (!cfg) return;
+  renderAlerts();
   const idle = id => document.activeElement !== $(id);
   $('#title').textContent = cfg.name; document.title = cfg.name + ' remote';
   if (idle('#speed')) { $('#speed').value = cfg.speed; $('#spv').textContent = cfg.speed; }
@@ -393,6 +441,8 @@ $('#upBtn').onclick = async () => {
 /* ---- controls ---- */
 $('#scr').onclick = () => send('screen ' + (st.screen ? 'off' : 'on'));
 $('#next').onclick = () => send('next');
+$('#alLow').onchange = e => setAlert('low', +e.target.value || 'off');
+$('#alChg').onchange = e => setAlert('charging', +e.target.value < 0 ? 'off' : e.target.value);
 let briT = null, spT = null;
 $('#bri').oninput = e => { $('#bv').textContent = e.target.value; clearTimeout(briT); briT = setTimeout(() => quiet('brightness ' + e.target.value, /^brightness /), 150); };
 $('#speed').oninput = e => { $('#spv').textContent = e.target.value; clearTimeout(spT); spT = setTimeout(() => { quiet('speed ' + e.target.value, /^speed /); if (cfg) cfg.speed = +e.target.value; }, 200); };

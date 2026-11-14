@@ -85,21 +85,26 @@ the accessory (headphones, ears, crown, horn, hard hat, hood, goggles) plus a ma
 Common (theme-less) groups besides the `Face:` ones: `Eat:` (`eat.js`),
 `Attention:` (`attention.js`), `Notify:` (`notify.js`, meant to be played on
 an event), `Break:` (`break.js`, taking a break from work) and `Silly:`
-(`silly.js`). `Battery:` (`battery.js`: low, plug me, please, sos, hungry, faint,
-critical) animations are alerts: while the battery is low the firmware plays
-one every few minutes by itself, taking turns through every `battery_*`
-animation on the board in name order (at 5% and below only
-`battery_critical`, when the board has it). It never puts them in the cycle,
-so a new `Battery:` animation joins the rotation just by being on the board;
-keep them short (a few seconds; each plays twice) and small. `Charging:`
-animations (also in `battery.js`: plugged in, power up, sip, relax, zap, full;
-stored as `charging_*`, so the low rotation never picks them) are for while
-the buddy charges, and never cycled either. With the charger's status pins
-wired (`hardware/README.md`, "Charging (optional)") the firmware plays
-`charging_plugged_in` when charging starts, then every 10 minutes the next of
-the others in name order (`charging_full` and `charging_plugged_in` excluded),
-and `charging_full` once when charged. `plugged in` and `full` tell a story
-once (`loop: false`); the others loop and play twice.
+(`silly.js`).
+
+`Battery:` and `Charging:` (`battery.js`) animations are alerts the firmware
+plays by itself and never cycles: each time it picks a random one from a pool
+chosen by the board name's prefix, so a new animation joins its pool by name
+alone (`Charging: full party` → `charging_full_party` → the full pool):
+
+| Pool | Board names | Played |
+|---|---|---|
+| critical | `battery_critical*` | at 5% and below (none there: the low pool) |
+| low | other `battery_*` | while the battery is low, every few minutes |
+| plugged | `charging_plugged*` | once when charging starts (none there: the charging pool) |
+| full | `charging_full*` | once when charged |
+| charging | other `charging_*` | every so often while it charges |
+
+The intervals are settings on the buddy (`alerts low|charging <min>|off`, the
+phone app's "Battery and charging" card); `hardware/README.md` has the details
+("Battery and charging animations") and the charger wiring ("Charging
+(optional)"). An alert plays twice, or once with `loop: false` (good for a
+story like `Charging: plugged in`), so keep them a few seconds long and small.
 
 ## Drawing API (`g`)
 

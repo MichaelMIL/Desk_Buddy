@@ -37,8 +37,10 @@ Opening `sim/index.html` straight from disk also works for everything except
 
 The Bluetooth remote is at http://localhost:8080/remote.html (Web Bluetooth
 needs Chrome or Edge and localhost or https, so open it through `serve.sh`).
-It lists the faces on the device and sets face, screen, brightness and theme;
-the protocol is in `hardware/BLE.md`.
+It lists the faces on the device and sets face, screen, brightness and theme,
+shows the battery (a bolt while charging) and has a "Battery & charging" card:
+how often the low battery and charging animations play, which ones are in each
+pool, and a Try button per pool. The protocol is in `hardware/BLE.md`.
 
 Keys: `Space` play/pause, `←` `→` step one frame, `R` reload animation files.
 Hover the screen to read a pixel's coordinates and RGB565 value. Pixels outside
@@ -124,8 +126,8 @@ occasion ones (halloween, xmas, space, ocean, birthday, valentine, summer), clau
 rude (`rude.js`: the finger, a fart and so on, out of the normal cycle). Common groups
 besides the faces: eating, wanting attention, notifications, work breaks and silly
 faces (`eat.js`, `attention.js`, `notify.js`, `break.js`, `silly.js`), and the low
-battery alerts and charging faces (`battery.js`; the firmware plays them itself, when
-the battery is low or while it charges, and never cycles them).
+battery alerts and charging faces (`battery.js`; the firmware plays a random one from
+the matching pool when the battery is low or while it charges, and never cycles them).
 `template_*.js` hold the generic demos (eyes, bouncing ball, spinner, clock,
 confetti) in the `template` theme, for the bare template build, so they stay
 out of the other themes' cycles.

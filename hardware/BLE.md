@@ -124,6 +124,9 @@ reply ends with a newline; a command that prints nothing answers `ok`.
 | `status` | The status report | animation, name, Wi-Fi, MQTT, Bluetooth, battery, memory |
 | `battery` | The battery as JSON on one line ([README](README.md#battery-level-optional)) | `battery {"present":true,"mv":3912,"pct":64,"low":false}` or `battery {"present":false}` |
 | `battery cal <mV>` / `battery cal reset` | Correct the reading to a multimeter's (saved) / undo | `battery calibrated: x1.0123, now 3950 mV` |
+| `alerts` | Battery / charging animation settings and pools as JSON ([README](README.md#battery-and-charging-animations)) | `alerts {"low":5,"charging":10,"pools":{"low":["battery_low"],…}}` |
+| `alerts low off\|<min>` / `alerts charging off\|0\|<min>` | How often (saved): low battery 1-120 min or off; while charging 1-120 min, 0 only when plugged in and charged, or off | the `alerts {…}` line |
+| `alerts test <pool>` | Play one from `low`, `critical`, `plugged`, `charging` or `full` now | `alerts: playing battery_sos` |
 | `upload <name> <bytes>` | Receive an animation on this link | see Uploading animations |
 | `delete <name>` | Delete a stored animation | `deleted` or `not found or built-in` |
 | `name <device name>` | Rename (Bluetooth name, mDNS, Home Assistant); reboots | `saved, rebooting` |

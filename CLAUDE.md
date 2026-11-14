@@ -42,7 +42,9 @@ PlatformIO firmware that plays what the simulator exports.
   `hardware/src/battery.h` (100k/100k divider on GPIO 1; `bat`/`batLow` in
   the state JSON, which every client shows; `chg` from the charger's pads on
   GPIO 2/4); `battery_*` and `charging_*` animations are alerts the firmware
-  plays itself (`battery_alerts()` in `main.cpp`) and never cycles. `BUDDY_BATTERY=0` (the
+  plays itself, at random from pools by name prefix (`pool_of()` in
+  `main.cpp`, mirrored by `alertPoolOf` in the app and `poolOf` in
+  `sim/remote.html`; `alerts` command), and never cycles. `BUDDY_BATTERY=0` (the
   `*_nobat` envs) compiles it out; clients must treat missing `bat` as none. The DBA1 decoder's
   single source is `hardware/lib/dba_player/` (`lzma_dec.c` unpacks the DBAL
   container; `sim/lib/lzma.js` mirrors it). `sim/lib/dba.js` and

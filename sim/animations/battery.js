@@ -1,12 +1,12 @@
-/* Battery alerts. While the battery is low the firmware plays one of these every few
- * minutes by itself, taking turns in name order (hardware/src/main.cpp,
- * next_battery_alert); `battery_critical` takes over at 5% and below. `battery_*`
- * animations are never part of the cycle. Each alert plays twice, so keep them short.
- *
- * `Charging:` ones (charging_*, not battery_*, so the low rotation never picks them)
- * play while the buddy charges (TP4056 CHRG/STDBY pins, hardware/README.md):
- * `plugged in` when charging starts and `full` when charged, once each
- * (loop: false); the others take turns every 10 minutes in between. */
+/* Battery and charging alerts, never part of the cycle. The firmware plays a random one
+ * from a pool picked by board-name prefix (hardware/src/main.cpp, pool_of; hardware/README.md
+ * "Battery and charging animations"), so a new one joins its pool by its name alone:
+ *   battery_critical*   at 5% and below
+ *   battery_*           low battery, every few minutes
+ *   charging_plugged*   once when charging starts
+ *   charging_full*      once when charged
+ *   charging_*          every so often while it charges
+ * Alerts play twice (once with loop: false), so keep them a few seconds long. */
 
 const TAU = Math.PI * 2;
 const RED = Sim.hex('#ff3b30'), DIM_RED = Sim.lerp565(Face.BG, RED, 0.3), YELLOW = Sim.hex('#ffd60a');

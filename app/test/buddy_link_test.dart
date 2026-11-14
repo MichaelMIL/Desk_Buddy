@@ -35,7 +35,7 @@ void main() {
     expect(saved, 'aa:bb/Desk Buddy');
     expect(link.state!.theme, 'robot');
     expect(link.names, b.names);
-    expect(b.commands, ['names', 'status']);
+    expect(b.commands, ['names', 'status', 'alerts']);
     expect(link.settings.speed, 100);
     expect(link.settings.loops, 3);
     expect(link.settings.rotation, 0);

@@ -228,6 +228,10 @@ class _RemoteTab extends StatelessWidget {
             ],
             const _Section('Playback'),
             _PlaybackCard(link: link, faces: [...faces.common, ...faces.themed].where(onBuddy.contains).toList()),
+            if (link.alerts case final alerts?) ...[
+              const _Section('Battery and charging'),
+              _AlertsCard(link: link, alerts: alerts),
+            ],
           ],
         ),
       ),
@@ -682,6 +686,111 @@ class _PlaybackCardState extends State<_PlaybackCard> {
                 builder: (context) => _CycleSheet(link: link, faces: widget.faces, initial: cycleNames),
               ),
             ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// When the buddy shows its battery and charging animations, and the pools
+/// it picks them from (by name, see [alertPoolOf]).
+class _AlertsCard extends StatelessWidget {
+  const _AlertsCard({required this.link, required this.alerts});
+  final BuddyLink link;
+  final AlertSettings alerts;
+
+  static const _lowChoices = [0, 2, 5, 10, 15, 30];
+  static const _chargingChoices = [-1, 0, 5, 10, 15, 30, 60];
+
+  static String lowLabel(int m) => m <= 0 ? 'Off' : 'Every ~$m min';
+  static String chargingLabel(int m) => m < 0
+      ? 'Off'
+      : m == 0
+      ? 'Plug-in and full only'
+      : 'Every ~$m min';
+
+  static String _short(String name) => name.replaceFirst(RegExp(r'^(battery|charging)_'), '').replaceAll('_', ' ');
+
+  @override
+  Widget build(BuildContext context) {
+    final text = Theme.of(context).textTheme;
+    final dim = text.bodySmall?.copyWith(color: Theme.of(context).colorScheme.onSurfaceVariant);
+    final pools = alertPools(link.names);
+    Widget choice(
+      String title,
+      String sub,
+      int value,
+      List<int> choices,
+      String Function(int) label,
+      Future<void> Function(int) set,
+    ) => Row(
+      children: [
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(title, style: text.titleSmall),
+              Text(sub, style: dim),
+            ],
+          ),
+        ),
+        DropdownButton<int>(
+          value: value,
+          isDense: true,
+          items: [
+            for (final c in ({...choices, value}.toList()..sort())) DropdownMenuItem(value: c, child: Text(label(c))),
+          ],
+          onChanged: (v) {
+            if (v != null && v != value) set(v);
+          },
+        ),
+      ],
+    );
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(16, 14, 16, 8),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            choice(
+              'Low battery',
+              'from 15 %; every minute at 5 %',
+              alerts.low,
+              _lowChoices,
+              lowLabel,
+              link.setLowAlerts,
+            ),
+            const SizedBox(height: 12),
+            choice(
+              'Charging',
+              'plugged in, while charging, charged',
+              alerts.charging,
+              _chargingChoices,
+              chargingLabel,
+              link.setChargingAlerts,
+            ),
+            const SizedBox(height: 8),
+            Text('Each time a random animation from the pool, at a random time around the interval.', style: dim),
+            const Divider(height: 20),
+            for (final p in AlertPool.values)
+              ListTile(
+                contentPadding: EdgeInsets.zero,
+                dense: true,
+                title: Text(p.label),
+                subtitle: Text(
+                  pools[p]!.isEmpty
+                      ? 'None on the buddy (${p.when})'
+                      : '${pools[p]!.map(_short).join(', ')} · ${p.when}',
+                ),
+                trailing: TextButton(
+                  onPressed: () {
+                    HapticFeedback.selectionClick();
+                    link.testAlert(p);
+                  },
+                  child: const Text('Try'),
+                ),
+              ),
           ],
         ),
       ),

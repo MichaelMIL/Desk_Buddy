@@ -35,6 +35,28 @@ void main() {
       expect(low.charging || low.charged, isFalse);
     });
 
+    test('alert pools by name, as in the firmware', () {
+      expect(alertPoolOf('battery_low'), AlertPool.low);
+      expect(alertPoolOf('battery_sos'), AlertPool.low);
+      expect(alertPoolOf('battery_critical'), AlertPool.critical);
+      expect(alertPoolOf('charging_plugged_in'), AlertPool.plugged);
+      expect(alertPoolOf('charging_zap'), AlertPool.charging);
+      expect(alertPoolOf('charging_full'), AlertPool.full);
+      expect(alertPoolOf('face_happy'), isNull);
+      expect(alertPoolOf('xmas__battery_low'), isNull);
+      final pools = alertPools(['charging_zap', 'face_happy', 'charging_sip', 'battery_low']);
+      expect(pools[AlertPool.charging], ['charging_sip', 'charging_zap']);
+      expect(pools[AlertPool.critical], isEmpty);
+    });
+
+    test('alerts reply: the settings', () {
+      final r = parseReply('alerts {"low":5,"charging":0,"pools":{"low":["battery_low"],"critical":[]}}');
+      expect(r, isA<AlertsReply>());
+      expect((r as AlertsReply).alerts, const AlertSettings(low: 5, charging: 0));
+      expect(parseReply('alerts: playing battery_low'), isA<TextReply>());
+      expect(parseReply('alerts {"low":5'), isA<TextReply>());
+    });
+
     test('charger: charging, full, or off it (no "chg")', () {
       const base = '"current":"cycle","cycling":true,"screen":true,"brightness":100,"theme":"","count":3,"bat":40,"batLow":false';
       final charging = BuddyState.tryParse('{$base,"chg":"charging"}')!;

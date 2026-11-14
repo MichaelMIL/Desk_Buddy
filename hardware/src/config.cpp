@@ -55,7 +55,11 @@ void configLoad() {
   cfg.screenOn = prefs.getBool("screen", true);
   cfg.brightness = prefs.getUChar("bright", 100);
   cfg.batCal = prefs.getUShort("batcal", 10000);
+  cfg.alertLow = prefs.getUChar("allow", 5);
+  cfg.alertCharging = prefs.getChar("alchg", 10);
   prefs.end();
+  if (cfg.alertLow > 120) cfg.alertLow = 5;
+  if (cfg.alertCharging < -1 || cfg.alertCharging > 120) cfg.alertCharging = 10;
   if (cfg.batCal < 8000 || cfg.batCal > 12000) cfg.batCal = 10000;
   if (cfg.brightness < 10 || cfg.brightness > 100) cfg.brightness = 100;
   if (cfg.mqttPrefix.isEmpty()) cfg.mqttPrefix = "deskbuddy/" + deviceId();
@@ -86,6 +90,8 @@ void configSave() {
   prefs.putBool("screen", cfg.screenOn);
   prefs.putUChar("bright", cfg.brightness);
   prefs.putUShort("batcal", cfg.batCal);
+  prefs.putUChar("allow", cfg.alertLow);
+  prefs.putChar("alchg", cfg.alertCharging);
   prefs.end();
 }
 

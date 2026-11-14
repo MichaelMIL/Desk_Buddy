@@ -42,6 +42,9 @@ struct Config {
   uint8_t brightness = 100;  // 10..100 %. The module's backlight is hard-wired, so this dims the pixels
   // battery
   uint16_t batCal = 10000;   // battery voltage correction, 1/10000 ("battery cal <mV>"; 10000 = none)
+  uint8_t alertLow = 5;      // low battery animations about every N minutes (1..120), 0 = off ("alerts low")
+  int8_t alertCharging = 10; // while charging about every N minutes (1..120); 0 = only when plugged in
+                             // and when charged; -1 = off ("alerts charging")
 };
 
 extern Config cfg;
