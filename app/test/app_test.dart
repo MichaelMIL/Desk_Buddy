@@ -1,6 +1,7 @@
 import 'package:desk_buddy/buddy_link.dart';
 import 'package:desk_buddy/library.dart';
 import 'package:desk_buddy/main.dart';
+import 'package:desk_buddy/widgets/battery_indicator.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -32,6 +33,42 @@ void main() {
     await tester.pumpAndSettle();
     return (b, link);
   }
+
+  testWidgets('battery in the app bar: level, low alert, hidden without one', (tester) async {
+    final (b, _) = await connected(tester);
+    expect(find.byIcon(Icons.battery_alert_rounded), findsNothing);
+    expect(find.text('64%'), findsNothing);
+
+    b.battery = 64;
+    b.notifyState();
+    await settle(tester);
+    expect(find.text('64%'), findsOneWidget);
+    expect(find.byIcon(Icons.battery_4_bar_rounded), findsOneWidget);
+
+    b.battery = 12;
+    b.batteryLow = true;
+    b.notifyState();
+    await settle(tester);
+    expect(find.text('12%'), findsOneWidget);
+    expect(find.byIcon(Icons.battery_alert_rounded), findsOneWidget);
+    expect(find.byTooltip('Battery low (12 %): charge the buddy'), findsOneWidget);
+
+    b.battery = null;
+    b.batteryLow = false;
+    b.notifyState();
+    await settle(tester);
+    expect(find.text('12%'), findsNothing);
+    expect(find.byIcon(Icons.battery_alert_rounded), findsNothing);
+  });
+
+  test('battery icon follows the charge', () {
+    expect(BatteryIndicator.iconFor(100, low: false), Icons.battery_full_rounded);
+    expect(BatteryIndicator.iconFor(96, low: false), Icons.battery_full_rounded);
+    expect(BatteryIndicator.iconFor(90, low: false), Icons.battery_6_bar_rounded);
+    expect(BatteryIndicator.iconFor(50, low: false), Icons.battery_3_bar_rounded);
+    expect(BatteryIndicator.iconFor(3, low: false), Icons.battery_0_bar_rounded);
+    expect(BatteryIndicator.iconFor(40, low: true), Icons.battery_alert_rounded);
+  });
 
   testWidgets('remote shows the common faces and the selected theme\'s only', (tester) async {
     await connected(tester);

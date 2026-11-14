@@ -23,6 +23,54 @@ configured entirely from there, no `User_Setup.h` editing. Keep
 resolves to SPI port 0, whose register base is 0, and the firmware crashes at
 boot with `StoreProhibited` at address 0x10.
 
+### Battery level (optional)
+
+To run the buddy from a 1-cell LiPo and see its charge, wire two equal
+resistors from the cell to GPIO 1:
+
+```
+cell + (B+) ──[ 100 kΩ ]──┬──[ 100 kΩ ]── GND
+                          ├── GPIO 1
+                          └──[ 100 nF ]── GND    optional, steadies the reading
+```
+
+- **Two 100 kΩ, 1 %** resistors (0603/0805 SMD or ¼ W through-hole). They halve the
+  cell voltage: a full 4.2 V cell puts 2.1 V on the pin, inside the range the
+  ADC measures accurately (12 dB attenuation, up to ~3.1 V); a cheaper 5 %
+  pair works, `battery cal` corrects the error. The pair draws 4.2 V / 200 kΩ =
+  21 µA, nothing next to the buddy's ~100 mA. Much higher values (1 MΩ) make
+  the ADC read low because its sampling capacitor loads the pin; much lower
+  (10 kΩ) wastes 200 µA.
+- Connect the top resistor to the **cell itself** (B+ on the charger board),
+  not to the SuperMini's 5V pin, which shows USB's 5 V whenever a cable is in.
+- The SuperMini has no charger, so the cell goes through a charger board with
+  protection (e.g. TP4056 + DW01, "03962A"): cell on B+/B−, OUT+/OUT− to the
+  buddy's 5V/GND. Charge through that board's USB port. If you also plug
+  USB into the SuperMini, put a Schottky diode (1N5817, SS14) from OUT+ to 5V,
+  or the SuperMini's USB 5 V flows straight into the cell.
+- Another pin: `-DBAT_PIN=<gpio>` in `platformio.ini`, ADC1 only (GPIO 1-10;
+  ADC2 does not work while Wi-Fi is on); GPIO 1-7 are free on the SuperMini's
+  other pin row. Other resistors: `-DBAT_R_TOP=<kΩ> -DBAT_R_BOTTOM=<kΩ>` (keep the
+  pin under 3 V at 4.2 V). `-DBAT_PIN=-1` leaves it out.
+
+The buddy reads the pin every 2 s and turns the voltage into a percentage
+with a LiPo discharge curve (from the voltage alone, so expect ±5-10 %; it
+reads high while charging). Without the resistors the pin floats; every 30 s
+the buddy checks it with the pad's internal pull-down, and with nothing wired
+it reports no battery instead of noise. With a multimeter on the cell,
+`battery cal <millivolts>` (e.g. `battery cal 3950`) corrects resistor
+tolerance; `battery cal reset` undoes it.
+
+At 15 % the battery counts as low (until it is back at 20 %): the buddy plays
+`battery_low` (the simulator's "Battery: low") between faces, at once and then
+every 5 minutes, every minute at 5 % and below, and goes back to what it
+played. Without `battery_low` on the buddy it shows "Battery low" and the
+percentage for 5 s instead. Animations named `battery_*` never join the cycle
+(unless a cycle list names them).
+The charge is in `battery`, `status`, `state` (`bat`, `batLow`), `config`,
+`GET /api/status`, MQTT and Home Assistant, the phone app, `sim/remote.html`
+and the Claude Code menu bar app.
+
 ## Two builds
 
 | | Wi-Fi build (default) | Build without Wi-Fi |
@@ -31,7 +79,7 @@ boot with `StoreProhibited` at address 0x10.
 | Control | Bluetooth, MQTT / Home Assistant, HTTP API, USB serial | Bluetooth, USB serial |
 | Animations in over | HTTP, Bluetooth, USB serial | Bluetooth, USB serial |
 | Firmware updates | over Wi-Fi (OTA) or USB | USB only |
-| Firmware | ~952 KB in one of two 1 MB slots (`partitions.csv`) | ~494 KB in one 640 KB slot (`partitions_ble.csv`) |
+| Firmware | ~969 KB in one of two 1 MB slots (`partitions.csv`) | ~509 KB in one 640 KB slot (`partitions_ble.csv`) |
 | Space for animations | 1.875 MB (all of the simulator's animations fit, ~13 KB each) | 3.3 MB (about twice that; up to 256 are listed) |
 
 The two use different partition tables, so switching between them (one USB
@@ -80,8 +128,8 @@ Console commands (USB serial at 115200, or a paired Bluetooth device):
 `theme <name>|none`, `screen on|off`, `brightness <10-100>` (software
 dimming: the backlight is hard-wired, so pixel values are scaled),
 `ble on|off|forget`, `upload <name> <bytes>`, `start <name>|cycle`,
-`ha on|off`, `appass <password>`, `otapass <password>`, `ap`, `reset`,
-`reboot`. `names`, `state` and `config` print one machine-readable line
+`ha on|off`, `appass <password>`, `otapass <password>`, `ap`,
+`battery [cal <mV>|cal reset]`, `reset`, `reboot`. `names`, `state` and `config` print one machine-readable line
 (comma-separated names / state JSON / settings JSON). Quote a Wi-Fi name
 with spaces: `wifi "My Home" <password>`.
 
@@ -132,11 +180,13 @@ Set a broker host with `mqtt <host>` (serial or Bluetooth) or `mqttHost` in
 | `theme/state` | from device, retained | theme name or `none` |
 | `availability` | from device, retained, last will | `online` / `offline` |
 | `animations` | from device, retained | JSON list of names |
+| `battery` | from device, retained | charge in percent (only with a battery connected) |
 | `error` | from device | e.g. `unknown animation: foo` |
 
 With "Home Assistant discovery" on, the device appears in Home Assistant with
-a **Face** select entity, a **Theme** select, a **Screen** switch and a
-**Brightness** number (needs the MQTT integration).
+a **Face** select entity, a **Theme** select, a **Screen** switch, a
+**Brightness** number and, with a battery connected, a **Battery** sensor
+(needs the MQTT integration).
 
 ## Getting animations in (no reflash)
 
@@ -167,7 +217,7 @@ HTTP uses `PUT /api/anim` ([API.md](API.md)); USB and Bluetooth use the
 a second one is refused as busy (HTTP 409).
 
 Nothing is compiled in by default: the Wi-Fi firmware is kept small
-(~952 KB with Bluetooth) so the two OTA slots can be 1 MB each and the file
+(~969 KB with Bluetooth) so the two OTA slots can be 1 MB each and the file
 system gets 1.875 MB. With
 no animation stored the screen says "push one from the sim". Compiled-in
 animations are still possible (`src/animations/anim_<name>.h` + generated

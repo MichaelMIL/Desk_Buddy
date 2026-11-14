@@ -52,7 +52,8 @@ Errors answer `{"error":"<reason>"}`; unknown paths answer 404.
   "ap": null, "mqtt": "disabled",
   "ble": "advertising as 'Desk Buddy', 1 paired", "bleBonds": 1,
   "screen": true, "brightness": 100, "theme": "bunny", "themes": ["bear", "bunny", "…"],
-  "host": "desk-buddy", "heap": 195000, "uptime": 3600, "version": "2026.11.12c",
+  "host": "desk-buddy", "battery": {"present": true, "mv": 3912, "pct": 64, "low": false},
+  "heap": 195000, "uptime": 3600, "version": "2026.11.12c",
   "config": {"ssid": "home", "mqttHost": "", "mqttPort": 1883, "mqttUser": "",
              "mqttPrefix": "deskbuddy/3ce36c", "haDiscovery": true, "ble": true,
              "anim": "", "name": "Desk Buddy", "apPassSet": false, "otaPassSet": false,
@@ -62,6 +63,10 @@ Errors answer `{"error":"<reason>"}`; unknown paths answer 404.
 
 `current` is the playing animation or `cycle`. `ap` is the setup access point's
 name while it is up, else `null`. `bleBonds` is -1 with Bluetooth off.
+`battery` is `{"present": false}` with nothing wired to the battery pin;
+otherwise the cell voltage (`mv`), the charge (`pct`, 0-100) and whether it
+counts as low (`low`: 15 % and below, until back at 20 %). See
+[README.md](README.md#battery-level-optional).
 Passwords are never returned; `apPassSet` and `otaPassSet` say whether one
 is set.
 

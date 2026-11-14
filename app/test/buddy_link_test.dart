@@ -39,7 +39,8 @@ void main() {
     expect(link.settings.speed, 100);
     expect(link.settings.loops, 3);
     expect(link.settings.rotation, 0);
-    expect(link.statusLines, hasLength(6));
+    expect(link.statusLines, hasLength(7));
+    expect(link.statusLines, contains('battery: none (nothing on GPIO 1)'));
     // the app's own status request stays out of the console
     expect(link.log.where((l) => l.text.startsWith('wifi:')), isEmpty);
   });

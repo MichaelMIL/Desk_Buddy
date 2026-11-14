@@ -18,6 +18,22 @@ void main() {
       expect(s.count, 37);
     });
 
+    test('battery: percent and low flag, none, and older firmware without the keys', () {
+      const base = '"current":"cycle","cycling":true,"screen":true,"brightness":100,"theme":"","count":3';
+      final low = BuddyState.tryParse('{$base,"bat":12,"batLow":true}')!;
+      expect(low.battery, 12);
+      expect(low.batteryLow, isTrue);
+      final none = BuddyState.tryParse('{$base,"bat":null,"batLow":false}')!;
+      expect(none.battery, isNull);
+      expect(none.batteryLow, isFalse);
+      final old = BuddyState.tryParse('{$base}')!;
+      expect(old.battery, isNull);
+      expect(old.batteryLow, isFalse);
+      expect(BuddyState.tryParse('{$base,"bat":12,"batLow":true}'), low);
+      expect(low == none, isFalse);
+      expect(BuddyState.tryParse('{$base,"bat":13,"batLow":true}') == low, isFalse);
+    });
+
     test('a JSON cut off by a small MTU is rejected, not half-read', () {
       const full = '{"current":"face_happy","cycling":false,"screen":true,"brightness":60,"theme":"","count":37}';
       expect(BuddyState.tryParse(full.substring(0, 20)), isNull);

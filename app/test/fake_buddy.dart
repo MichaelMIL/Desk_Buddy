@@ -64,6 +64,13 @@ class FakeBuddy implements BuddyTransport {
   int speed = 100, loops = 3, rotation = 0;
   String cycleList = '';
 
+  /// Battery percent, null for none (as sent in the state's `bat`).
+  int? battery;
+  bool batteryLow = false;
+
+  /// Leave `bat`/`batLow` out of the state, like firmware without the battery measurement.
+  bool oldFirmware = false;
+
   /// Every command line received, in order.
   final commands = <String>[];
 
@@ -91,6 +98,8 @@ class FakeBuddy implements BuddyTransport {
         'brightness': brightness,
         'theme': theme,
         'count': names.length,
+        if (!oldFirmware) 'bat': battery,
+        if (!oldFirmware) 'batLow': batteryLow,
       });
 
   @override
@@ -179,6 +188,10 @@ class FakeBuddy implements BuddyTransport {
         reply('names ${names.join(',')}');
       case 'state':
         reply('state $stateJson');
+      case 'battery':
+        reply(battery == null
+            ? 'battery {"present":false}'
+            : 'battery {"present":true,"mv":3900,"pct":$battery,"low":$batteryLow}');
       case 'status':
         reply("animation: $current${cycling ? ' (cycling)' : ''}, theme '$theme', screen ${screen ? 'on' : 'off'}, "
             "brightness $brightness%, rotation $rotation, speed $speed%, loops $loops, cycle list '$cycleList', frames rendered 42");
@@ -186,6 +199,7 @@ class FakeBuddy implements BuddyTransport {
         reply('wifi: connected, 192.168.1.20');
         reply('mqtt: disabled (:1883, prefix deskbuddy/abc123)');
         reply('bluetooth: connected, paired');
+        if (!oldFirmware) reply('battery: ${battery == null ? 'none (nothing on GPIO 1)' : '$battery% (3900 mV)'}');
         reply('device id: abc123, free heap: 195000, store: ${names.length} animations, 520 KB free');
       case 'play':
         if (arg == 'cycle') {

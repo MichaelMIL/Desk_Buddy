@@ -13,6 +13,9 @@ What it does:
 - **Pairs** the first time: the buddy shows a 6-digit code, the phone's system
   prompt asks for it, and the app waits (up to 90 s) and explains the step.
   Later connections re-encrypt with the stored bond, no code.
+- **Battery:** the buddy's charge in the app bar, red with an alert icon when
+  the buddy reports it low; nothing without a battery (or with older firmware).
+  The device status sheet shows the voltage line.
 - **Remote:** a picture of the round screen with the playing face, cycle /
   next / screen on-off, brightness, the faces (common ones plus the selected
   theme's, as on the device), theme picker, speed, loops per face, rotation,

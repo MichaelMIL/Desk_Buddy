@@ -1,5 +1,31 @@
 import Foundation
 
+/// The buddy's battery as the daemon reports it (`battery_of()` in buddy_bridge.py): the same shape
+/// over Bluetooth and Wi-Fi, absent or null without a battery.
+public struct BuddyBattery: Decodable, Equatable {
+    public var pct: Int                 // 0...100
+    public var low: Bool                // the firmware's own call (15 % and below until back at 20 %)
+    public var mv: Int?                 // cell voltage, over Wi-Fi only
+
+    public init(pct: Int, low: Bool = false, mv: Int? = nil) { self.pct = pct; self.low = low; self.mv = mv }
+
+    /// SF Symbol by charge: battery.100 / .75 / .50 / .25 / .0
+    public var symbol: String {
+        switch pct {
+        case 88...: return "battery.100"
+        case 63..<88: return "battery.75"
+        case 38..<63: return "battery.50"
+        case 13..<38: return "battery.25"
+        default: return "battery.0"
+        }
+    }
+
+    public var help: String {
+        let v = mv.map { String(format: ", %.2f V", Double($0) / 1000) } ?? ""
+        return low ? "Battery low (\(pct) %\(v)): charge the buddy" : "Battery \(pct) %\(v)"
+    }
+}
+
 /// The buddy itself, as the daemon's `GET /buddy` / `POST /buddy` returns it: the `state` console
 /// reply plus `names` over Bluetooth, or `GET /api/status` over Wi-Fi.
 public struct BuddyState: Decodable, Equatable {
@@ -9,14 +35,15 @@ public struct BuddyState: Decodable, Equatable {
     public var theme: String            // "" = none
     public var animations: [String]
     public var library: [String]        // what the bridge's library could put back on the buddy
+    public var battery: BuddyBattery?   // nil: no battery, or an older daemon / firmware
 
-    enum CodingKeys: String, CodingKey { case current, screen, brightness, theme, animations, library }
+    enum CodingKeys: String, CodingKey { case current, screen, brightness, theme, animations, library, battery }
     private struct Named: Decodable { var name: String }
 
     public init(current: String = "cycle", screen: Bool = true, brightness: Int = 100, theme: String = "",
-                animations: [String] = [], library: [String] = []) {
+                animations: [String] = [], library: [String] = [], battery: BuddyBattery? = nil) {
         self.current = current; self.screen = screen; self.brightness = brightness
-        self.theme = theme; self.animations = animations; self.library = library
+        self.theme = theme; self.animations = animations; self.library = library; self.battery = battery
     }
 
     public init(from decoder: Decoder) throws {
@@ -32,6 +59,7 @@ public struct BuddyState: Decodable, Equatable {
             animations = (try? c.decodeIfPresent([Named].self, forKey: .animations))?.map(\.name) ?? []
         }
         library = (try? c.decodeIfPresent([String].self, forKey: .library)) ?? []
+        battery = try? c.decodeIfPresent(BuddyBattery.self, forKey: .battery)   // an older daemon passes /api/status's own object
     }
 
     public var isCycling: Bool { current == "cycle" }

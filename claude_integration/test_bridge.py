@@ -149,6 +149,7 @@ class FakeBoard:
         self.brightness, self.screen, self.theme = 100, True, ''
         self.free_kb, self.sizes, self.builtin = free_kb, {}, set(builtin)
         self.uploads, self.deletes = [], []
+        self.battery = None                                      # percent, as the state's "bat"
 
     def upload(self, name, data):
         """Like hardware/src/store.cpp: refused up front when it does not fit."""
@@ -186,7 +187,8 @@ class FakeBoard:
         if not self.up:
             return None
         return {'current': self.current, 'animations': sorted(self.names), 'brightness': self.brightness,
-                'screen': self.screen, 'theme': self.theme}
+                'screen': self.screen, 'theme': self.theme, 'bat': self.battery,
+                'batLow': self.battery is not None and self.battery <= 15}
 
     def command(self, cmd):
         """Replies like the console in hardware/src/main.cpp."""
@@ -467,6 +469,28 @@ class Display(unittest.TestCase):
     def test_starts_paused_when_config_says_so(self):
         ctl = bb.Controller(dict(bb.DEFAULTS, enabled=False), self.board, self.clock)
         self.assertTrue(ctl.snapshot()['paused'])
+
+    def test_battery_in_one_shape_for_both_links(self):
+        self.assertEqual(bb.battery_of({'bat': 64, 'batLow': False}), {'pct': 64, 'low': False})       # Bluetooth state
+        self.assertEqual(bb.battery_of({'bat': 12, 'batLow': True}), {'pct': 12, 'low': True})
+        self.assertIsNone(bb.battery_of({'bat': None, 'batLow': False}))                              # no battery
+        self.assertIsNone(bb.battery_of({'current': 'cycle'}))                                        # older firmware
+        self.assertEqual(bb.battery_of({'battery': {'present': True, 'mv': 3912, 'pct': 64, 'low': False}}),
+                         {'pct': 64, 'low': False, 'mv': 3912})                                      # Wi-Fi /api/status
+        self.assertIsNone(bb.battery_of({'battery': {'present': False}}))
+        self.assertIsNone(bb.battery_of(None))
+
+    def test_battery_for_the_menu_bar_app(self):
+        self.assertIsNone(self.ctl.snapshot()['battery'])
+        self.assertIsNone(self.ctl.buddy()[1]['buddy']['battery'])
+        self.board.battery = 12
+        code, body = self.ctl.buddy()
+        self.assertEqual(body['buddy']['battery'], {'pct': 12, 'low': True})
+        self.assertEqual(self.ctl.snapshot()['battery'], {'pct': 12, 'low': True})
+        self.board.battery = 80
+        self.send(pre('Read'))
+        self.run_for(1)                                          # the bridge reads the state when it plays
+        self.assertEqual(self.ctl.snapshot()['battery'], {'pct': 80, 'low': False})
 
     def test_buddy_controls_for_the_menu_bar_app(self):
         code, body = self.ctl.buddy()                            # GET /buddy: the state only

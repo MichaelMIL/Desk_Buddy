@@ -73,6 +73,16 @@ struct PanelView: View {
                     .foregroundStyle(.secondary).frame(width: 16)
                 Text(link).lineLimit(1).truncationMode(.middle)
                 Spacer(minLength: 4)
+                if let bat = monitor.buddy?.battery ?? s?.battery {
+                    HStack(spacing: 3) {
+                        Image(systemName: bat.symbol)
+                        Text("\(bat.pct)%").monospacedDigit()
+                    }
+                    .foregroundStyle(bat.low ? Color.red : Color.secondary)
+                    .help(bat.help)
+                    .accessibilityElement(children: .ignore)
+                    .accessibilityLabel(bat.help)
+                }
                 if let s {
                     if !s.boardError.isEmpty {
                         badge("no answer", .red)

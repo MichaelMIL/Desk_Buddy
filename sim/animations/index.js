@@ -56,4 +56,5 @@ window.ANIMATION_FILES = [
   'break.js',
   'silly.js',
   'rude.js',
+  'battery.js',
 ];

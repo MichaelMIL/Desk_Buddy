@@ -109,6 +109,7 @@ final class BuddyBarCoreTests: XCTestCase {
                     "play.circle", "stop.circle", "doc.text.magnifyingglass", "power",   // PanelView
                     "repeat", "play.fill", "forward.end.fill", "sun.min", "display", "moon",
                     "square.grid.2x2", "slider.horizontal.3", "rectangle.stack", "arrow.down.circle"]           // BuddyControls
+        symbols += [100, 80, 50, 20, 5].map { BuddyBattery(pct: $0).symbol }
         for s in Set(symbols) {
             XCTAssertNotNil(NSImage(systemSymbolName: s, accessibilityDescription: nil), s)
         }
@@ -162,6 +163,20 @@ final class BuddyBarCoreTests: XCTestCase {
         XCTAssertEqual(BuddyState(animations: ["face_happy"]).library, [])     // an older daemon sends none
         let s = try snapshot(#"{"uploading": "claude__designing"}"#)
         XCTAssertEqual(s.uploading, "claude__designing")
+    }
+
+    func testBattery() throws {
+        let b = try JSONDecoder().decode(BuddyState.self, from: Data(#"{"current":"cycle","battery":{"pct":12,"low":true}}"#.utf8))
+        XCTAssertEqual(b.battery, BuddyBattery(pct: 12, low: true))
+        XCTAssertEqual(b.battery?.symbol, "battery.0")
+        XCTAssertEqual(b.battery?.help, "Battery low (12 %): charge the buddy")
+        XCTAssertNil(try JSONDecoder().decode(BuddyState.self, from: Data(#"{"battery":null}"#.utf8)).battery)
+        // an older daemon over Wi-Fi passes /api/status's own object through: no battery rather than an error
+        XCTAssertNil(try JSONDecoder().decode(BuddyState.self, from: Data(#"{"battery":{"present":false}}"#.utf8)).battery)
+        XCTAssertEqual(BuddyBattery(pct: 64, mv: 3912).help, "Battery 64 %, 3.91 V")
+        XCTAssertEqual(BuddyBattery(pct: 64).symbol, "battery.75")
+        XCTAssertEqual(try snapshot(#"{"battery": {"pct": 80, "low": false}}"#).battery, BuddyBattery(pct: 80))
+        XCTAssertNil(try snapshot().battery)                          // an older daemon
     }
 
     func testModes() {

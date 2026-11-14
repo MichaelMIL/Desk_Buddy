@@ -1,6 +1,7 @@
 /* MQTT: <prefix>/set selects a face ("cycle" resumes cycling), /state and
- * /availability are retained, /animations lists what is available, and Home
- * Assistant discovery exposes a select entity. */
+ * /availability are retained, /animations lists what is available, /battery
+ * holds the charge in percent (with a battery connected), and Home Assistant
+ * discovery exposes the face, screen, brightness, theme and battery entities. */
 #pragma once
 #include <Arduino.h>
 #include "config.h"

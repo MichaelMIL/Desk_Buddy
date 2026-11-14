@@ -118,10 +118,12 @@ reply ends with a newline; a command that prints nothing answers `ok`.
 | `rotation <0-3>` | Display rotation in steps of 90° (saved) | `rotation 1` |
 | `names` | Every animation name on one line | `names bear__honey,bear__roar,…` |
 | `state` | The state JSON on one line | `state {"current":…}` |
-| `config` | Settings and status as JSON on one line (name, version, speed, loops, rotation, cycle list, start face, storage, paired devices; Wi-Fi and MQTT in the Wi-Fi build) | `config {"name":…}` |
+| `config` | Settings and status as JSON on one line (name, version, speed, loops, rotation, cycle list, start face, storage, paired devices, battery; Wi-Fi and MQTT in the Wi-Fi build) | `config {"name":…}` |
 | `start <name>` / `start cycle` | What plays after a reboot (saved) | `start 'face_happy'` |
 | `list` | Names with sizes and free space | one line per animation |
-| `status` | The status report | animation, name, Wi-Fi, MQTT, Bluetooth, memory |
+| `status` | The status report | animation, name, Wi-Fi, MQTT, Bluetooth, battery, memory |
+| `battery` | The battery as JSON on one line ([README](README.md#battery-level-optional)) | `battery {"present":true,"mv":3912,"pct":64,"low":false}` or `battery {"present":false}` |
+| `battery cal <mV>` / `battery cal reset` | Correct the reading to a multimeter's (saved) / undo | `battery calibrated: x1.0123, now 3950 mV` |
 | `upload <name> <bytes>` | Receive an animation on this link | see Uploading animations |
 | `delete <name>` | Delete a stored animation | `deleted` or `not found or built-in` |
 | `name <device name>` | Rename (Bluetooth name, mDNS, Home Assistant); reboots | `saved, rebooting` |
@@ -180,11 +182,11 @@ The protocol, for writing your own client:
 ## State characteristic
 
 The state characteristic always holds the buddy's current state as about
-110 bytes of JSON, and notifies paired clients on every change. The change
-can come from Bluetooth, MQTT, the HTTP API or serial.
+135 bytes of JSON, and notifies paired clients on every change. The change
+can come from Bluetooth, MQTT, the HTTP API, serial or the battery.
 
 ```json
-{"current":"face_happy","cycling":false,"screen":true,"brightness":60,"theme":"bunny","count":37}
+{"current":"face_happy","cycling":false,"screen":true,"brightness":60,"theme":"bunny","count":37,"bat":64,"batLow":false}
 ```
 
 | Field | Meaning |
@@ -195,6 +197,8 @@ can come from Bluetooth, MQTT, the HTTP API or serial.
 | `brightness` | 10 to 100 (percent) |
 | `theme` | Selected theme, `""` for none |
 | `count` | Number of stored animations; when it changes, send `names` again |
+| `bat` | Battery charge 0 to 100 (percent), `null` without a battery. Firmware before the battery measurement leaves it out: treat that as `null`. Changes notify when they reach 2 %, or 1 % that lasts a minute |
+| `batLow` | `true` while the battery is low (15 % and below, until it is back at 20 %); the buddy shows its low battery face then |
 
 The themes are the `<theme>__` prefixes in the `names` list (`xmas__santa`
 belongs to `xmas`); a theme's faces play only while it is selected. Cycling

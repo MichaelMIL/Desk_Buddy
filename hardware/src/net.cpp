@@ -5,6 +5,7 @@
 #include "mqtt.h"
 #include "store.h"
 #include "ble.h"
+#include "battery.h"
 #include <WiFi.h>
 #include <WebServer.h>
 #include <ESPmDNS.h>
@@ -50,7 +51,7 @@ static void handleStatus() {
   s += ",\"mqtt\":" + jsonStr(mqttStatus()) + ",\"ble\":" + jsonStr(bleStatus()) + ",\"bleBonds\":" + String(bleBondCount());
   s += ",\"screen\":" + String(app_screen_on() ? "true" : "false") + ",\"brightness\":" + String(app_brightness_get());
   app_lock(); s += ",\"theme\":" + jsonStr(cfg.theme) + ",\"themes\":" + storeThemesJson(); app_unlock();
-  s += ",\"host\":" + jsonStr(hostName());
+  s += ",\"host\":" + jsonStr(hostName()) + ",\"battery\":" + batteryJson();
   s += ",\"heap\":" + String(ESP.getFreeHeap()) + ",\"uptime\":" + String(millis() / 1000) + ",\"version\":\"" FW_VERSION "\"";
   s += ",\"config\":{\"ssid\":" + jsonStr(cfg.ssid) + ",\"mqttHost\":" + jsonStr(cfg.mqttHost) + ",\"mqttPort\":" + String(cfg.mqttPort);
   s += ",\"mqttUser\":" + jsonStr(cfg.mqttUser) + ",\"mqttPrefix\":" + jsonStr(cfg.mqttPrefix) + ",\"haDiscovery\":" + String(cfg.haDiscovery ? "true" : "false") + ",\"ble\":" + String(cfg.ble ? "true" : "false");

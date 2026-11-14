@@ -4,6 +4,7 @@
 #include "config.h"
 #include "net.h"
 #include "store.h"
+#include "battery.h"
 #include <WiFi.h>
 #include <PubSubClient.h>
 
@@ -63,6 +64,8 @@ static void publishStateNow() {
   mq.publish(topic("screen/state").c_str(), app_screen_on() ? "on" : "off", true);
   mq.publish(topic("brightness/state").c_str(), String(app_brightness_get()).c_str(), true);
   mq.publish(topic("theme/state").c_str(), cfg.theme.isEmpty() ? "none" : cfg.theme.c_str(), true);
+  BatteryInfo b = batteryGet();
+  if (b.present) mq.publish(topic("battery").c_str(), String(b.pct).c_str(), true);
 }
 
 // May be called from any task: the publish happens in mqttLoop() (network task).
@@ -93,6 +96,12 @@ static void publishDiscovery() {
   String th = "{\"name\":\"Theme\",\"uniq_id\":\"" + id + "_theme\",\"cmd_t\":\"" + topic("theme/set") + "\",\"stat_t\":\"" + topic("theme/state") +
               "\",\"avty_t\":\"" + topic("availability") + "\",\"options\":[" + topts + "],\"icon\":\"mdi:palette\"," + dev + "}";
   mq.publish(("homeassistant/select/" + id + "/theme/config").c_str(), th.c_str(), true);
+  // battery sensor while a battery is connected (an empty retained config removes it)
+  String bat = batteryGet().present
+    ? "{\"name\":\"Battery\",\"uniq_id\":\"" + id + "_battery\",\"stat_t\":\"" + topic("battery") + "\",\"avty_t\":\"" + topic("availability") +
+      "\",\"dev_cla\":\"battery\",\"unit_of_meas\":\"%\",\"stat_cla\":\"measurement\"," + dev + "}"
+    : String();
+  mq.publish(("homeassistant/sensor/" + id + "/battery/config").c_str(), bat.c_str(), true);
 }
 
 static void publishAnimationsNow() {

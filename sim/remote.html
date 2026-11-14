@@ -35,9 +35,13 @@ input[type=checkbox]{width:auto}input[type=range]{padding:0;accent-color:var(--a
 #log{font:12px ui-monospace,Menlo,monospace;white-space:pre-wrap;color:var(--dim);max-height:240px;overflow:auto;margin:8px 0 0}
 table{width:100%;border-collapse:collapse;font-size:14px;margin-top:6px}td{padding:5px 4px;border-bottom:1px solid var(--btn)}td.r{text-align:right;white-space:nowrap}
 progress{width:100%;margin-top:8px}.msg{color:var(--accent);min-height:1.2em;font-size:13px;margin-top:8px}.msg.bad{color:var(--bad)}
+.bat{font-size:13px;font-weight:normal;color:var(--dim);margin-left:auto;white-space:nowrap}.bat.low{color:var(--bad)}
+.cell{display:inline-block;position:relative;width:22px;height:10px;border:1.5px solid currentColor;border-radius:3px;margin-right:6px;vertical-align:-1px}
+.cell::after{content:'';position:absolute;right:-4.5px;top:2.5px;width:2.5px;height:5px;background:currentColor;border-radius:0 1px 1px 0}
+.cell i{position:absolute;left:1.5px;top:1.5px;bottom:1.5px;background:currentColor;border-radius:1px}
 #cyc{max-height:180px;overflow:auto}#anims{display:block;max-height:320px;overflow:auto}
 </style></head><body>
-<h1><span id="title">Desk Buddy remote</span><button id="conn" class="primary">Connect</button></h1>
+<h1><span id="title">Desk Buddy remote</span><span id="bat" class="bat" hidden></span><button id="conn" class="primary">Connect</button></h1>
 <div id="st">Bluetooth LE · not connected</div>
 
 <div id="ctl" hidden>
@@ -89,6 +93,8 @@ progress{width:100%;margin-top:8px}.msg{color:var(--accent);min-height:1.2em;fon
 <div class="row" style="margin-top:8px"><button id="forget" class="fit">Forget paired devices</button><button id="bleOff" class="fit danger">Turn Bluetooth off</button></div>
 <div class="row" style="margin-top:12px"><button id="reboot" class="fit">Reboot</button><button id="reset" class="fit danger">Factory reset</button><button id="status" class="fit">Status → console</button></div>
 <div class="dim" id="fw" style="margin-top:10px"></div>
+<div class="dim" id="batSt" style="margin-top:6px" hidden></div>
+<div class="row" id="batCal" hidden><div><label>Battery voltage your multimeter shows, in mV <small>(corrects resistor tolerance)</small></label><input id="batmv" type="number" min="2500" max="4500" placeholder="3950"></div><button id="batSet" class="fit">Calibrate</button><button id="batReset" class="fit">Undo calibration</button></div>
 <div class="msg" id="dmsg"></div>
 </div></details>
 
@@ -197,6 +203,13 @@ function render() {
   const ts = $('#theme'), opts = ['', ...new Set(names.map(themeOf).filter(Boolean))].sort();
   if (ts.options.length !== opts.length) { ts.innerHTML = ''; for (const t of opts) ts.add(new Option(t || 'none', t)); }
   ts.value = st.theme;
+  const bat = $('#bat');                                 // "bat": percent, null without a battery, absent on older firmware
+  bat.hidden = st.bat == null;
+  if (st.bat != null) {
+    bat.className = 'bat' + (st.batLow ? ' low' : '');
+    bat.innerHTML = '<span class="cell"><i style="width:calc((100% - 3px) * ' + st.bat / 100 + ')"></i></span>' + (st.batLow ? 'low · ' : '') + st.bat + '%';
+    bat.title = 'Battery ' + st.bat + '%' + (st.batLow ? ', low: the buddy shows a low battery face every few minutes' : '');
+  }
   $('#st').textContent = 'Bluetooth LE · ' + dev.name + ' · paired · ' + (st.cycling ? 'cycling' : nice(st.current)) + ' · ' + st.count + ' animations';
   if (names.length !== st.count && !refreshing && !uploading) refreshAll();   // the list changed (upload/delete elsewhere)
 }
@@ -242,6 +255,10 @@ function renderConfig() {
   $('#bleSt').textContent = 'Bluetooth: ' + cfg.bonds + ' paired device' + (cfg.bonds === 1 ? '' : 's') + ' (up to 3; a fourth replaces the oldest)';
   $('#fw').textContent = 'firmware ' + cfg.version + ' · ' + (cfg.wifiBuild ? 'Wi-Fi build' : 'build without Wi-Fi');
   if (idle('#dname')) $('#dname').value = cfg.name;
+  const b = cfg.battery;                                 // absent on firmware older than the battery measurement
+  $('#batSt').hidden = !b; $('#batCal').hidden = !(b && b.present);
+  if (b) $('#batSt').textContent = b.present ? 'Battery: ' + b.pct + '% · ' + (b.mv / 1000).toFixed(2) + ' V' + (b.low ? ' · low' : '')
+    : 'Battery: none connected (a 100k/100k divider from the cell to GPIO 1, see hardware/README.md)';
   $('#netCard').hidden = !cfg.wifiBuild; $('#bleOff').hidden = !cfg.wifiBuild;
   if (cfg.wifi) {
     const w = cfg.wifi;
@@ -419,6 +436,15 @@ $('#forget').onclick = async () => {
 $('#bleOff').onclick = () => { if (confirm('Turn Bluetooth off? This remote stops working until "ble on" over USB serial, or ble=1 in POST /api/config.')) { send('ble off'); say('#dmsg', 'Bluetooth off; the buddy reboots without it'); } };
 $('#reboot').onclick = () => { send('reboot'); rebooting('#dmsg', 'rebooting'); };
 $('#reset').onclick = () => { if (confirm('Factory reset: erase all settings (Wi-Fi, MQTT, name) and every paired device, then reboot? Stored animations are kept. Pair again afterwards.')) { send('reset'); say('#dmsg', 'settings erased; the buddy reboots. Remove it from this computer\'s Bluetooth settings, then connect and pair again.'); } };
+async function batteryCal(arg) {
+  try {
+    say('#dmsg', await ask('battery cal ' + arg, /^battery/));
+    cfg.battery = JSON.parse((await ask('battery', /^battery \{/)).slice(8));
+    renderConfig();
+  } catch (e) { say('#dmsg', e.message, true); }
+}
+$('#batSet').onclick = () => { const v = +$('#batmv').value; if (v) batteryCal(v); else say('#dmsg', 'type the voltage in millivolts, e.g. 3950', true); };
+$('#batReset').onclick = () => batteryCal('reset');
 $('#status').onclick = () => { log('> status'); send('status'); };
 const sendCmd = () => { const c = $('#cmd').value.trim(); if (!c) return; log('> ' + c); send(c); $('#cmd').value = ''; };
 $('#send').onclick = sendCmd;

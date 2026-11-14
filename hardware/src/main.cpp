@@ -15,7 +15,8 @@
  *   delete <name>           remove a stored animation
  *   play <name>             play one animation and stay on it ("play cycle" resumes cycling)
  *   next | cycle [a,b|all]  skip / resume cycling (optionally set the cycle list)
- *   status                  wifi / mqtt / animation state
+ *   status                  wifi / mqtt / animation / battery state
+ *   battery [cal <mV>|cal reset]  battery level as JSON; calibrate against a multimeter (battery.h)
  *   wifi <ssid> <password>  save Wi-Fi credentials and reboot ("quote" an SSID with spaces)
  *   mqtt <host> [port] [user] [password]   save broker settings and reboot
  *   prefix <topic prefix>   MQTT topic prefix (default deskbuddy/<id>)
@@ -49,6 +50,7 @@
 #include "mqtt.h"
 #include "ble.h"
 #include "upload.h"
+#include "battery.h"
 
 TFT_eSPI tft;
 
@@ -72,6 +74,12 @@ static bool mode_dirty = false;          // the mode's static parts need drawing
 static String msg1, msg2, msg_big, load_label;   // msg_big: large centre line (pairing code)
 static volatile int load_pct = -1;
 static uint32_t frames_rendered = 0;
+// alert: an animation (or a text screen when it is not on the buddy) shown between the
+// faces, e.g. low battery; afterwards playback goes back to what it interrupted
+static const uint32_t ALERT_LOOPS = 2, ALERT_TEXT_MS = 5000;
+static bool alert_on = false, alert_was_cycling = false;
+static String alert_resume;              // the animation it interrupted
+static uint32_t alert_until = 0;         // text alert: ends at this time (0 = an animation alert)
 
 struct Lock {
   Lock() { xSemaphoreTakeRecursive(mx, portMAX_DELAY); }
@@ -168,7 +176,7 @@ static void draw_loading(bool full) {
 static bool in_cycle(size_t idx) {
   const String &n = storeEntry(idx).name;
   if (!storeInTheme(n, cfg.theme)) return false;          // other themes' animations stay hidden
-  if (cfg.cycleList.isEmpty()) return true;
+  if (cfg.cycleList.isEmpty()) return !n.startsWith("battery_");   // battery_* are alerts, played when the battery is low
   String list = "," + cfg.cycleList + ",";
   return list.indexOf("," + n + ",") >= 0;
 }
@@ -213,6 +221,16 @@ static bool start_animation(size_t idx) {
   return true;
 }
 
+/* Back to what the alert interrupted: the next face when cycling, else the same one. */
+static void alert_end() {
+  alert_on = false; alert_until = 0;
+  cycling = alert_was_cycling;
+  int i = alert_resume.length() ? storeFind(alert_resume.c_str()) : -1;
+  if (i >= 0) start_animation(cycling ? next_in_cycle(i) : (size_t)i);
+  else if (storeCount()) start_animation(next_in_cycle(current));
+  else { release_current(); msg1 = "no animations"; msg2 = "push one from the sim"; msg_big = ""; mode = MODE_MESSAGE; mode_dirty = true; }
+}
+
 /* One frame of the animation (or nothing if it is not due yet). */
 static void render_step() {
   if (!have_anim || !screen_on) return;
@@ -229,6 +247,7 @@ static void render_step() {
   if (ended) {
     loops_done++;
     bool once = !(anim.flags & DBA_FLAG_LOOP);
+    if (alert_on) { if (loops_done >= ALERT_LOOPS || once) alert_end(); return; }
     if (cycling && (loops_done >= cfg.loops || once)) start_animation(next_in_cycle(current));
     else if (once && !cycling) have_anim = false;   // played once, stay on the last frame
   }
@@ -243,13 +262,14 @@ static void state_changed() { mqttPublishState(); bleStateChanged(); }
 size_t app_anim_count() { Lock l; return storeCount(); }
 const char *app_anim_name(size_t i) { Lock l; return i < storeCount() ? storeEntry(i).name.c_str() : ""; }
 bool app_cycling() { return cycling; }
-const char *app_current() { Lock l; return (cycling || !have_anim) ? "cycle" : cur_name.c_str(); }
+const char *app_current() { Lock l; return (cycling || !have_anim) ? "cycle" : alert_on ? alert_resume.c_str() : cur_name.c_str(); }
 bool app_screen_on() { return screen_on; }
 uint32_t app_frames_rendered() { return frames_rendered; }
 
 bool app_play(const char *name) {
   Lock l;
   if (!strcmp(name, "cycle") || !*name) {
+    alert_on = false;                                   // a choice ends an alert (cycling is untouched by one)
     cycling = true; loops_done = 0;
     if (!have_anim || !in_cycle(current)) start_animation(next_in_cycle(current));
     else mode = MODE_ANIM;
@@ -257,7 +277,8 @@ bool app_play(const char *name) {
     return true;
   }
   int i = storeFind(name);
-  if (i < 0) return false;
+  if (i < 0) return false;                              // unknown: an alert carries on
+  alert_on = false;
   cycling = false;
   bool ok = start_animation(i);
   state_changed();
@@ -299,6 +320,7 @@ void app_apply_settings() {
 
 void app_set_theme(const char *theme) {
   Lock l;
+  if (alert_on) alert_end();
   cfg.theme = theme;
   configSave();
   // when cycling, move on if the current animation does not belong to the new theme
@@ -318,14 +340,19 @@ void app_animations_changed(const char *name) {
   bleStateChanged();
 }
 
+/* A text alert gives way to any other screen; an animation alert carries on after it. */
+static void text_alert_off() { if (alert_on && alert_until) { alert_on = false; alert_until = 0; } }
+
 void app_message(const char *l1, const char *l2) {
   Lock l;
+  text_alert_off();
   msg1 = l1; msg2 = l2; msg_big = "";
   mode = MODE_MESSAGE; mode_dirty = true;
 }
 
 void app_message_big(const char *l1, const char *big, const char *l2) {
   Lock l;
+  text_alert_off();
   msg1 = l1; msg_big = big; msg2 = l2;
   if (!screen_on) tft.writecommand(0x29);          // must be seen even with the screen switched off; app_resume() turns it off again
   mode = MODE_MESSAGE; mode_dirty = true;
@@ -335,15 +362,47 @@ void app_loading(const char *label, int percent) {
   load_pct = percent;                                   // lock-free: the render loop just reads it
   if (mode != MODE_LOADING || load_label != label) {   // once per upload
     Lock l;
+    text_alert_off();
     load_label = label; mode = MODE_LOADING; mode_dirty = true;
   }
 }
 
 void app_resume() {
   Lock l;
+  text_alert_off();
   if (!screen_on) { tft.fillScreen(TFT_BLACK); tft.writecommand(0x28); }   // undo app_message_big's display-on
   if (have_anim) start_animation(current);
   else { msg1 = "no animations"; msg2 = "push one from the sim"; mode = MODE_MESSAGE; mode_dirty = true; }
+}
+
+static bool show_alert(const char *name, const char *l1, const char *big, const char *l2) {
+  Lock l;
+  if (alert_on || !screen_on || mode != MODE_ANIM) return false;   // not over a pairing code, an upload or a dark screen
+  alert_was_cycling = cycling;
+  alert_resume = have_anim ? cur_name : "";
+  int i = storeFind(name);
+  if (i >= 0 && start_animation(i)) { alert_on = true; alert_until = 0; }
+  else {
+    msg1 = l1; msg_big = big; msg2 = l2;
+    mode = MODE_MESSAGE; mode_dirty = true;
+    alert_on = true; alert_until = millis() + ALERT_TEXT_MS;
+  }
+  Serial.printf("alert: %s\n", name);
+  return true;
+}
+
+/* Low battery: the alert when it gets low, then every 5 minutes (every minute when critical). */
+static void battery_alerts() {
+  static uint32_t last = 0, tried = 0;
+  static bool shown = false;
+  BatteryInfo b = batteryGet();
+  if (!b.present || !b.low) { shown = false; return; }
+  if (shown && millis() - last < (b.critical ? 60000UL : 300000UL)) return;
+  if (millis() - tried < 1000) return;           // screen off or busy: look again in a second
+  tried = millis();
+  char pct[8];
+  snprintf(pct, sizeof(pct), "%u%%", b.pct);
+  if (show_alert("battery_low", "Battery low", pct, "connect USB-C to charge")) { shown = true; last = millis(); }
 }
 
 // ---- serial console -------------------------------------------------------------
@@ -361,6 +420,7 @@ static void print_status(Print &out) {
   out.printf("name: %s, build without Wi-Fi (Bluetooth + USB only), firmware " FW_VERSION "\n", cfg.name.c_str());
 #endif
   out.printf("bluetooth: %s\n", bleStatus().c_str());
+  out.printf("battery: %s\n", batteryText().c_str());
   out.printf("device id: %s, free heap: %u, store: %u animations, %u KB free\n", deviceId().c_str(), ESP.getFreeHeap(), (unsigned)storeCount(), (unsigned)(storeFreeBytes() / 1024));
 }
 
@@ -370,7 +430,7 @@ String app_state_json() {
   Lock l;
   String s = "{\"current\":\"" + String(app_current()) + "\",\"cycling\":" + (cycling ? "true" : "false");
   s += ",\"screen\":" + String(screen_on ? "true" : "false") + ",\"brightness\":" + String(brightness);
-  s += ",\"theme\":\"" + cfg.theme + "\",\"count\":" + String(storeCount()) + "}";   // ~110 bytes: one notification at MTU 185
+  s += ",\"theme\":\"" + cfg.theme + "\",\"count\":" + String(storeCount()) + batteryStateJson() + "}";   // ~135 bytes: one notification at MTU 185
   return s;
 }
 
@@ -381,7 +441,7 @@ static String app_config_json() {
   s += ",\"speed\":" + String(cfg.speed) + ",\"loops\":" + String(cfg.loops) + ",\"rotation\":" + String(cfg.rotation);
   s += ",\"cycleList\":" + jsonStr(cfg.cycleList) + ",\"start\":" + jsonStr(cfg.anim);
   s += ",\"count\":" + String(storeCount()) + ",\"freeKb\":" + String(storeFreeBytes() / 1024) + ",\"totalKb\":" + String(storeTotalBytes() / 1024);
-  s += ",\"bonds\":" + String(bleBondCount());
+  s += ",\"bonds\":" + String(bleBondCount()) + ",\"battery\":" + batteryJson();
 #if BUDDY_WIFI
   s += ",\"wifi\":{\"ssid\":" + jsonStr(cfg.ssid) + ",\"connected\":" + (netConnected() ? "true" : "false") + ",\"ip\":" + jsonStr(netIp());
   s += ",\"ap\":" + jsonStr(netApActive() ? netApSsid() : String()) + ",\"apPassSet\":" + (cfg.apPass.length() ? "true" : "false") + "}";
@@ -438,6 +498,7 @@ void app_command(const String &line, Print &out) {
     if (!app_play(arg.c_str())) out.printf("no animation named '%s' (try: list)\n", arg.c_str());
   } else if (cmd == "next") {
     Lock l;
+    if (alert_on) { alert_end(); state_changed(); return; }   // skips the alert
     start_animation(cycling ? next_in_cycle(current) : current + 1);
     state_changed();
   } else if (cmd == "cycle") {
@@ -445,6 +506,8 @@ void app_command(const String &line, Print &out) {
     app_play("cycle");
   } else if (cmd == "status") {
     print_status(out);
+  } else if (cmd == "battery") {
+    batteryCommand(arg, out);
   } else if (cmd == "ble" && arg == "forget") {
     bleForgetAll(); out.println("forgot all paired Bluetooth devices (remove the buddy on those devices too)");
   } else if (cmd == "ble") {
@@ -495,7 +558,7 @@ void app_command(const String &line, Print &out) {
   } else if (cmd == "reboot") {
     out.println("rebooting"); delay(200); ESP.restart();
   } else {
-    out.println("commands: list | names | state | config | delete <n> | play <name> | next | cycle [a,b|all] | start <name>|cycle | status | "
+    out.println("commands: list | names | state | config | delete <n> | play <name> | next | cycle [a,b|all] | start <name>|cycle | status | battery [cal <mV>] | "
 #if BUDDY_WIFI
                 "wifi <ssid> <pass> | mqtt <host> [port] [user] [pass] | prefix <p> | ha on|off | appass <p> | otapass <p> | ap | "
 #endif
@@ -533,6 +596,7 @@ static void render_task(void *) {
       Lock l;
       if (mode == MODE_ANIM) render_step();
       else if (mode == MODE_MESSAGE && mode_dirty) { draw_message(); mode_dirty = false; }
+      if (alert_on && alert_until && (int32_t)(millis() - alert_until) >= 0) alert_end();
     }
     if (mode == MODE_LOADING && (mode_dirty || millis() - last_loading >= 40)) {
       bool full = mode_dirty;
@@ -560,6 +624,7 @@ void setup() {
   if (!app_play(cfg.anim.c_str())) start_animation(0);
   if (!have_anim) { msg1 = "no animations"; msg2 = "push one from the sim"; mode = MODE_MESSAGE; mode_dirty = true; }
 
+  batteryBegin();
   netBegin();
   mqttBegin();
   bleBegin();
@@ -582,5 +647,7 @@ void loop() {
   mqttLoop();
   bleLoop();
   uploadPoll();
+  batteryLoop();
+  battery_alerts();
   delay(1);
 }

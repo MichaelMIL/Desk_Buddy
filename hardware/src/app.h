@@ -30,4 +30,4 @@ uint32_t app_frames_rendered();       // counter, for diagnostics
 /* Run one console command ("play face_happy", "brightness 40", ...) and write
  * the reply to `out` (USB serial, or a paired Bluetooth device). */
 void app_command(const String &line, Print &out);
-String app_state_json();              // {"current","cycling","screen","brightness","theme","count"}
+String app_state_json();              // {"current","cycling","screen","brightness","theme","count","bat","batLow"}

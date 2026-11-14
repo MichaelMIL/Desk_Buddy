@@ -162,6 +162,12 @@ The other themes have builds too, see [The body](#the-body).
 | CS | GPIO 10 |
 | RST | GPIO 8 |
 
+Optional battery level: two 100 kΩ resistors in series from the LiPo's B+ to
+GND, their middle on GPIO 1 (wiring, charger and calibration in
+[hardware/README.md](hardware/README.md#battery-level-optional)). The charge
+shows in every app and the bridge, and at 15 % the buddy shows a low battery
+face every few minutes.
+
 ## The body
 
 <p align="center">

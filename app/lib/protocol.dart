@@ -36,6 +36,8 @@ class BuddyState {
     required this.brightness,
     required this.theme,
     required this.count,
+    this.battery,
+    this.batteryLow = false,
   });
 
   /// Playing animation, or `cycle` while cycling.
@@ -52,6 +54,14 @@ class BuddyState {
   /// Number of stored animations; when it changes the names list is stale.
   final int count;
 
+  /// Battery charge, 0 to 100 (percent); null without a battery, or on
+  /// firmware older than the battery measurement (`bat`).
+  final int? battery;
+
+  /// The buddy considers the battery low (`batLow`: at 15 % and below until
+  /// it is back at 20 %); it shows its low battery face then.
+  final bool batteryLow;
+
   /// Parses the JSON, or returns null when it is cut off or malformed (a
   /// notification at a small MTU carries only MTU - 3 bytes).
   static BuddyState? tryParse(String json) {
@@ -65,6 +75,8 @@ class BuddyState {
         brightness: (m['brightness'] as num?)?.toInt() ?? 100,
         theme: m['theme'] as String? ?? '',
         count: (m['count'] as num?)?.toInt() ?? 0,
+        battery: (m['bat'] as num?)?.toInt(),
+        batteryLow: m['batLow'] as bool? ?? false,
       );
     } on FormatException {
       return null;
@@ -81,14 +93,17 @@ class BuddyState {
       other.screen == screen &&
       other.brightness == brightness &&
       other.theme == theme &&
-      other.count == count;
+      other.count == count &&
+      other.battery == battery &&
+      other.batteryLow == batteryLow;
 
   @override
-  int get hashCode => Object.hash(current, cycling, screen, brightness, theme, count);
+  int get hashCode => Object.hash(current, cycling, screen, brightness, theme, count, battery, batteryLow);
 
   @override
   String toString() =>
-      'BuddyState($current, cycling: $cycling, screen: $screen, brightness: $brightness, theme: "$theme", count: $count)';
+      'BuddyState($current, cycling: $cycling, screen: $screen, brightness: $brightness, theme: "$theme", count: $count, '
+      'battery: ${battery ?? 'none'}${batteryLow ? ' (low)' : ''})';
 }
 
 /// Joins TX notifications into lines. Replies are split into notifications of

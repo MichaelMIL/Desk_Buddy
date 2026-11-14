@@ -662,6 +662,8 @@ class BuddyLink extends ChangeNotifier {
       brightness: brightness ?? s.brightness,
       theme: theme ?? s.theme,
       count: s.count,
+      battery: s.battery,
+      batteryLow: s.batteryLow,
     );
     notifyListeners();
   }

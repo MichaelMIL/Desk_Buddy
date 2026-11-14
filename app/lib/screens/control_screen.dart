@@ -5,6 +5,7 @@ import 'package:flutter/services.dart';
 
 import '../buddy_link.dart';
 import '../protocol.dart';
+import '../widgets/battery_indicator.dart';
 import '../widgets/buddy_face.dart';
 import 'settings_screen.dart';
 
@@ -61,6 +62,7 @@ class _ControlScreenState extends State<ControlScreen> {
           ],
         ),
         actions: [
+          BatteryIndicator(percent: link.state?.battery, low: link.state?.batteryLow ?? false),
           IconButton(
             tooltip: 'Device status',
             icon: const Icon(Icons.info_outline_rounded),

@@ -85,7 +85,10 @@ the accessory (headphones, ears, crown, horn, hard hat, hood, goggles) plus a ma
 Common (theme-less) groups besides the `Face:` ones: `Eat:` (`eat.js`),
 `Attention:` (`attention.js`), `Notify:` (`notify.js`, meant to be played on
 an event), `Break:` (`break.js`, taking a break from work) and `Silly:`
-(`silly.js`).
+(`silly.js`). `Battery:` (`battery.js`) animations are alerts: the firmware
+plays `battery_low` by itself when the battery runs low and never puts a
+`battery_*` animation in the cycle, so keep them short (a few seconds; it
+plays twice) and small.
 
 ## Drawing API (`g`)
 

@@ -221,8 +221,8 @@ raised hand during a `hold`, and a warning sign when the hooks are missing or
 the buddy does not answer. Click the icon for a panel with:
 
 - the state and the animation on the buddy;
-- the link (Bluetooth or Wi-Fi), whether it is connected, and what the buddy
-  goes back to;
+- the link (Bluetooth or Wi-Fi), whether it is connected, the buddy's battery
+  (red when low; hidden without one), and what the buddy goes back to;
 - buddy controls: what it plays, brightness and screen on/off; in Manual and
   Cycle also next face (Bluetooth) and a menu of every face by theme, and in
   Cycle which theme's faces join the cycle (one per `<theme>__` prefix among
@@ -243,6 +243,9 @@ Bluetooth connection): `GET /buddy` reads the buddy, `POST /buddy
 `brightness`, `screen` or `theme` (over Wi-Fi each maps onto its HTTP
 endpoint; there is no `next`). Both answer `{"ok", "reply", "error",
 "buddy", "commands"}`; 409 during a `hold`, 502 when the buddy does not answer.
+`buddy.battery` (and `battery` in `GET /status`, from the last state the daemon
+read) is `{"pct": 64, "low": false}` over both links (plus `"mv"` over Wi-Fi), or
+`null` without a battery; `buddy_bridge.py status` prints it too.
 The app reads the buddy only while its panel is open, so the link is free
 otherwise. If the daemon is not running, "Show buddy controls" starts it
 (`buddy_bridge.py start`) with the Python it last ran with, recorded in

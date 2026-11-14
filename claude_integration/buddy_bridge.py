@@ -818,6 +818,24 @@ def anim_names(status):
     return out
 
 
+def battery_of(status):
+    """The buddy's battery as {'pct': 0-100, 'low': bool} (plus 'mv' over Wi-Fi), or None without a
+    battery or on firmware older than the battery measurement. Bluetooth's state carries "bat" and
+    "batLow"; Wi-Fi's /api/status a "battery" object (hardware/API.md)."""
+    st = status or {}
+    b = st.get('battery')
+    if isinstance(b, dict):
+        if not b.get('present') or not isinstance(b.get('pct'), int):
+            return None
+        out = {'pct': b['pct'], 'low': bool(b.get('low'))}
+        if isinstance(b.get('mv'), int):
+            out['mv'] = b['mv']
+        return out
+    if isinstance(st.get('bat'), int):
+        return {'pct': st['bat'], 'low': bool(st.get('batLow'))}
+    return None
+
+
 # ---------------------------------------------------------------------------- the daemon's state
 
 class Session:
@@ -854,6 +872,7 @@ class Controller:
         self.upload_failed = {}                 # name -> when an upload last failed (retried later)
         self.undeletable = set()                # built in: the buddy refuses to delete them
         self.board_current, self.board_theme = None, ''
+        self.battery = None            # battery_of() the buddy's last status, for the menu bar app
         self.lock = threading.RLock()
         self.sessions = {}
         self.flashes = collections.deque()      # (activity, queued at)
@@ -1025,6 +1044,7 @@ class Controller:
             return None
         self.names, self.names_at = anim_names(st), now
         self.board_current, self.board_theme = st.get('current'), st.get('theme') or ''
+        self.battery = battery_of(st)
         self.recency.touch(self.board_current)
         self._board_up()
         return st
@@ -1253,9 +1273,11 @@ class Controller:
         return 200, body
 
     def _with_library(self, st):
-        """The buddy's state for the menu bar app, plus what the library could put back on it."""
+        """The buddy's state for the menu bar app, plus what the library could put back on it and
+        its battery in one shape for both links (battery_of)."""
         if st is not None:
-            st = dict(st, library=sorted(self.library.names()))
+            self.battery = battery_of(st)
+            st = dict(st, library=sorted(self.library.names()), battery=self.battery)
         return st
 
     def tick(self):
@@ -1316,6 +1338,7 @@ class Controller:
                 'link': self.board.describe(), 'connected': connected() if connected else None,
                 'hold_s': max(0, round(self.away_until - now)), 'pid': os.getpid(), 'python': sys.executable,
                 'paused': self.paused, 'uploading': self.uploading,
+                'battery': self.battery,   # battery_of() the last status read, None: none or unknown
                 'sessions': [{'id': s.sid[:8], 'cwd': s.cwd, 'activity': s.act,
                               'waiting_for_user': s.attention is not None, 'subagents': s.agents,
                               'last_event_s': round(now - s.seen, 1)} for s in self.sessions.values()],
@@ -1667,7 +1690,10 @@ def _report_board(cfg):
         print('buddy:  no answer over %s (%s)' % (desc, hint))
         return
     names = anim_names(st)
-    print('buddy:  %s is playing %s, %d animations stored' % (desc, st.get('current'), len(names)))
+    bat = battery_of(st)
+    print('buddy:  %s is playing %s, %d animations stored%s' % (
+        desc, st.get('current'), len(names),
+        ', battery %d%%%s' % (bat['pct'], ' (low: charge it)' if bat['low'] else '') if bat else ''))
     ctl = Controller(cfg, None)
     ctl.names = names
     first = lambda act: (ctl.candidates(act) or ['-'])[0]

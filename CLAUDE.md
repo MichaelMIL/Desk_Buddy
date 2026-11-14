@@ -38,7 +38,10 @@ PlatformIO firmware that plays what the simulator exports.
   code on the screen, every console command, the upload protocol) in
   `hardware/BLE.md`. Two builds: `esp32s3_supermini` (Wi-Fi) and
   `esp32s3_supermini_ble` (`BUDDY_WIFI=0`: Bluetooth + USB only, 3.3 MB
-  LittleFS; switching builds erases stored animations). The DBA1 decoder's
+  LittleFS; switching builds erases stored animations). Battery level:
+  `hardware/src/battery.h` (100k/100k divider on GPIO 1; `bat`/`batLow` in
+  the state JSON, which every client shows); `battery_*` animations are
+  alerts the firmware plays itself and never cycles. The DBA1 decoder's
   single source is `hardware/lib/dba_player/` (`lzma_dec.c` unpacks the DBAL
   container; `sim/lib/lzma.js` mirrors it). `sim/lib/dba.js` and
   `sim/tools/dba.py` must encode byte-identically (`run_tests.sh` checks). The ESP32 WebServer does not parse query

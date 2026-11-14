@@ -35,6 +35,8 @@ struct Config {
   uint16_t speed = 100;      // playback speed percent (25..400)
   bool screenOn = true;      // display on/off at boot
   uint8_t brightness = 100;  // 10..100 %. The module's backlight is hard-wired, so this dims the pixels
+  // battery
+  uint16_t batCal = 10000;   // battery voltage correction, 1/10000 ("battery cal <mV>"; 10000 = none)
 };
 
 extern Config cfg;
