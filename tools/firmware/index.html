@@ -9,9 +9,9 @@
 </head>
 <body>
 <header>
-  <h1>Desk Buddy firmware</h1>
-  <nav class="tabs"><a href="index.html" class="on">Build</a><a href="flash.html">Flash</a></nav>
-  <span class="sub" id="sub">loading…</span>
+  <div class="buddy" aria-hidden="true"><span class="eye"></span><span class="eye"></span><span class="mouth"></span><span class="cheeks"></span></div>
+  <div class="title"><h1>Desk Buddy <em>firmware</em></h1><span class="sub" id="sub">loading…</span></div>
+  <nav class="tabs"><a href="index.html" class="on">Build</a><a href="flash.html">Flash</a><a href="wiring.html">Wiring</a></nav>
 </header>
 <main>
   <div>
@@ -149,11 +149,16 @@
     return null;
   }
 
+  let seq = 0;
   async function changed() {
     store.set('values', values);
     store.set('mode', mode());
     store.set('host', $('host').value.trim());
-    try { cur = await api('/api/plan', { values, upload: upload() }); } catch (e) { cur = { errors: [e.message], warnings: [], flags: [] }; }
+    const mine = ++seq;
+    let res;
+    try { res = await api('/api/plan', { values, upload: upload() }); } catch (e) { res = { errors: [e.message], warnings: [], flags: [] }; }
+    if (mine !== seq) return;                    // a newer change is on its way: drop this answer
+    cur = res;
     $('p-env').textContent = cur.env || '–';
     $('p-flags').textContent = (cur.flags || []).join(' ') || '(none)';
     $('p-out').textContent = cur.name ? doc.out_dir + '/' + cur.name + '.bin' : '–';

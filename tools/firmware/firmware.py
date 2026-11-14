@@ -25,6 +25,7 @@ The GUI server binds 127.0.0.1 only; its API needs the random token from the URL
 opens, so other web pages cannot start builds or uploads.
 """
 import argparse
+import configparser
 import hmac
 import http.client
 import json
@@ -46,7 +47,8 @@ HW = os.path.join(REPO, "hardware")
 OPTIONS_FILE = os.path.join(HERE, "options.json")
 OUT_DIR = os.path.join(HERE, "out")
 BUILD_DIR = os.path.join(HW, ".pio", "firmware_tool")
-PAGES = {"/": "index.html", "/index.html": "index.html", "/flash.html": "flash.html", "/style.css": "style.css"}
+PAGES = {"/": "index.html", "/index.html": "index.html", "/flash.html": "flash.html", "/wiring.html": "wiring.html",
+         "/style.css": "style.css"}
 CTYPES = {".html": "text/html; charset=utf-8", ".css": "text/css; charset=utf-8"}
 HOST_RE = re.compile(r"^[A-Za-z0-9.\-]{1,253}(?::\d{1,5})?$")
 PORT_RE = re.compile(r"^[\w./\-:]{1,200}$")
@@ -180,6 +182,45 @@ def plan(doc, values=None, supported=macro_supported):
     name = "_".join(["deskbuddy"] + slug + [fw_version()])
     return {"env": env, "flags": flags, "values": vals, "forced": forced, "name": name, "warnings": warnings,
             "errors": errors, "upload_notes": notes, "wifi_build": env == doc["base_env"]}   # base_env is the Wi-Fi build
+
+
+DEFINE_RE = re.compile(r"-D\s*([A-Za-z_]\w*)(?:=(\S+))?")
+HEADER_DEFAULT_RE = re.compile(r"#ifndef\s+(\w+)\s*\n\s*#define\s+\1\s+(-?(?:0x[0-9a-fA-F]+|\d+))\b")
+
+
+def ini_env_flags(env, path=os.path.join(HW, "platformio.ini")):
+    """An environment's build_flags from platformio.ini, following `extends` and ${env:X.build_flags}."""
+    cp = configparser.ConfigParser(interpolation=None, strict=False, inline_comment_prefixes=(";",))
+    cp.read(path)
+
+    def flags_of(name, seen=()):
+        sec = "env:" + name
+        if sec not in cp or name in seen:
+            return ""
+        s = cp[sec]
+        if "build_flags" not in s:
+            ext = s.get("extends", "").strip()
+            return flags_of(ext[4:] if ext.startswith("env:") else ext, seen + (name,)) if ext else ""
+        return re.sub(r"\$\{env:([\w\-]+)\.build_flags\}", lambda m: flags_of(m.group(1), seen + (name,)), s["build_flags"])
+    return flags_of(env)
+
+
+def resolve_macros(p, src=os.path.join(HW, "src")):
+    """The integer macros a build would see: header defaults (#ifndef X / #define X n), then the
+    environment's build_flags, then the settings' flags. Pins, BUDDY_* switches, ..."""
+    m = {}
+    for root, _, files in os.walk(src):
+        for name in sorted(files):
+            if name.endswith(".h"):
+                with open(os.path.join(root, name), errors="replace") as f:
+                    for k, v in HEADER_DEFAULT_RE.findall(f.read()):
+                        m[k] = int(v, 0)
+    for k, v in DEFINE_RE.findall(ini_env_flags(p["env"]) + " " + " ".join(p["flags"])):
+        try:
+            m[k] = int(v or "1", 0)
+        except ValueError:
+            pass                                     # strings like FW_VERSION
+    return m
 
 
 def find_pio():
@@ -485,6 +526,11 @@ class Handler(BaseHTTPRequestHandler):
             p = plan(load_options(), req.get("values") or {})
             p["command"] = shlex.join(command(p, req.get("upload"), "pio", os.path.relpath(HW, REPO)))
             return self._send(200, p)
+        if path == "/api/wiring":
+            p = plan(load_options(), req.get("values") or {})
+            return self._send(200, {"macros": resolve_macros(p), "values": p["values"], "forced": p["forced"],
+                                    "errors": p["errors"], "warnings": p["warnings"], "env": p["env"],
+                                    "wifi_build": p["wifi_build"]})
         if path == "/api/build":
             if not State.pio:
                 return self._send(400, {"error": "PlatformIO (pio) not found"})

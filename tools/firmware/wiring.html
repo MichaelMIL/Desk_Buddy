@@ -1,0 +1,291 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Desk Buddy wiring</title>
+<!-- Wiring page, served by firmware.py: what to connect to what for the selected settings.
+     The pins come from the firmware (header defaults, platformio.ini, the settings' -D flags)
+     through POST /api/wiring, so a pin change in the build shows up here. Source of the
+     circuit: hardware/PINOUT.md. -->
+<link rel="stylesheet" href="style.css">
+<style>
+  :root { --gnd: #2b2f36; --pcb-ink: #f2f5f8; }
+  @media (prefers-color-scheme: dark) { :root { --gnd: #a3acb8; } }
+  .wiring-main { grid-template-columns: minmax(260px, 340px) 1fr; }
+  @media (max-width: 860px) { .wiring-main { grid-template-columns: 1fr; } }
+  .diagram { width: 100%; height: auto; display: block; }
+  .diagram-scroll { overflow-x: auto; }
+  @media (max-width: 700px) { .diagram { min-width: 720px; } }
+  .diagram text { font: 13px var(--round, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif); fill: var(--ink); }
+  .diagram text.m { fill: var(--muted); font-size: 12px; }
+  .diagram text.pcb { fill: var(--pcb-ink); font-weight: 600; }
+  .diagram text.pin { font: 12px ui-monospace, SFMono-Regular, Menlo, monospace; fill: var(--pcb-ink); }
+  .diagram text.wl { font: 600 12px ui-monospace, SFMono-Regular, Menlo, monospace; }
+  .diagram .sym { stroke: var(--ink); fill: none; stroke-width: 2; }
+  .diagram .symf { stroke: var(--ink); fill: var(--card); stroke-width: 2; }
+  table.conn { width: 100%; border-collapse: collapse; font-size: 14px; }
+  table.conn th, table.conn td { text-align: left; padding: 6px 8px; border-top: 1px solid var(--line); vertical-align: top; }
+  table.conn th { color: var(--muted); font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: .05em; border-top: 0; }
+  table.conn td.grp { font-weight: 700; padding-top: 14px; border-top: 0; }
+  table.conn .check { color: var(--muted); font-size: 13px; }
+  .dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 6px; vertical-align: 0; }
+  .tablewrap { overflow-x: auto; }
+  ul.parts { margin: 0; padding-left: 18px; }
+  ul.parts li { margin: 3px 0; }
+  .opt.compact { padding: 7px 0; }
+</style>
+</head>
+<body>
+<header>
+  <div class="buddy" aria-hidden="true"><span class="eye"></span><span class="eye"></span><span class="mouth"></span><span class="cheeks"></span></div>
+  <div class="title"><h1>Desk Buddy <em>firmware</em></h1><span class="sub" id="sub">what to connect to what</span></div>
+  <nav class="tabs"><a href="index.html">Build</a><a href="flash.html">Flash</a><a href="wiring.html" class="on">Wiring</a></nav>
+</header>
+<main class="wiring-main">
+  <div>
+    <section class="card">
+      <h2>Settings</h2>
+      <div id="opts"></div>
+      <div id="msgs"></div>
+      <p class="sub">The same settings as on the Build page: change them here or there.</p>
+    </section>
+    <section class="card">
+      <h2>Parts</h2>
+      <ul class="parts" id="parts"></ul>
+    </section>
+  </div>
+  <div>
+    <section class="card">
+      <h2>Wiring diagram</h2>
+      <div class="diagram-scroll"><svg class="diagram" id="svg" viewBox="0 0 1000 580" role="img" aria-label="Wiring diagram"></svg></div>
+      <div id="notes"></div>
+    </section>
+    <section class="card">
+      <h2>Connections</h2>
+      <div class="tablewrap"><table class="conn" id="conn"></table></div>
+    </section>
+  </div>
+</main>
+<script>
+(() => {
+  const $ = id => document.getElementById(id);
+  const q = new URLSearchParams(location.search);
+  let token = q.get('t') || '';
+  try { if (token) sessionStorage.setItem('fwb-token', token); else token = sessionStorage.getItem('fwb-token') || ''; } catch (e) {}
+  if (q.get('t')) history.replaceState(null, '', location.pathname);
+  const store = {
+    get(k, d) { try { const v = localStorage.getItem('fwb-' + k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } },
+    set(k, v) { try { localStorage.setItem('fwb-' + k, JSON.stringify(v)); } catch (e) {} },
+  };
+  async function api(path, body) {
+    const r = await fetch(path, { method: body === undefined ? 'GET' : 'POST',
+      headers: { 'X-Token': token, ...(body === undefined ? {} : { 'Content-Type': 'application/json' }) },
+      body: body === undefined ? undefined : JSON.stringify(body) });
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(j.error || ('HTTP ' + r.status));
+    return j;
+  }
+  function el(tag, attrs = {}, ...kids) {
+    const e = document.createElement(tag);
+    for (const [k, v] of Object.entries(attrs)) {
+      if (k === 'class') e.className = v; else if (k === 'text') e.textContent = v;
+      else if (k === 'style') e.setAttribute('style', v); else e.setAttribute(k, v);
+    }
+    for (const k of kids) if (k != null) e.append(k);
+    return e;
+  }
+
+  // ---- settings (shared with the Build page through localStorage) ------------------------
+  let doc = null, values = {}, cur = null;
+  const ctls = {};
+  function renderOptions() {
+    const box = $('opts');
+    box.textContent = '';
+    for (const o of doc.options.filter(o => o.type === 'bool')) {
+      const inp = el('input', { type: 'checkbox', id: 'o-' + o.id, role: 'switch' });
+      inp.addEventListener('change', () => { values[o.id] = inp.checked; changed(); });
+      const note = el('span', { class: 'badge hidden' });
+      const name = el('label', { class: 'name', for: 'o-' + o.id, text: o.label }, note);
+      ctls[o.id] = { o, inp, note };
+      box.append(el('div', { class: 'opt compact' }, name, el('span', { class: 'switch' }, inp, el('span'))));
+    }
+  }
+  function applyForced() {
+    for (const [id, { o, inp, note }] of Object.entries(ctls)) {
+      const by = cur.forced[id];
+      inp.checked = !!(by ? cur.values[id] : values[id]);
+      inp.disabled = !o.supported || !!by;
+      note.textContent = by ? 'set by ' + by : !o.supported ? 'needs firmware support' : '';
+      note.classList.toggle('hidden', !note.textContent);
+    }
+  }
+  let seq = 0;
+  async function changed() {
+    store.set('values', values);
+    const mine = ++seq;
+    let res;
+    try { res = await api('/api/wiring', { values }); } catch (e) { if (mine === seq) { $('msgs').textContent = ''; $('msgs').append(el('div', { class: 'msg err', text: e.message })); } return; }
+    if (mine !== seq) return;                    // a newer change is on its way: drop this answer
+    cur = res;
+    applyForced();
+    const msgs = $('msgs');
+    msgs.textContent = '';
+    for (const e of cur.errors) msgs.append(el('div', { class: 'msg err', text: e }));
+    render(model(cur));
+  }
+
+  // ---- the circuit for a build -----------------------------------------------------------
+  const C = { vcc: '#e5484d', gnd: 'var(--gnd)', scl: '#f5b301', sda: '#3b82f6', dc: '#22c55e', cs: '#f97316', rst: '#a855f7',
+              v5: '#e5484d', bat: '#14b8a6', chrg: '#ec4899', stdby: '#06b6d4' };
+  const pinName = n => 'GPIO ' + n;
+
+  /* Everything the page shows, from the resolved macros: which parts, which wires, notes. */
+  function model(w) {
+    const m = w.macros, battery = m.BUDDY_BATTERY !== 0;
+    const chrg = battery && m.BAT_CHRG_PIN >= 0, stdby = battery && m.BAT_STDBY_PIN >= 0;
+    const display = [
+      ['VCC', '3V3', C.vcc, battery ? 'or 5V; on a battery 3V3 is better' : 'or 5V (the display has its own regulator)'],
+      ['GND', 'GND', C.gnd, ''],
+      ['SCL', m.TFT_SCLK, C.scl, 'SPI clock'],
+      ['SDA', m.TFT_MOSI, C.sda, 'SPI data'],
+      ['DC', m.TFT_DC, C.dc, 'data / command'],
+      ['CS', m.TFT_CS, C.cs, 'chip select'],
+      ['RST', m.TFT_RST, C.rst, 'reset'],
+    ].map(([from, to, color, note]) => ({ from, to: typeof to === 'number' ? (to >= 0 ? pinName(to) : null) : to, color, note }));
+    const groups = [{ name: 'Display (7 wires)', rows: display.filter(r => r.to).map(r => ({ from: 'display ' + r.from, to: 'SuperMini ' + r.to, color: r.color, note: r.note })),
+      check: 'Flash the firmware: the screen shows a face, or "no animations" on a new board.' }];
+    for (const r of display.filter(r => !r.to)) groups[0].rows.push({ from: 'display ' + r.from, to: 'not connected', color: r.color, note: 'the firmware does not use it (-1)' });
+    if (battery) {
+      groups.push({ name: 'Power from the battery', check: 'Unplug USB from the SuperMini: the buddy keeps running. Charge through the charger\'s USB-C.', rows: [
+        { from: 'LiPo +', to: 'charger B+', color: C.v5, note: 'mind the polarity' },
+        { from: 'LiPo −', to: 'charger B−', color: C.gnd, note: '' },
+        { from: 'charger OUT+', to: '1N5817 anode (no band)', color: C.v5, note: 'an on/off slide switch can go in this wire' },
+        { from: '1N5817 cathode (band)', to: 'SuperMini 5V', color: C.v5, note: 'so USB on the SuperMini cannot back-feed the cell' },
+        { from: 'charger OUT−', to: 'SuperMini GND', color: C.gnd, note: '' },
+      ] });
+      groups.push({ name: 'Battery level (divider on ' + pinName(m.BAT_PIN) + ')', check: '"status" (serial console or app) shows the battery, e.g. 64% (3912 mV). Calibrate with "battery cal <mV>".', rows: [
+        { from: 'charger B+ (the cell +)', to: '100 kΩ → ' + pinName(m.BAT_PIN), color: C.bat, note: 'the cell itself, not the 5V pin' },
+        { from: pinName(m.BAT_PIN), to: '100 kΩ → GND', color: C.bat, note: 'halves the cell voltage' },
+        { from: pinName(m.BAT_PIN), to: '100 nF → GND', color: C.bat, note: 'optional, steadies the reading' },
+      ] });
+    }
+    if (chrg || stdby) {
+      const rows = [];
+      if (chrg) rows.push({ from: pinName(m.BAT_CHRG_PIN), to: 'BAT54 anode; cathode (band) → charger CHRG pad', color: C.chrg, note: 'low while charging' });
+      if (stdby) rows.push({ from: pinName(m.BAT_STDBY_PIN), to: 'BAT54 anode; cathode (band) → charger STDBY pad', color: C.stdby, note: 'low once full' });
+      groups.push({ name: 'Charging status (2 diodes)', rows,
+        check: 'Plug in the charger\'s USB-C: within 2 s "status" says charging and the apps show a bolt. "alerts test plugged" plays a charging animation. CHRG / STDBY: the TP4056\'s pins 7 / 6, or the LED side of the red / green LED resistors.' });
+    }
+    const parts = [
+      ['ESP32-S3 SuperMini', 1], ['GC9A01 1.28″ round TFT module, 240 × 240, 7-pin', 1], ['silicone wire 28–30 AWG, ~10 cm', 7 + (battery ? 6 : 0)], ['heat-shrink, small', 7],
+    ];
+    if (battery) parts.push(['1-cell LiPo 3.7 V (runtime ≈ mAh / 100 hours)', 1], ['TP4056 + DW01 charger module, USB-C', 1], ['resistor 100 kΩ 1 %', 2],
+      ['capacitor 100 nF (optional)', 1], ['Schottky diode 1N5817 or SS14', 1], ['slide switch (optional)', 1]);
+    if (chrg || stdby) parts.push(['Schottky diode BAT54, BAT43 or 1N5817', (chrg ? 1 : 0) + (stdby ? 1 : 0)]);
+    const notes = [];
+    if (!battery) notes.push('USB power: the buddy runs from the SuperMini\'s USB-C (any USB charger or computer).');
+    if (battery && !(chrg || stdby)) notes.push('Charging status is off: no wires to the charger\'s CHRG / STDBY pads (no charging animations).');
+    notes.push(w.wifi_build || m.BUDDY_BLE !== 0 ? 'Wi-Fi and Bluetooth are inside the SuperMini: nothing to wire.' :
+      'USB serial only: the USB-C cable is also how you control it, update it and give it animations.');
+    return { m, battery, chrg, stdby, display, groups, parts, notes };
+  }
+
+  // ---- drawing ----------------------------------------------------------------------------
+  const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+  const T = (x, y, s, cls = '', anchor = 'start', extra = '') => `<text x="${x}" y="${y}" class="${cls}" text-anchor="${anchor}" ${extra}>${esc(s)}</text>`;
+  const wire = (x1, y1, x2, y2, col, dash) => `<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" stroke="${col}" stroke-width="4" stroke-linecap="round"${dash ? ' stroke-dasharray="6 6"' : ''}/>`;
+  const pad = (x, y) => `<circle cx="${x}" cy="${y}" r="6" fill="#d9b44a" stroke="#7a5c00" stroke-width="2"/>`;
+  /* Diode on a horizontal wire from x1 to x2; current flows towards `to` ('l' or 'r'), the band is there. */
+  function diode(x1, x2, y, to, col, label) {
+    const a = to === 'l' ? x2 : x1, b = to === 'l' ? x1 : x2;
+    return `<polygon points="${a},${y - 10} ${a},${y + 10} ${b},${y}" fill="${col}" stroke="var(--ink)" stroke-width="1.5"/>`
+      + `<line x1="${b}" y1="${y - 11}" x2="${b}" y2="${y + 11}" stroke="var(--ink)" stroke-width="4"/>` + T((x1 + x2) / 2, y - 16, label, 'm', 'middle');
+  }
+  const resistor = (x, y1, y2, label) => `<rect x="${x - 8}" y="${y1}" width="16" height="${y2 - y1}" rx="2" class="symf"/>` + T(x + 14, (y1 + y2) / 2 + 4, label, 'm');
+  const ground = (x, y) => `<line x1="${x}" y1="${y - 8}" x2="${x}" y2="${y}" class="sym"/><line x1="${x - 11}" y1="${y}" x2="${x + 11}" y2="${y}" class="sym"/>`
+    + `<line x1="${x - 7}" y1="${y + 5}" x2="${x + 7}" y2="${y + 5}" class="sym"/><line x1="${x - 3}" y1="${y + 10}" x2="${x + 3}" y2="${y + 10}" class="sym"/>`;
+
+  function render(md) {
+    const { m, battery, chrg, stdby, display } = md;
+    const L = [150, 190, 230, 270, 310, 350, 390];                       // display / left pin rows
+    const R = { v5: 130, gnd: 165, bat: 275, chrg: 380, stdby: 420 };   // battery / right pin rows
+    let s = '';
+    // display module
+    s += `<circle cx="130" cy="270" r="108" fill="#16324f"/><circle cx="130" cy="270" r="88" fill="#05070a" stroke="#3a4757" stroke-width="3"/>`;
+    s += `<ellipse cx="102" cy="258" rx="13" ry="17" fill="#fff"/><ellipse cx="158" cy="258" rx="13" ry="17" fill="#fff"/>`
+       + `<circle cx="104" cy="260" r="7" fill="#2a6cff"/><circle cx="160" cy="260" r="7" fill="#2a6cff"/>`
+       + `<path d="M108 296 Q130 314 152 296" stroke="#ff4f7a" stroke-width="5" fill="none" stroke-linecap="round"/>`;
+    s += `<rect x="236" y="134" width="30" height="272" rx="6" fill="#16324f"/>`;
+    s += T(130, 405, 'GC9A01 round display', '', 'middle', 'font-weight="600"') + T(130, 423, '1.28″, 240 × 240', 'm', 'middle');
+    // SuperMini
+    s += `<rect x="452" y="44" width="76" height="30" rx="9" fill="#b9c1ca" stroke="#7d8792" stroke-width="2"/>` + T(490, 36, 'USB-C', 'm', 'middle');
+    s += `<rect x="390" y="66" width="200" height="${battery ? 390 : 370}" rx="12" fill="#1c2a3a" stroke="#3d5168" stroke-width="2"/>`;
+    s += T(490, 102, 'ESP32-S3', 'pcb', 'middle') + T(490, 120, 'SuperMini', 'pcb', 'middle');
+    // display wires
+    display.forEach((r, i) => {
+      const y = L[i];
+      s += pad(262, y) + T(276, y - 8, r.from, 'wl', 'start', `fill="${r.color.startsWith('var') ? 'var(--muted)' : r.color}"`);
+      if (r.to) s += wire(262, y, 390, y, r.color) + pad(390, y) + T(402, y + 4, r.to.replace('GPIO ', 'GPIO '), 'pin');
+      else s += T(330, y + 4, 'not connected', 'm', 'middle');
+    });
+    if (!battery) {
+      s += `<line x1="610" y1="59" x2="540" y2="59" stroke="var(--muted)" stroke-width="2"/><polygon points="534,59 546,53 546,65" fill="var(--muted)"/>`;
+      s += T(620, 56, 'powered over USB-C', '', 'start', 'font-weight="600"') + T(620, 74, 'nothing else to wire', 'm');
+    } else {
+      // charger module
+      const cx = 790;                                                   // charger's left edge
+      s += `<rect x="848" y="76" width="64" height="26" rx="8" fill="#b9c1ca" stroke="#7d8792" stroke-width="2"/>` + T(880, 68, 'USB-C (charging)', 'm', 'middle');
+      s += `<rect x="${cx}" y="98" width="180" height="352" rx="10" fill="#1d4f9c" stroke="#3a6cc0" stroke-width="2"/>`;
+      s += T(880, 262, 'TP4056 + DW01', 'pcb', 'middle') + T(880, 280, 'charger', 'pcb', 'middle');
+      const lp = [['OUT+', R.v5], ['OUT−', R.gnd]].concat(chrg ? [['CHRG', R.chrg]] : []).concat(stdby ? [['STDBY', R.stdby]] : []);
+      for (const [n, y] of lp) s += pad(cx, y) + T(cx + 12, y + 4, n, 'pin');
+      s += pad(830, 450) + pad(930, 450) + T(830, 438, 'B+', 'pin', 'middle') + T(930, 438, 'B−', 'pin', 'middle');
+      // LiPo
+      s += `<rect x="790" y="500" width="180" height="58" rx="10" fill="#e8b84a" stroke="#9a7420" stroke-width="2"/>` + T(880, 534, 'LiPo 3.7 V', '', 'middle', 'font-weight="700" fill="#3b2a00"');
+      s += wire(830, 500, 830, 450, C.v5) + wire(930, 500, 930, 450, C.gnd) + T(816, 480, '+', 'wl', 'middle', `fill="${C.v5}"`) + T(944, 480, '−', 'wl', 'middle');
+      // 5V through the 1N5817, GND
+      s += pad(590, R.v5) + T(578, R.v5 + 4, '5V', 'pin', 'end') + wire(590, R.v5, cx, R.v5, C.v5) + diode(670, 710, R.v5, 'l', C.v5, '1N5817');
+      s += pad(590, R.gnd) + T(578, R.gnd + 4, 'GND', 'pin', 'end') + wire(590, R.gnd, cx, R.gnd, C.gnd);
+      // divider on BAT_PIN: B+ -[100k]- node -[100k]- GND
+      const x = 670, y = R.bat;
+      s += pad(590, y) + T(578, y + 4, pinName(m.BAT_PIN), 'pin', 'end') + wire(590, y, x, y, C.bat) + `<circle cx="${x}" cy="${y}" r="5" fill="${C.bat}"/>`;
+      s += T(x, 194, 'to charger B+', 'wl', 'middle', `fill="${C.bat}"`) + wire(x, 202, x, 212, C.bat) + resistor(x, 212, 248, '100 kΩ') + wire(x, 248, x, y, C.bat);
+      s += wire(x, y, x, 300, C.bat) + resistor(x, 300, 334, '100 kΩ') + ground(x, 344);
+      s += T(x + 14, 338, '(+100 nF)', 'm');
+      // charging status through BAT54s, band at the charger
+      if (chrg) s += pad(590, R.chrg) + T(578, R.chrg + 4, pinName(m.BAT_CHRG_PIN), 'pin', 'end') + wire(590, R.chrg, cx, R.chrg, C.chrg) + diode(690, 730, R.chrg, 'r', C.chrg, 'BAT54');
+      if (stdby) s += pad(590, R.stdby) + T(578, R.stdby + 4, pinName(m.BAT_STDBY_PIN), 'pin', 'end') + wire(590, R.stdby, cx, R.stdby, C.stdby) + diode(690, 730, R.stdby, 'r', C.stdby, 'BAT54');
+    }
+    $('svg').setAttribute('viewBox', '0 0 1000 ' + (battery ? 580 : 460));
+    $('svg').innerHTML = s;
+    // table
+    const t = $('conn');
+    t.textContent = '';
+    t.append(el('tr', {}, el('th', { text: 'From' }), el('th', { text: 'To' }), el('th', { text: 'Notes' })));
+    for (const g of md.groups) {
+      t.append(el('tr', {}, el('td', { class: 'grp', colspan: '3', text: g.name })));
+      for (const r of g.rows) t.append(el('tr', {}, el('td', {}, el('span', { class: 'dot', style: 'background:' + r.color }), r.from), el('td', { text: r.to }), el('td', { text: r.note })));
+      if (g.check) t.append(el('tr', {}, el('td', { class: 'check', colspan: '3', text: 'Check: ' + g.check })));
+    }
+    $('parts').textContent = '';
+    for (const [name, n] of md.parts) $('parts').append(el('li', { text: n + ' × ' + name }));
+    $('notes').textContent = '';
+    for (const n of md.notes) $('notes').append(el('div', { class: 'msg note', text: n }));
+  }
+
+  (async () => {
+    if (!token) { $('sub').textContent = 'Open this page from the address firmware.py prints (it carries the access token).'; return; }
+    let info;
+    try { info = await api('/api/options'); } catch (e) { $('sub').textContent = 'Cannot reach firmware.py: ' + e.message; return; }
+    doc = info.doc;
+    const saved = store.get('values', {});
+    for (const o of doc.options) values[o.id] = o.supported && typeof saved[o.id] === typeof o.default ? saved[o.id] : o.default;
+    renderOptions();
+    await changed();
+  })();
+  window.wiring = { model };   // for tests
+})();
+</script>
+</body>
+</html>

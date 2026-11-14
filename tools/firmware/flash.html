@@ -11,9 +11,9 @@
 </head>
 <body>
 <header>
-  <h1>Desk Buddy firmware</h1>
-  <nav class="tabs"><a href="index.html" id="tab-build">Build</a><a href="flash.html" class="on">Flash</a></nav>
-  <span class="sub" id="sub"></span>
+  <div class="buddy" aria-hidden="true"><span class="eye"></span><span class="eye"></span><span class="mouth"></span><span class="cheeks"></span></div>
+  <div class="title"><h1>Desk Buddy <em>firmware</em></h1><span class="sub" id="sub"></span></div>
+  <nav class="tabs"><a href="index.html" id="tab-build">Build</a><a href="flash.html" class="on">Flash</a><a href="wiring.html" id="tab-wiring">Wiring</a></nav>
 </header>
 <main>
   <div>
@@ -184,7 +184,7 @@ function settingsText(v) {
 
 async function loadBuilds() {
   const box = $('builds');
-  if (!token) { box.append(el('div', { class: 'sub', text: 'Builds appear here when this page is opened from firmware.py.' })); $('tab-build').classList.add('hidden'); return; }
+  if (!token) { box.append(el('div', { class: 'sub', text: 'Builds appear here when this page is opened from firmware.py.' })); $('tab-build').classList.add('hidden'); $('tab-wiring').classList.add('hidden'); return; }
   let res;
   try {
     const r = await fetch('/api/builds', { headers: { 'X-Token': token } });

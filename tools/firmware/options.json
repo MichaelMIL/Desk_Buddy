@@ -62,7 +62,25 @@
         "flags": [
           "-DBUDDY_BATTERY=0"
         ],
-        "slug": "nobat"
+        "slug": "nobat",
+        "forces": {
+          "charging": false
+        }
+      }
+    },
+    {
+      "id": "charging",
+      "label": "Charging status",
+      "type": "bool",
+      "default": true,
+      "requires": "BAT_CHRG_PIN",
+      "help": "Two wires (through small Schottky diodes) from the charger's CHRG and STDBY pads to GPIO 2 and 4: the buddy knows when it is charging and when it is full, and plays the charging animations. Off: leave those wires out.",
+      "off": {
+        "flags": [
+          "-DBAT_CHRG_PIN=-1",
+          "-DBAT_STDBY_PIN=-1"
+        ],
+        "slug": "nochg"
       }
     }
   ],

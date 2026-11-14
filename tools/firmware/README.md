@@ -19,6 +19,9 @@ building. The page has two tabs:
   does), or hand the build to the Flash tab.
 - **Flash**: a web flasher. It writes a build to the buddy from the browser
   over USB (below).
+- **Wiring**: what to connect to what for the selected settings: a diagram,
+  a connection table with a check after each stage, and the parts list. It
+  changes with the toggles (below).
 
 The server binds 127.0.0.1 only, on a free port. Its API and the files in
 `out/` need the random token in the address it opens, so other web pages
@@ -31,7 +34,8 @@ cannot start builds or uploads. Stop it with Ctrl-C.
 | Wi-Fi | on | off: the `esp32s3_supermini_ble` environment (Bluetooth + USB, 3.3 MB for animations) |
 | Bluetooth | on | off: `-DBUDDY_BLE=0` |
 | USB serial only | off | on: Wi-Fi and Bluetooth off, whatever they are set to (the GUI greys them out) |
-| Battery level | on | off: `-DBUDDY_BATTERY=0` |
+| Battery level | on | off: `-DBUDDY_BATTERY=0` (and Charging status off) |
+| Charging status | on | off: `-DBAT_CHRG_PIN=-1 -DBAT_STDBY_PIN=-1`, no wires to the charger's CHRG / STDBY pads |
 
 Switching between a Wi-Fi and a no-Wi-Fi build changes the partition table,
 which erases the animations stored on the buddy. Push them again afterwards
@@ -48,7 +52,8 @@ Each build writes three files to `tools/firmware/out/` (not in git):
 | `deskbuddy_<settings>_<version>.json` | the settings, environment, flags and sizes |
 
 `<settings>` lists what is in it: `wifi` or `nowifi`, `ble` or `noble` (or
-just `serial` for USB serial only), then `bat` or `nobat`. For example
+just `serial` for USB serial only), then `bat` or `nobat`, and `nochg` without
+the charging status wires. For example
 `deskbuddy_wifi_ble_bat_2026.11.14d_factory.bin` or
 `deskbuddy_serial_nobat_2026.11.14d.bin`. The full image is the same as
 `esptool merge_bin` of the parts PlatformIO flashes, at the offsets it
@@ -82,6 +87,22 @@ esptool-js (Espressif, Apache-2.0) is loaded from
 `https://unpkg.com/esptool-js@0.7.0/bundle.js` when you click Connect. The
 page also works on its own: open `flash.html` (with `style.css` next to it)
 from any https or localhost address, choose a file, and flash.
+
+## Wiring tab
+
+Shows the same settings as the Build tab (they are shared) and draws the
+circuit for them: the display on the SuperMini, and with the battery level
+the LiPo, the TP4056 charger, the 1N5817, the divider, and (with charging
+status) the two BAT54s to the charger's pads. Below it are the connections,
+one by one, with a check after each stage, and the parts list. The circuit
+is the one in `hardware/PINOUT.md`.
+
+The pin numbers are not typed into the page. `POST /api/wiring` resolves the
+macros the build would see: the `#ifndef X / #define X n` defaults in
+`hardware/src/*.h`, then the environment's `build_flags` in `platformio.ini`
+(following `extends`), then the settings' `-D` flags. So a setting that moves a
+pin (e.g. `-DBAT_PIN=5`) or turns one off (`-1`) shows up in the diagram.
+Wi-Fi and Bluetooth change nothing there (they are inside the SuperMini).
 
 ## Command line
 

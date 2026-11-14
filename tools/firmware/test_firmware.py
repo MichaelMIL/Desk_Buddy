@@ -150,6 +150,38 @@ class RealOptions(unittest.TestCase):
         self.assertEqual(fb.plan(doc, {})["env"], doc["base_env"])
         json.dumps(fb.plan(doc, {}))
 
+    def test_battery_off_forces_charging_off(self):
+        p = fb.plan(fb.load_options(), {"battery": False, "charging": True})
+        self.assertEqual(p["forced"].get("charging"), "Battery level")
+        self.assertIn("-DBUDDY_BATTERY=0", p["flags"])
+        self.assertNotIn("nochg", p["name"])                 # forced: not in the name
+
+
+class Wiring(unittest.TestCase):
+    """Pins and switches as the firmware would see them (headers, platformio.ini, flags)."""
+
+    def macros(self, **values):
+        return fb.resolve_macros(fb.plan(fb.load_options(), values))
+
+    def test_defaults(self):
+        m = self.macros()
+        self.assertEqual((m["BUDDY_WIFI"], m["BUDDY_BLE"], m["BUDDY_BATTERY"]), (1, 1, 1))
+        for k in ("TFT_SCLK", "TFT_MOSI", "TFT_CS", "TFT_DC", "TFT_RST", "BAT_PIN", "BAT_CHRG_PIN", "BAT_STDBY_PIN"):
+            self.assertIn(k, m)
+        self.assertGreaterEqual(m["BAT_CHRG_PIN"], 0)
+
+    def test_settings_change_macros(self):
+        self.assertEqual(self.macros(wifi=False)["BUDDY_WIFI"], 0)       # from the ble env's build_flags
+        m = self.macros(charging=False)
+        self.assertEqual((m["BAT_CHRG_PIN"], m["BAT_STDBY_PIN"]), (-1, -1))
+        self.assertEqual(self.macros(battery=False)["BUDDY_BATTERY"], 0)
+        self.assertEqual(self.macros(serial=True)["BUDDY_BLE"], 0)
+
+    def test_ini_flags_follow_extends(self):
+        self.assertIn("-DTFT_MOSI=", fb.ini_env_flags("esp32s3_supermini_ble"))
+        self.assertIn("-DBUDDY_WIFI=0", fb.ini_env_flags("esp32s3_supermini_ble"))
+        self.assertIn("-DTFT_MOSI=", fb.ini_env_flags("ota"))           # extends, no build_flags of its own
+
 
 if __name__ == "__main__":
     unittest.main()
