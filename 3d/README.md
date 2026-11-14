@@ -4,7 +4,8 @@ The printed body of the desk buddy: one OpenSCAD file, ready‑to‑print STLs
 and an assembly guide. Nothing is glued or screwed. A wedge key locks the
 head onto the neck, the back cap snaps in, the side pieces twist‑lock into
 the head, the band hooks into the cups, the ESP32‑S3 SuperMini slides into
-a cradle on the base plate, and the USB cover clicks in from outside.
+a cradle on the base plate, and the USB cover clicks in from outside against
+two stops in the body.
 
 <p align="center">
   <img src="images/c_themes_front.png" alt="The template and the first twelve themes" width="900">

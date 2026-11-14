@@ -9,7 +9,7 @@ themes only swaps the body and the accessories.
 | `head_cap.stl` | Back of the head. Its posts clamp the display, and it closes behind the neck key | Back face down | None |
 | `neck_key.stl` | Wedge that slides in behind the display and locks the head onto the neck | Flat, as exported | None. Small and loaded: 4 walls or 100% infill |
 | `base.stl` | Bottom plate that snaps into the body, with a cradle the SuperMini slides into from the back | Flat, cradle up | None |
-| `usb_cover.stl` | Cover that clicks into the USB‑C notch from outside. Print it in the body's colour | Outer face down | None |
+| `usb_cover.stl` | Cover that clicks into the USB‑C notch from outside, flush, against a sill and a recess in the body. Print it in the body's colour | Outer face down | None |
 
 Assembly order and fit tuning are in the
 [assembly guide](../../RoundBot_v8_Assembly_Guide.pdf).

@@ -33,6 +33,8 @@ and the READMEs show them; the "Used in" column says where.
 | `c_diag_band_hook.svg` | Section through the band hook in a cup | 6 |
 | `c_cradle_in.png`, `c_cradle.png` | The SuperMini sliding into the base plate's cradle, and seated | 7 |
 | `c_base2.png` | The base plate going into the body | 8 |
+| `c_usb_stops.png` | The USB notch with its two stops, the recess round the top and the sill across the bottom, and the cover beside it | 9 |
+| `c_usb_in.png` | The USB cover in place, flush | 9 |
 | `c_s8.png` | The finished back, with the USB cover | 9 |
 
 ## Not used

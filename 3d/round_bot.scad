@@ -919,8 +919,8 @@ module body(style = "hoodie") {
         base_cone();                                                    // conical seat for the base plate
         translate([0, 0, -50]) cube([200, 200, 100], center = true);   // flat base
         neck_box(0, body_h - 15, head_bottom_z + neck_plug + 1);         // wire channel
-        // USB-C access
-        xz_extrude(wall_in_y - 0.5, 10) usb_notch_2d();
+        // USB-C access, with the sill and the recess the cover stops against
+        usb_access();
     }
     neck_posts();
     // catch ribs for the base plate's snap teeth (45-degree underside: no support)
@@ -929,20 +929,45 @@ module body(style = "hoodie") {
 }
 
 // cover for the USB notch (optional). Push it into the notch from outside, after the base
-// plate: it clicks in. A slit inside each side makes that side a spring strip, rooted at the
-// top corner, with a tooth near its bottom that catches behind the wall beside the notch.
+// plate, until it stops: it clicks in. Two stops in the body, both ucv_dp behind the outer
+// face and clear of the cable's plug: a sill across the bottom of the notch (below the plug,
+// and ucv_sgap behind the wall's inner face so the USB-C receptacle slides up past it with
+// the base plate), and a recess round the top of the notch that a rim on the cover sits in.
+// A slit inside each side makes that side a spring strip, rooted at the top corner, with a
+// tooth near its bottom that catches behind the wall beside the notch.
 // The tooth's catch is at 45 degrees and keeps the strip bent by ucv_pre, so the cover is
-// pulled in onto the plate's rim and does not rattle. Pull it out at the nail slot.
+// pulled in onto both stops and does not rattle. Pull it out at the nail slot.
 // Prints outer face down: a flat outline, only the teeth have (45-degree) undersides.
 ucv_clr   = 0.12;   // gap around the cover in the notch
 ucv_strip = 0.8;    // width of the spring strips
 ucv_slit  = 0.6;
-ucv_bite  = 0.3;    // how far the teeth reach behind the wall
+ucv_bite  = 0.4;    // how far the teeth reach behind the wall; they latch ucv_bite - ucv_pre before the stops
 ucv_pre   = 0.1;    // the strips stay bent by this much when the cover is in
 ucv_tz    = [plate_t + 0.3, plate_t + 1.8];   // teeth: above the plate, below the board
 ucv_yi    = wall_in_y + 0.2;                   // inner face: clear of the USB receptacle
+ucv_dp    = 1.0;    // depth of both stops behind the outer face (the cover's rim and lower part)
+ucv_sgap  = 0.6;    // the sill starts this far behind the wall's inner face
+ucv_sz    = ucv_tz[0] - 0.1;                  // top of the sill: below the teeth and the cable's plug
+ucv_rim   = 1.2;    // the top recess reaches this far past the notch
 
 module ucv_2d(g = 0) intersection() { offset(delta = g - ucv_clr) usb_notch_2d(); translate([-50, 0.3]) square([100, 50]); }
+// the top recess: the notch grown by ucv_rim, above the strips' 45-degree roots (only the rigid
+// top of the cover has a rim, so the strips stay free to spring)
+module ucv_pocket_2d() {
+    xa = (usb_w - usb_h)/2;
+    offset(r = 0.5) offset(delta = -0.5) intersection() {     // rounded ends
+        usb_notch_2d(ucv_rim);
+        polygon([[-xa - 40, usb_z + 40], [-xa, usb_z], [xa, usb_z], [xa + 40, usb_z + 40]]);
+    }
+}
+// what the body loses for the USB-C port: the notch (minus the sill) and the top recess
+module usb_access() {
+    difference() {
+        xz_extrude(wall_in_y - 0.5, 10) usb_notch_2d();
+        translate([-usb_w, wall_in_y + ucv_sgap, -5]) cube([2*usb_w, body_dp/2 - ucv_dp - wall_in_y - ucv_sgap, 5 + ucv_sz]);   // sill
+    }
+    xz_extrude(body_dp/2 - ucv_dp, ucv_dp + 1) ucv_pocket_2d();
+}
 // slit inside the right-hand strip: open at the bottom edge, up the side and round the top
 // corner to 45 degrees, where the strip is rooted
 module ucv_slit_2d() intersection() {
@@ -953,7 +978,13 @@ module usb_cover() {
     xs = usb_w/2 - ucv_clr;  xt = usb_w/2 + ucv_bite;  xc = usb_w/2 + ucv_pre;
     difference() {
         union() {
-            xz_extrude(ucv_yi, body_dp/2 - ucv_yi) difference() { ucv_2d(); mir() ucv_slit_2d(); }
+            difference() {
+                xz_extrude(ucv_yi, body_dp/2 - ucv_yi) difference() { ucv_2d(); mir() ucv_slit_2d(); }
+                // below the teeth the cover is thinner: it stands against the sill
+                translate([-usb_w, ucv_yi - 1, -1]) cube([2*usb_w, body_dp/2 - ucv_dp - ucv_yi + 1, 1 + ucv_tz[0]]);
+            }
+            // rim round the top: sits in the recess, against its floor
+            xz_extrude(body_dp/2 - ucv_dp, ucv_dp) offset(delta = -ucv_clr) ucv_pocket_2d();
             // teeth on the strips' inner ends: lead-in, tip, 45-degree catch
             for (m = [0, 1]) mirror([m, 0, 0]) translate([0, 0, ucv_tz[0]]) linear_extrude(ucv_tz[1] - ucv_tz[0])
                 polygon([[xs - ucv_strip, wall_in_y - 1], [xs, wall_in_y - 1], [xt, wall_in_y - 0.4],

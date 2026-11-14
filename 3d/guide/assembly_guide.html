@@ -170,7 +170,7 @@ St. Patrick's, and the Claude cups seen from their engraved outer face</figcapti
 <tr><td>body_bare / body_hoodie / body_cat / body_astro / body_claude and the theme bodies (body_gamer … body_stpatricks)</td><td>Upright</td><td>Tree, build plate only</td><td>Supports go under the arms, legs, collar, hood bag, tail, backpack and whatever the body holds on its lap. The two neck posts and the catch ribs inside need none</td></tr>
 <tr><td>body_skeleton</td><td>Upright</td><td>Tree, build plate only</td><td>The thin arm bones need support along their length; remove it gently</td></tr>
 <tr><td>base</td><td>Flat, cradle up</td><td>None</td><td>The cradle's sprung fingers stand on the bed and the hooks' undersides are 45°, so there are no bridges</td></tr>
-<tr><td>usb_cover</td><td>Outer face down</td><td>None</td><td>Only the two teeth have (45°) undersides</td></tr>
+<tr><td>usb_cover</td><td>Outer face down</td><td>None</td><td>The top rim and the thinner lower edge lie on the bed with the outer face. Only the two teeth have (45°) undersides</td></tr>
 </table>
 <p>Suggested settings for PLA: 0.2 mm layers, 3 walls, 15% infill, no brim. One robot is about 70 cm³ of solid
 model, roughly 40–55 g of filament.</p>
@@ -266,7 +266,7 @@ through the upper half of the keyhole; the other lug is cut 0.24 mm deeper to cl
 <h3>Step 8 — Close the base</h3>
 <ol>
 <li>Fold the wire slack into the body. Push the base plate up from below, with the USB-C end toward the back of the robot.</li>
-<li>The receptacle slides up through the open-bottom notch in the back wall. The plate's sloped edge seats in the matching cone in the body rim, flush with the bottom.</li>
+<li>The receptacle slides up just inside the back wall, behind the sill at the bottom of the USB notch. The plate's sloped edge seats in the matching cone in the body rim, flush with the bottom.</li>
 <li>Press until the two side teeth click over the ribs inside the body. The snap beams stay slightly bent, so the plate is pulled up into its seat and does not rattle. To open it again, hook a fingertip or a small tool in the pull slot and pull the plate straight down.</li>
 </ol>
 <figure class="tall"><img src="../images/c_base2.png" alt="The base plate goes into the body"></figure>
@@ -274,9 +274,10 @@ through the upper half of the keyhole; the other lug is cut 0.24 mm deeper to cl
 <h3>Step 9 — Finish</h3>
 <ol>
 <li>Plug a USB-C cable in through the notch on the lower back and flash the test sketch below.</li>
-<li>Whenever no cable is connected, press the USB cover into the notch from outside, after the base plate is in. It clicks in: a spring strip on each side has a tooth that catches behind the wall beside the notch. To take it out, pull at the nail slot in its bottom edge.</li>
+<li>Whenever no cable is connected, press the USB cover into the notch from outside, after the base plate is in, until it stops. Two stops in the body hold it flush with the back: its lower edge stands against a sill across the bottom of the notch, and the rim round its top sits in a recess round the top of the notch. Both stay clear of the cable's plug. It clicks in on the way: a spring strip on each side has a tooth that catches behind the wall beside the notch and pulls the cover onto the stops. To take it out, pull at the nail slot in its bottom edge.</li>
 <li>To change theme, unhook the band (push each end in towards the head and lift), twist the side pieces back a quarter turn and pull them off, then fit another set.</li>
 </ol>
+<figure class="pair"><img src="../images/c_usb_stops.png" alt="The USB notch: the recess round its top and the sill across its bottom, with the cover beside it"><img src="../images/c_usb_in.png" alt="The USB cover in place, flush"></figure>
 <figure class="tall"><img src="../images/c_s8.png" alt="Finished, with the USB cover in place"></figure>
 
 <h2>First power-up</h2>
@@ -331,7 +332,8 @@ cap. If the cap is too hard to push in, lower it to 0.3 mm.</p>
 <tr><td>SuperMini won't slide in / is loose</td><td>mcu_t, mcu_clr</td><td>1.0 mm, 0.1 mm</td><td>Set mcu_t to your measured PCB thickness; raise mcu_clr to 0.15 if it is still tight</td></tr>
 <tr><td class="new">SuperMini comes out with the cable</td><td>mcu_hook</td><td>0.6 mm</td><td>Raise to 0.8</td></tr>
 <tr><td>Cable plug won't reach the port</td><td>usb_w, usb_h</td><td>12.5 x 7.5 mm</td><td>Widen for chunky cable overmolds</td></tr>
-<tr><td class="new">USB cover falls out / is too hard to press in</td><td>ucv_bite</td><td>0.3 mm</td><td>Raise to 0.4 / lower to 0.2</td></tr>
+<tr><td class="new">USB cover stops before it clicks in, or falls out / is too hard to press in</td><td>ucv_bite</td><td>0.4 mm</td><td>Raise to 0.5 / lower to 0.3. The teeth click in ucv_bite − ucv_pre (0.3 mm) before the cover reaches its stops</td></tr>
+<tr><td class="new">USB cover rattles against its stops</td><td>ucv_pre</td><td>0.1 mm</td><td>Raise to 0.15 (the teeth then click in that much later)</td></tr>
 </table>
 <p>Head and base fit. The first two rows need only the small key reprinted:</p>
 <table>
