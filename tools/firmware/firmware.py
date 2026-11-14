@@ -5,7 +5,7 @@ firmware.py - build the desk buddy firmware with your own settings, and flash it
   python3 tools/firmware/firmware.py                 the GUI in your browser: Build and Flash pages
   python3 tools/firmware/firmware.py --list          the settings and their defaults
   python3 tools/firmware/firmware.py --plan wifi=off battery=off      what a build would do
-  python3 tools/firmware/firmware.py --build wifi=off [--upload usb[:PORT] | --upload ota:HOST[@PASSWORD]]
+  python3 tools/firmware/firmware.py --build wifi=off [--upload usb[:PORT] | ota:HOST[@PASSWORD] | ble[:NAME][@PASSWORD]]
 
 The settings are in options.json (README.md has the format, so adding one is an edit
 there). Each picks the PlatformIO base environment and/or adds -D flags. A build runs
@@ -57,6 +57,11 @@ PORT_RE = re.compile(r"^[\w./\-:]{1,200}$")
 OUT_RE = re.compile(r"^deskbuddy_[a-z0-9_.\-]{1,120}\.bin$")
 SIZE_RE = re.compile(r"^(RAM|Flash):\s+\[.*\]\s+([\d.]+)%\s+\(used (\d+) bytes from (\d+) bytes\)")
 TRUE, FALSE = {"1", "true", "on", "yes", "y"}, {"0", "false", "off", "no", "n"}
+NUS_SERVICE = "6e400001-b5a3-f393-e0a9-e50e24dcca9e"     # the buddy's Bluetooth console (hardware/BLE.md)
+NUS_RX = "6e400002-b5a3-f393-e0a9-e50e24dcca9e"
+NUS_TX = "6e400003-b5a3-f393-e0a9-e50e24dcca9e"
+BLE_NAME_RE = re.compile(r"^[\w .\-]{0,29}$")
+UPDATE_REPLY_RE = re.compile(r"^(ready|ack|updated|error)\b ?(.*)$")
 
 
 # ---- settings -> build plan ---------------------------------------------------------
@@ -143,7 +148,11 @@ def effect(opt, value):
     return {}
 
 
-def plan(doc, values=None, supported=macro_supported):
+def env_in_ini(env):
+    return ("env:" + env) in read_ini()
+
+
+def plan(doc, values=None, supported=macro_supported, env_exists=env_in_ini):
     """Turns settings into a build: env, flags, output name, warnings and errors."""
     opts = {o["id"]: o for o in doc["options"]}
     vals, errors = {o["id"]: o["default"] for o in doc["options"]}, []
@@ -156,16 +165,27 @@ def plan(doc, values=None, supported=macro_supported):
         except ValueError as e:
             errors.append(str(e))
     forced = {}                                  # option id -> label of the option forcing it
-    for o in doc["options"]:
-        for k, v in (effect(o, vals[o["id"]]).get("forces") or {}).items():
-            if k not in opts:
-                errors.append("%s forces an unknown setting %r" % (o["label"], k))
-                continue
-            try:
-                vals[k] = parse_value(opts[k], v)
-            except ValueError as e:
-                errors.append(str(e))
-            forced[k] = o["label"]
+    for _ in range(len(doc["options"]) + 1):     # until nothing changes: serial -> ble off -> ble_ota off
+        changed = False
+        for o in doc["options"]:
+            for k, v in (effect(o, vals[o["id"]]).get("forces") or {}).items():
+                if k not in opts:
+                    if ("unknown", k) not in forced:
+                        errors.append("%s forces an unknown setting %r" % (o["label"], k))
+                        forced[("unknown", k)] = o["label"]
+                    continue
+                try:
+                    v = parse_value(opts[k], v)
+                except ValueError as e:
+                    errors.append(str(e))
+                    continue
+                if vals[k] != v or k not in forced:
+                    changed = changed or vals[k] != v
+                    vals[k] = v
+                    forced[k] = o["label"]
+        if not changed:
+            break
+    forced = {k: v for k, v in forced.items() if not isinstance(k, tuple)}
     env, env_from, flags, slug = doc["base_env"], None, [], []
     for o in doc["options"]:
         v = vals[o["id"]]
@@ -179,6 +199,12 @@ def plan(doc, values=None, supported=macro_supported):
         flags += [f.format(value=v) for f in e.get("flags", [])]
         if e.get("slug") and o["id"] not in forced:          # "serial", not "serial_nowifi_noble"
             slug.append(e["slug"].format(value=v))
+    for r in doc.get("env_rules", []):           # a combination that needs its own environment
+        if all(vals.get(k) == v for k, v in r["when"].items()):
+            env = r["env"]
+            break
+    if env_exists is not None and not env_exists(env):
+        errors.append("the firmware has no [env:%s] in platformio.ini yet" % env)
     warnings = [w["text"] for w in doc.get("warnings", []) if all(vals.get(k) == v for k, v in w["when"].items())]
     notes = [o["upload_note"] for o in doc["options"] if o.get("upload_note")]
     name = "_".join(["deskbuddy"] + slug + [fw_version()])
@@ -335,6 +361,99 @@ def resolve_macros(p, src=os.path.join(HW, "src")):
     return m
 
 
+def ble_update_build(p):
+    """True when the build `p` has Bluetooth and the Bluetooth update command."""
+    m = resolve_macros(p)
+    return m.get("BUDDY_BLE", 1) != 0 and m.get("BUDDY_BLE_OTA", 0) != 0
+
+
+def bridge_hold(seconds):
+    """Ask the Claude Code bridge (claude_integration/buddy_bridge.py) to stay off the buddy's
+    Bluetooth for `seconds` (0 ends it), as sim/serve.py does for uploads. No bridge: ignored."""
+    try:
+        c = http.client.HTTPConnection("127.0.0.1", 47615, timeout=90)
+        c.request("POST", "/hold", body=json.dumps({"seconds": seconds}), headers={"X-Desk-Buddy": "1"})
+        c.getresponse().read()
+        c.close()
+    except OSError:
+        pass
+
+
+def ble_update(data, device_name="", password="", log=print):
+    """Send firmware (the app .bin) over Bluetooth with the buddy's `update` command:
+       > update <bytes> <md5> [password]   < ready <window>
+       > window bytes ...                  < ack <n>   (each window)
+       < updated ...                       or < error <reason>
+    Needs bleak and a paired buddy (the OS asks for the code on its screen the first time)."""
+    import asyncio
+    import hashlib
+    try:
+        from bleak import BleakClient, BleakScanner
+    except ImportError:
+        raise RuntimeError("updates over Bluetooth need bleak: pip install bleak")
+    total, md5 = len(data), hashlib.md5(data).hexdigest()
+
+    async def run():
+        def match(d, ad):
+            if NUS_SERVICE not in [u.lower() for u in ad.service_uuids]:
+                return False
+            return not device_name or device_name in (ad.local_name, d.name)
+        log("looking for %s over Bluetooth ..." % (device_name or "a desk buddy"))
+        dev = await BleakScanner.find_device_by_filter(match, timeout=15)
+        if not dev:
+            raise RuntimeError("no desk buddy advertising over Bluetooth (both connections taken, or Bluetooth off on it?)")
+        replies, buf = asyncio.Queue(), [""]
+
+        def on_tx(_, d):
+            buf[0] += d.decode(errors="replace")
+            while "\n" in buf[0]:
+                line, buf[0] = buf[0].split("\n", 1)
+                m = UPDATE_REPLY_RE.match(line.strip())
+                if m:
+                    replies.put_nowait((m.group(1), m.group(2)))
+
+        async def reply(timeout, what):
+            try:
+                return await asyncio.wait_for(replies.get(), timeout)
+            except asyncio.TimeoutError:
+                raise RuntimeError("no answer from the buddy (%s); paired? the code is on its screen" % what)
+
+        async with BleakClient(dev, timeout=20) as c:
+            log("connected to %s" % (dev.name or dev.address))
+            await c.start_notify(NUS_TX, on_tx)
+            mtu = max(20, c.mtu_size - 3)
+            cmd = "update %d %s%s\n" % (total, md5, " " + password if password else "")
+            await c.write_gatt_char(NUS_RX, cmd.encode(), response=True)
+            kind, rest = await reply(60, "update")         # the first write may wait for pairing
+            if kind != "ready":
+                raise RuntimeError("the buddy refused the update: %s" % (rest or kind))
+            window, sent, shown, t0 = int(rest.split()[0]), 0, -1, time.time()
+            while sent < total:
+                part = data[sent:sent + window]
+                for i in range(0, len(part), mtu):
+                    await c.write_gatt_char(NUS_RX, part[i:i + mtu], response=False)
+                sent += len(part)
+                kind, rest = await reply(30, "ack")
+                if kind != "ack":
+                    raise RuntimeError("update failed: %s" % (rest or kind))
+                pct = sent * 100 // total
+                if pct // 10 != shown:
+                    shown = pct // 10
+                    rate = sent / max(0.1, time.time() - t0) / 1024
+                    log("sent %d%% (%d of %d KB, %.1f KB/s)" % (pct, sent // 1024, total // 1024, rate))
+            kind, rest = await reply(120, "check and install")
+            if kind != "updated":
+                raise RuntimeError("update failed: %s" % (rest or kind))
+            log("buddy: updated %s" % rest)
+    bridge_hold(900)
+    ok = False
+    try:
+        asyncio.run(run())
+        ok = True
+    finally:
+        bridge_hold(20 if ok else 0)    # after "updated" the buddy restarts: keep the bridge off until it is back
+
+
 def find_pio():
     for c in (shutil.which("pio"), shutil.which("platformio"),
               os.path.expanduser("~/.platformio/penv/bin/pio")):
@@ -477,6 +596,19 @@ class Job:
         if self.upload and self.upload.get("type") == "ota":
             self._ota(os.path.join(OUT_DIR, p["name"] + ".bin"))
             return
+        if self.upload and self.upload.get("type") == "ble":
+            with open(os.path.join(OUT_DIR, p["name"] + ".bin"), "rb") as f:
+                data = f.read()
+            try:
+                ble_update(data, self.upload.get("name") or "", self.upload.get("password") or "", self.log)
+            except Exception as e:                   # bleak raises many kinds
+                self.log("update over Bluetooth failed: %s" % e)
+                self.status = "failed"
+                return
+            self.result["uploaded"] = "ble"
+            self.log("done, the buddy restarts with the new firmware")
+            self.status = "ok"
+            return
         if self.upload and self.upload.get("type") == "usb":
             self.result["uploaded"] = "usb"
         self.status = "ok"
@@ -499,7 +631,8 @@ class Job:
         rel = os.path.relpath(OUT_DIR, REPO)
         self.result.update({"name": p["name"], "bin": os.path.join(rel, app_out), "factory": os.path.join(rel, fac_out),
                             "bytes": info["app_bytes"], "factory_bytes": size})
-        self.log("app: %s (%d KB%s)" % (self.result["bin"], info["app_bytes"] // 1024, ", for updates over Wi-Fi" if p["wifi_build"] else ""))
+        via = [w for w, on in (("Wi-Fi", p["wifi_build"]), ("Bluetooth", ble_update_build(p))) if on]
+        self.log("app: %s (%d KB%s)" % (self.result["bin"], info["app_bytes"] // 1024, ", for updates over " + " or ".join(via) if via else ""))
         self.log("full image: %s (%d KB, from 0x0: the web flasher writes this)" % (self.result["factory"], size // 1024))
 
     def _ota(self, path):
@@ -542,6 +675,10 @@ def check_upload(upload, p):
         if not p["wifi_build"]:
             return "updates over Wi-Fi need a Wi-Fi build"
         return None if HOST_RE.match(upload.get("host") or "") else "bad address"
+    if t == "ble":
+        if not ble_update_build(p):
+            return "updates over Bluetooth need a build with Bluetooth and \"Updates over Bluetooth\" on"
+        return None if BLE_NAME_RE.match(upload.get("name") or "") else "bad Bluetooth name"
     return "unknown upload type"
 
 
@@ -640,6 +777,7 @@ class Handler(BaseHTTPRequestHandler):
             p = plan(load_options(), req.get("values") or {})
             p["command"] = shlex.join(command(p, req.get("upload"), "pio", os.path.relpath(HW, REPO)))
             p["layout"] = layout(p["env"])
+            p["ble_update_build"] = ble_update_build(p)
             last = os.path.join(OUT_DIR, p["name"] + ".json")
             if os.path.exists(last):
                 try:
@@ -711,7 +849,11 @@ def parse_upload(s):
     if s.startswith("ota:"):
         host, _, pw = s[4:].partition("@")
         return {"type": "ota", "host": host, "password": pw}
-    raise SystemExit("--upload is usb, usb:<port> or ota:<address>[@password]")
+    if s == "ble" or s.startswith("ble:") or s.startswith("ble@"):
+        rest = s[3:].lstrip(":")
+        name, _, pw = rest.partition("@")
+        return {"type": "ble", "name": name, "password": pw}
+    raise SystemExit("--upload is usb, usb:<port>, ota:<address>[@password] or ble[:<name>][@password]")
 
 
 def main():
@@ -720,7 +862,7 @@ def main():
     g.add_argument("--list", action="store_true", help="show the settings")
     g.add_argument("--plan", nargs="*", metavar="NAME=VALUE", help="show what a build with these settings does")
     g.add_argument("--build", nargs="*", metavar="NAME=VALUE", help="build with these settings")
-    ap.add_argument("--upload", help="after --build: usb, usb:<port> or ota:<address>[@password]")
+    ap.add_argument("--upload", help="after --build: usb, usb:<port>, ota:<address>[@password] or ble[:<name>][@password]")
     ap.add_argument("--port", type=int, default=0, help="GUI server port (default: any free one)")
     ap.add_argument("--no-browser", action="store_true", help="GUI: print the address instead of opening it")
     a = ap.parse_args()

@@ -31,9 +31,14 @@ YES = lambda macro: True   # noqa: E731
 NO = lambda macro: False   # noqa: E731
 
 
+def dplan(values, supported):
+    """plan() on the made-up DOC, whose environments are not in platformio.ini."""
+    return fb.plan(DOC, values, supported, env_exists=lambda env: True)
+
+
 class Plan(unittest.TestCase):
     def test_defaults(self):
-        p = fb.plan(DOC, {}, YES)
+        p = dplan({}, YES)
         self.assertEqual(p["env"], "base")
         self.assertEqual(p["flags"], [])
         self.assertEqual(p["errors"], [])
@@ -41,7 +46,7 @@ class Plan(unittest.TestCase):
         self.assertTrue(p["wifi_build"])
 
     def test_bool_env_and_flags(self):
-        p = fb.plan(DOC, {"wifi": "off", "ble": False}, YES)
+        p = dplan({"wifi": "off", "ble": False}, YES)
         self.assertEqual(p["env"], "nowifi_env")
         self.assertEqual(p["flags"], ["-DBUDDY_BLE=0"])
         self.assertEqual(p["warnings"], ["USB only"])
@@ -49,35 +54,35 @@ class Plan(unittest.TestCase):
         self.assertFalse(p["wifi_build"])
 
     def test_forces(self):
-        p = fb.plan(DOC, {"serial": True, "wifi": True, "ble": True}, YES)
+        p = dplan({"serial": True, "wifi": True, "ble": True}, YES)
         self.assertEqual(p["env"], "nowifi_env")
         self.assertEqual(p["flags"], ["-DBUDDY_BLE=0"])
         self.assertEqual(p["forced"], {"wifi": "Serial only", "ble": "Serial only"})
         self.assertEqual((p["values"]["wifi"], p["values"]["ble"]), (False, False))
         self.assertTrue(p["name"].endswith("_serial_pa_" + fb.fw_version()))
         self.assertEqual(p["warnings"], ["USB only"])
-        self.assertEqual(fb.plan(DOC, {"serial": False}, YES)["forced"], {})
-        self.assertTrue(any("BUDDY_BLE" in e for e in fb.plan(DOC, {"serial": True}, NO)["errors"]))
+        self.assertEqual(dplan({"serial": False}, YES)["forced"], {})
+        self.assertTrue(any("BUDDY_BLE" in e for e in dplan({"serial": True}, NO)["errors"]))
 
     def test_choice_and_number(self):
-        p = fb.plan(DOC, {"pins": "b", "spi": "20"}, YES)
+        p = dplan({"pins": "b", "spi": "20"}, YES)
         self.assertEqual(p["flags"], ["-DPINS_B=1", "-DSPI_MHZ=20"])
         self.assertTrue(p["name"].endswith("_pb_spi20_" + fb.fw_version()))
-        self.assertEqual(fb.plan(DOC, {"spi": 40}, YES)["flags"], [])   # default: no flag
+        self.assertEqual(dplan({"spi": 40}, YES)["flags"], [])   # default: no flag
 
     def test_errors(self):
-        self.assertIn("unknown setting 'x'", fb.plan(DOC, {"x": 1}, YES)["errors"])
-        self.assertTrue(fb.plan(DOC, {"spi": 99}, YES)["errors"])
-        self.assertTrue(fb.plan(DOC, {"pins": "z"}, YES)["errors"])
-        self.assertTrue(fb.plan(DOC, {"wifi": "maybe"}, YES)["errors"])
+        self.assertIn("unknown setting 'x'", dplan({"x": 1}, YES)["errors"])
+        self.assertTrue(dplan({"spi": 99}, YES)["errors"])
+        self.assertTrue(dplan({"pins": "z"}, YES)["errors"])
+        self.assertTrue(dplan({"wifi": "maybe"}, YES)["errors"])
 
     def test_env_conflict(self):
-        p = fb.plan(DOC, {"wifi": False, "pins": "c"}, YES)
+        p = dplan({"wifi": False, "pins": "c"}, YES)
         self.assertTrue(any("different base environments" in e for e in p["errors"]))
 
     def test_requires_firmware_support(self):
-        self.assertEqual(fb.plan(DOC, {}, NO)["errors"], [])              # default is fine
-        p = fb.plan(DOC, {"ble": False}, NO)
+        self.assertEqual(dplan({}, NO)["errors"], [])              # default is fine
+        p = dplan({"ble": False}, NO)
         self.assertTrue(any("BUDDY_BLE" in e for e in p["errors"]))
 
     def test_parse_bool(self):
@@ -88,16 +93,16 @@ class Plan(unittest.TestCase):
             self.assertIs(fb.parse_value(o, s), False)
 
     def test_upload_checks(self):
-        p = fb.plan(DOC, {}, YES)
+        p = dplan({}, YES)
         self.assertIsNone(fb.check_upload(None, p))
         self.assertIsNone(fb.check_upload({"type": "usb", "port": "/dev/cu.usbmodem1101"}, p))
         self.assertIsNone(fb.check_upload({"type": "ota", "host": "desk-buddy.local"}, p))
         self.assertTrue(fb.check_upload({"type": "ota", "host": "a b"}, p))
         self.assertTrue(fb.check_upload({"type": "usb", "port": "x; rm -rf /"}, p))
-        self.assertTrue(fb.check_upload({"type": "ota", "host": "1.2.3.4"}, fb.plan(DOC, {"wifi": False}, YES)))
+        self.assertTrue(fb.check_upload({"type": "ota", "host": "1.2.3.4"}, dplan({"wifi": False}, YES)))
 
     def test_command(self):
-        p = fb.plan(DOC, {}, YES)
+        p = dplan({}, YES)
         self.assertEqual(fb.command(p)[-2:], ["-e", "base"])
         self.assertEqual(fb.command(p, {"type": "usb", "port": "/dev/x"})[-4:], ["-t", "upload", "--upload-port", "/dev/x"])
 
@@ -155,6 +160,45 @@ class RealOptions(unittest.TestCase):
         self.assertEqual(p["forced"].get("charging"), "Battery level")
         self.assertIn("-DBUDDY_BATTERY=0", p["flags"])
         self.assertNotIn("nochg", p["name"])                 # forced: not in the name
+
+
+class BluetoothUpdates(unittest.TestCase):
+    def test_serial_turns_ble_and_ble_ota_off(self):
+        p = fb.plan(fb.load_options(), {"serial": True, "ble_ota": True}, supported=lambda m: True, env_exists=lambda e: True)
+        self.assertEqual(p["values"]["ble"], False)
+        self.assertEqual(p["values"]["ble_ota"], False)              # through ble's own forces
+        self.assertIn("ble_ota", p["forced"])
+        self.assertNotIn("bleota", p["name"])
+
+    def test_env_rule_without_wifi(self):
+        doc = fb.load_options()
+        p = fb.plan(doc, {"wifi": False, "ble_ota": True}, supported=lambda m: True, env_exists=lambda e: True)
+        self.assertEqual(p["env"], "esp32s3_supermini_ble_ota")
+        self.assertIn("-DBUDDY_BLE_OTA=1", p["flags"])
+        self.assertIn("_bleota_", p["name"])
+        p = fb.plan(doc, {"wifi": True, "ble_ota": True}, supported=lambda m: True, env_exists=lambda e: True)
+        self.assertEqual(p["env"], doc["base_env"])                  # the Wi-Fi build has its update slot
+        p = fb.plan(doc, {"wifi": False, "ble_ota": True}, supported=lambda m: True, env_exists=lambda e: e != "esp32s3_supermini_ble_ota")
+        self.assertTrue(any("esp32s3_supermini_ble_ota" in e for e in p["errors"]))
+
+    def test_env_rules_exist_or_are_locked(self):
+        """Every env_rules environment is in platformio.ini, unless its settings still need firmware support."""
+        doc = fb.load_options()
+        opts = {o["id"]: o for o in doc["options"]}
+        for r in doc.get("env_rules", []):
+            locked = any(opts[k].get("requires") and not fb.macro_supported(opts[k]["requires"]) for k in r["when"])
+            self.assertTrue(fb.env_in_ini(r["env"]) or locked, r["env"])
+
+    def test_upload_parsing(self):
+        self.assertEqual(fb.parse_upload("ble"), {"type": "ble", "name": "", "password": ""})
+        self.assertEqual(fb.parse_upload("ble:Desk Buddy"), {"type": "ble", "name": "Desk Buddy", "password": ""})
+        self.assertEqual(fb.parse_upload("ble:Desk Buddy@pw"), {"type": "ble", "name": "Desk Buddy", "password": "pw"})
+        self.assertEqual(fb.parse_upload("ble@pw"), {"type": "ble", "name": "", "password": "pw"})
+
+    def test_upload_needs_a_ble_update_build(self):
+        p = fb.plan(fb.load_options(), {})
+        if not fb.ble_update_build(p):
+            self.assertIn("Bluetooth", fb.check_upload({"type": "ble"}, p))
 
 
 class Wiring(unittest.TestCase):

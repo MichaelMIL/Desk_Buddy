@@ -1,5 +1,5 @@
 {
-  "about": "Settings for firmware.py. Each option picks the PlatformIO base environment ('env'), adds -D flags ('flags'), can force other options ('forces'), and names the output file ('slug'). Format: README.md.",
+  "about": "Settings for firmware.py. Each option picks the PlatformIO base environment ('env'), adds -D flags ('flags'), can force other options ('forces'), and names the output file ('slug'); 'env_rules' pick an environment for a combination. Format: README.md.",
   "base_env": "esp32s3_supermini",
   "options": [
     {
@@ -8,7 +8,7 @@
       "type": "bool",
       "default": true,
       "help": "Wi-Fi, MQTT / Home Assistant, the HTTP API and firmware updates over Wi-Fi. Off: Bluetooth and USB only, and 3.3 MB instead of 1.9 MB for animations.",
-      "upload_note": "Switching between a Wi-Fi and a no-Wi-Fi build changes the partition table: the animations stored on the buddy are erased (push them again afterwards).",
+      "upload_note": "Switching to a build with another partition layout (Wi-Fi, no Wi-Fi, no Wi-Fi with Bluetooth updates; the Flash layout card shows it) erases the animations stored on the buddy: push them again afterwards.",
       "on": {
         "slug": "wifi"
       },
@@ -31,7 +31,24 @@
         "flags": [
           "-DBUDDY_BLE=0"
         ],
-        "slug": "noble"
+        "slug": "noble",
+        "forces": {
+          "ble_ota": false
+        }
+      }
+    },
+    {
+      "id": "ble_ota",
+      "label": "Updates over Bluetooth",
+      "type": "bool",
+      "default": false,
+      "requires": "BUDDY_BLE_OTA",
+      "help": "New firmware can be sent over Bluetooth from a paired computer (\"Update over Bluetooth\" below; a few minutes, Bluetooth moves 3 to 5 KB/s). Without Wi-Fi this needs a second app slot, so 2.69 MB instead of 3.31 MB is left for animations.",
+      "on": {
+        "flags": [
+          "-DBUDDY_BLE_OTA=1"
+        ],
+        "slug": "bleota"
       }
     },
     {
@@ -91,6 +108,16 @@
         "ble": false
       },
       "text": "USB serial only: control, animations and firmware updates go over the USB cable."
+    }
+  ],
+  "env_rules": [
+    {
+      "when": {
+        "wifi": false,
+        "ble_ota": true
+      },
+      "env": "esp32s3_supermini_ble_ota",
+      "why": "no Wi-Fi + Bluetooth updates: two app slots"
     }
   ]
 }

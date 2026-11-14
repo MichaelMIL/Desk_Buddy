@@ -16,7 +16,8 @@ building. The page has two tabs:
   RAM bars (the Wi-Fi build's app slot is 1 MB, so watch it when adding
   features). Afterwards it can flash over USB with PlatformIO, send the
   update to a running Wi-Fi build (`PUT /api/update`, as `hardware/ota.sh`
-  does), or hand the build to the Flash tab. A **Flash layout** card shows
+  does), send it over Bluetooth to a buddy running a build with "Updates over
+  Bluetooth" (below), or hand the build to the Flash tab. A **Flash layout** card shows
   the build's partition map and how many animations fit (below).
 - **Flash**: a web flasher. It writes a build to the buddy from the browser
   over USB (below).
@@ -33,7 +34,8 @@ cannot start builds or uploads. Stop it with Ctrl-C.
 | Setting | Default | Off / on |
 |---|---|---|
 | Wi-Fi | on | off: the `esp32s3_supermini_ble` environment (Bluetooth + USB, 3.3 MB for animations) |
-| Bluetooth | on | off: `-DBUDDY_BLE=0` |
+| Bluetooth | on | off: `-DBUDDY_BLE=0` (and Updates over Bluetooth off) |
+| Updates over Bluetooth | off | on: `-DBUDDY_BLE_OTA=1`, the `update` Bluetooth command. Without Wi-Fi it uses `esp32s3_supermini_ble_ota` (two 640 KB app slots, 2.69 MB for animations instead of 3.31 MB) |
 | USB serial only | off | on: Wi-Fi and Bluetooth off, whatever they are set to (the GUI greys them out) |
 | Battery level | on | off: `-DBUDDY_BATTERY=0` (and Charging status off) |
 | Charging status | on | off: `-DBAT_CHRG_PIN=-1 -DBAT_STDBY_PIN=-1`, no wires to the charger's CHRG / STDBY pads |
@@ -118,6 +120,31 @@ a deleted animation from the library when it is played, so a smaller
 partition limits how many are on the buddy at once, not which ones play.
 `GET /api/library` returns the numbers behind it.
 
+## Updates over Bluetooth
+
+With "Updates over Bluetooth" on, the firmware gets an `update` command on
+its Bluetooth console. **Update over Bluetooth** (Build tab), or `--upload ble`,
+sends the app `.bin` with it. This uses `bleak` (`pip install bleak`), as
+`sim/serve.py` does for animations:
+
+```
+> update <bytes> <md5> [password]     the password when one is set (otapass)
+< ready 2048
+> 2048 bytes  < ack <n>  ...          like the animation upload (hardware/BLE.md)
+< updated ...                         then the buddy restarts with it
+```
+
+The buddy has to run a build with the command already, so the first such
+build goes on over USB (or Wi-Fi). It has to be paired with this computer:
+the first time, the OS asks for the code on the buddy's screen. Measured on
+the board: the 509 KB no-Wi-Fi firmware took about 2 minutes (4.6 KB/s), so
+the 954 KB Wi-Fi one takes about 3.5. A wrong checksum is refused, and the
+old firmware keeps running. The Claude Code bridge is asked to stay off the
+buddy's Bluetooth during the update, and for 20 s after it while the buddy
+restarts. The setting stays locked ("needs firmware support") until
+`hardware/src` has `BUDDY_BLE_OTA`. The protocol and its errors are in
+`hardware/BLE.md`, "Firmware updates over Bluetooth".
+
 ## Wiring tab
 
 Shows the same settings as the Build tab (they are shared) and draws the
@@ -143,6 +170,7 @@ python3 tools/firmware/firmware.py --list                        # settings and 
 python3 tools/firmware/firmware.py --plan serial=on battery=off  # what a build would do
 python3 tools/firmware/firmware.py --build wifi=off --upload usb # build, flash over USB (PlatformIO)
 python3 tools/firmware/firmware.py --build --upload ota:desk-buddy.local[@password]
+python3 tools/firmware/firmware.py --build ble_ota=on --upload ble[:<name>][@password]
 ```
 
 ## How it builds
@@ -179,11 +207,15 @@ What a value does (all optional):
 |---|---|
 | `env` | use this `[env:…]` from `platformio.ini` as the base (two settings asking for different ones is an error) |
 | `flags` | list of compiler flags, e.g. `["-DBUDDY_BATTERY=0"]` (`{value}` is replaced) |
-| `forces` | other settings to override, e.g. `{"wifi": false, "ble": false}` |
+| `forces` | other settings to override, e.g. `{"wifi": false, "ble": false}`; followed through (USB serial only → Bluetooth off → Updates over Bluetooth off) |
 | `slug` | part of the output file name |
 
 `warnings` is a list of `{ "when": { id: value, ... }, "text" }`, shown when
-every listed setting has that value (after `forces`).
+every listed setting has that value (after `forces`). `env_rules` is a list of
+`{ "when": {...}, "env" }` for combinations that need their own environment
+(no Wi-Fi + Bluetooth updates → `esp32s3_supermini_ble_ota`). The first match
+wins over the settings' own `env`. A build whose environment is not in
+`platformio.ini` is refused.
 
 A new firmware option usually needs a macro in `hardware/src/config.h`
 (`#ifndef BUDDY_X / #define BUDDY_X 1`, like `BUDDY_WIFI`), code behind

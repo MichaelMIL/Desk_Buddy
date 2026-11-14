@@ -43,6 +43,10 @@
           <input type="radio" name="mode" value="ota" id="m-ota"><label for="m-ota">Update over Wi-Fi</label>
           <div class="extra"><input type="text" id="host" placeholder="address, e.g. desk-buddy.local" aria-label="Buddy address"><input type="password" id="otapw" placeholder="update password (if set)" aria-label="Update password"></div>
         </div>
+        <div class="mode" id="mode-ble">
+          <input type="radio" name="mode" value="ble" id="m-ble"><label for="m-ble">Update over Bluetooth</label>
+          <div class="extra"><input type="text" id="blename" placeholder="buddy name (optional)" aria-label="Buddy Bluetooth name"><input type="password" id="blepw" placeholder="update password (if set)" aria-label="Update password"></div>
+        </div>
       </div>
       <div id="u-notes"></div>
       <div class="actions">
@@ -163,6 +167,7 @@
     const m = mode();
     if (m === 'usb') return { type: 'usb', port: $('port').value || null };
     if (m === 'ota') return { type: 'ota', host: $('host').value.trim(), password: $('otapw').value };
+    if (m === 'ble') return { type: 'ble', name: $('blename').value.trim(), password: $('blepw').value };
     return null;
   }
 
@@ -171,6 +176,7 @@
     store.set('values', values);
     store.set('mode', mode());
     store.set('host', $('host').value.trim());
+    store.set('blename', $('blename').value.trim());
     const mine = ++seq;
     let res;
     try { res = await api('/api/plan', { values, upload: upload() }); } catch (e) { res = { errors: [e.message], warnings: [], flags: [] }; }
@@ -190,6 +196,11 @@
     const ota = !!cur.wifi_build;
     $('mode-ota').classList.toggle('disabled', !ota);
     $('m-ota').disabled = !ota;
+    // Bluetooth updates only for builds that have them (the buddy must already run such a build)
+    const ble = !!cur.ble_update_build;
+    $('mode-ble').classList.toggle('disabled', !ble);
+    $('m-ble').disabled = !ble;
+    if (!ble && mode() === 'ble') { document.querySelector('input[name=mode][value=none]').checked = true; }
     if (!ota && mode() === 'ota') { document.querySelector('input[name=mode][value=none]').checked = true; }
     const notes = $('u-notes');
     notes.textContent = '';
@@ -199,7 +210,7 @@
 
   function updateButtons(running = polling) {
     const m = mode();
-    $('go').textContent = m === 'usb' ? 'Build and flash' : m === 'ota' ? 'Build and update' : 'Build';
+    $('go').textContent = m === 'usb' ? 'Build and flash' : m === 'ota' || m === 'ble' ? 'Build and update' : 'Build';
     const bad = !cur || (cur.errors || []).length > 0 || !doc.pio || (m === 'ota' && !$('host').value.trim());
     $('go').disabled = running || bad;
     $('stop').classList.toggle('hidden', !running);
@@ -240,6 +251,7 @@
       box.append(el('div', {}, el('a', { class: 'button', href: 'flash.html?build=' + encodeURIComponent(r.name), text: 'Flash it in this browser' })));
     if (r.uploaded === 'usb') box.append(el('div', { class: 'msg note', text: 'Flashed over USB. The buddy restarts; give it a few seconds.' }));
     if (r.uploaded === 'ota') box.append(el('div', { class: 'msg note', text: 'Sent over Wi-Fi. The buddy installs it and restarts.' }));
+    if (r.uploaded === 'ble') box.append(el('div', { class: 'msg note', text: 'Sent over Bluetooth. The buddy installed it and restarts.' }));
   }
 
   async function poll() {
@@ -303,6 +315,7 @@
       values[o.id] = ok ? v : o.default;
     }
     $('host').value = store.get('host', '');
+    $('blename').value = store.get('blename', '');
     const m = store.get('mode', 'none');
     const r = document.querySelector('input[name=mode][value="' + m + '"]');
     if (r) r.checked = true;
