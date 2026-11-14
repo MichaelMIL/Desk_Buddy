@@ -923,6 +923,7 @@ module body(style = "hoodie") {
         usb_access();
     }
     neck_posts();
+    usb_body_extra();   // empty here: a USB cover variant (3d/usb_variants/) adds its parts to the body
     // catch ribs for the base plate's snap teeth (45-degree underside: no support)
     for (m = [0, 1]) mirror([m, 0, 0]) translate([0, 3.5, 0]) rotate([90, 0, 0]) linear_extrude(7)
         polygon([[25, rib_z - 0.65 - (25 - rib_x)], [rib_x, rib_z - 0.65], [rib_x, rib_z], [25, rib_z]]);
@@ -960,6 +961,7 @@ module ucv_pocket_2d() {
         polygon([[-xa - 40, usb_z + 40], [-xa, usb_z], [xa, usb_z], [xa + 40, usb_z + 40]]);
     }
 }
+module usb_body_extra() {}
 // what the body loses for the USB-C port: the notch (minus the sill) and the top recess
 module usb_access() {
     difference() {
