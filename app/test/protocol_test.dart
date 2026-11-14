@@ -42,7 +42,10 @@ void main() {
       expect(alertPoolOf('charging_plugged_in'), AlertPool.plugged);
       expect(alertPoolOf('charging_zap'), AlertPool.charging);
       expect(alertPoolOf('charging_full'), AlertPool.full);
+      expect(alertPoolOf('confused_two_remotes'), AlertPool.confused);
+      expect(alertPoolOf('connected_hello'), AlertPool.connected);
       expect(alertPoolOf('face_happy'), isNull);
+      expect(alertPoolOf('xmas__confused_two_remotes'), isNull);
       expect(alertPoolOf('xmas__battery_low'), isNull);
       final pools = alertPools(['charging_zap', 'face_happy', 'charging_sip', 'battery_low']);
       expect(pools[AlertPool.charging], ['charging_sip', 'charging_zap']);

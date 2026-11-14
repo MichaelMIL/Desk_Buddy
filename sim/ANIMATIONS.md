@@ -105,7 +105,7 @@ alone (`Charging: full party` → `charging_full_party` → the full pool):
 | connected | `connected_*` | when a paired Bluetooth device connects that was away 10 minutes or more |
 
 The intervals are settings on the buddy (`alerts low|charging <min>|off`, the
-phone app's "Battery and charging" card); `hardware/README.md` has the details
+phone app's "Alerts" card); `hardware/README.md` has the details
 ("Battery and charging animations") and the charger wiring ("Charging
 (optional)"). An alert plays twice, or once with `loop: false` (good for a
 story like `Charging: plugged in`), so keep them a few seconds long and small.

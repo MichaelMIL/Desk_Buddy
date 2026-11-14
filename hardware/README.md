@@ -131,7 +131,7 @@ shows a text screen ("Battery low" and the percentage, "Charging", "Battery
 charged") for 5 s, except for the every-few-minutes charging pool. These
 animations never join the cycle (unless a cycle list names them).
 
-Settings (saved; the phone app's "Battery and charging" card and
+Settings (saved; the phone app's "Alerts" card and
 `sim/remote.html` have them too):
 
 ```

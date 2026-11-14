@@ -80,12 +80,19 @@ void main() {
     expect(find.byIcon(Icons.battery_full_rounded), findsNothing);
   });
 
-  testWidgets('battery and charging animations: when, the pools, and trying one', (tester) async {
+  testWidgets('alerts: when, the pools, and trying one', (tester) async {
     final (b, link) = await connected(
       tester,
-      setup: (b) => b.names = [...b.names, 'battery_low', 'battery_sos', 'charging_plugged_in', 'charging_zap'],
+      setup: (b) => b.names = [
+        ...b.names,
+        'battery_low',
+        'battery_sos',
+        'charging_plugged_in',
+        'charging_zap',
+        'confused_two_remotes',
+      ],
     );
-    final card = find.text('BATTERY AND CHARGING');
+    final card = find.text('ALERTS');
     await tester.scrollUntilVisible(find.text('Charged'), 300);
     await tester.ensureVisible(find.text('Charged'));
     await tester.pumpAndSettle();
@@ -112,13 +119,22 @@ void main() {
     await settle(tester);
     expect(b.commands, contains('alerts charging 0'));
     expect(link.alerts?.charging, 0);
+
+    // the Bluetooth pools: confused_* and connected_*
+    await tester.scrollUntilVisible(find.text('Device connected'), 300);
+    await tester.pumpAndSettle();
+    expect(find.textContaining('two remotes · two Bluetooth devices'), findsOneWidget);
+    expect(find.textContaining('None on the buddy (a paired device back'), findsOneWidget);
+    await tester.tap(find.descendant(of: find.widgetWithText(ListTile, 'Two remotes at once'), matching: find.text('Try')));
+    await settle(tester);
+    expect(b.commands, contains('alerts test confused'));
   });
 
   testWidgets('firmware without alerts: no card, and no complaint about the question', (tester) async {
     final (b, link) = await connected(tester, setup: (b) => b.alertLow = null);
     expect(b.commands, contains('alerts'));
     expect(link.alerts, isNull);
-    expect(find.text('BATTERY AND CHARGING'), findsNothing);
+    expect(find.text('ALERTS'), findsNothing);
     expect(find.byType(SnackBar), findsNothing);
     expect(link.log.where((l) => l.text.startsWith('commands: ')), isEmpty);
   });

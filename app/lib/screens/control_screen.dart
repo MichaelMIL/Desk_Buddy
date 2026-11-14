@@ -239,7 +239,7 @@ class _RemoteTab extends StatelessWidget {
             const _Section('Playback'),
             _PlaybackCard(link: link, faces: [...faces.common, ...faces.themed].where(onBuddy.contains).toList()),
             if (link.alerts case final alerts?) ...[
-              const _Section('Battery and charging'),
+              const _Section('Alerts'),
               _AlertsCard(link: link, alerts: alerts),
             ],
           ],
@@ -326,12 +326,12 @@ class _NowPlaying extends StatelessWidget {
   final BuddyState st;
 
   /// What the buddy takes turns with while cycling: the cycle list, or the
-  /// faces it shows with its theme (not the battery and charging alerts).
+  /// faces it shows with its theme (not the alerts: battery, charging, Bluetooth).
   List<String> _cycleFaces() {
     final listed = link.settings.cycleNames.where(link.names.contains).toList();
     if (listed.isNotEmpty) return listed;
     final f = facesFor(link.names, st.theme);
-    return [...f.common, ...f.themed].where((n) => !n.startsWith('battery_') && !n.startsWith('charging_')).toList();
+    return [...f.common, ...f.themed].where((n) => alertPoolOf(n) == null).toList();
   }
 
   @override
@@ -776,7 +776,8 @@ class _PlaybackCardState extends State<_PlaybackCard> {
 }
 
 /// When the buddy shows its battery and charging animations, and the pools
-/// it picks them from (by name, see [alertPoolOf]).
+/// it picks its alerts from (battery, charging and Bluetooth; by name, see
+/// [alertPoolOf]).
 class _AlertsCard extends StatelessWidget {
   const _AlertsCard({required this.link, required this.alerts});
   final BuddyLink link;
@@ -792,7 +793,7 @@ class _AlertsCard extends StatelessWidget {
       ? 'Plug-in and full only'
       : 'Every ~$m min';
 
-  static String _short(String name) => name.replaceFirst(RegExp(r'^(battery|charging)_'), '').replaceAll('_', ' ');
+  static String _short(String name) => name.replaceFirst(RegExp(r'^(battery|charging|confused|connected)_'), '').replaceAll('_', ' ');
 
   @override
   Widget build(BuildContext context) {

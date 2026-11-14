@@ -167,22 +167,27 @@ class PlaybackSettings {
       (cycleList ?? '').split(',').map((s) => s.trim()).where((s) => s.isNotEmpty).toList();
 }
 
-/// The pools the buddy picks its battery and charging animations from, by
-/// name as in the firmware: `battery_critical…` critical, other `battery_…`
-/// low, `charging_plugged…` plugged, `charging_full…` full, other
-/// `charging_…` charging.
+/// The pools the buddy picks its alert animations from, by name as in the
+/// firmware (`pool_of()` in main.cpp): `battery_critical…` critical, other
+/// `battery_…` low, `charging_plugged…` plugged, `charging_full…` full,
+/// other `charging_…` charging, `confused_…` confused (two Bluetooth devices
+/// sending commands at once), `connected_…` connected (a device connecting).
 enum AlertPool {
   low('Battery low', 'about every few minutes while low (15 %)'),
   critical('Battery critical', 'instead, at 5 % and below'),
   plugged('Plugged in', 'when charging starts'),
   charging('While charging', 'about every few minutes'),
-  full('Charged', 'once, when the charger is done');
+  full('Charged', 'once, when the charger is done'),
+  confused('Two remotes at once', 'two Bluetooth devices sending commands within 3 s'),
+  connected('Device connected', 'a paired device back after 10 minutes or more');
 
   const AlertPool(this.label, this.when);
   final String label, when;
 }
 
 AlertPool? alertPoolOf(String name) {
+  if (name.startsWith('confused_')) return AlertPool.confused;
+  if (name.startsWith('connected_')) return AlertPool.connected;
   if (name.startsWith('battery_critical')) return AlertPool.critical;
   if (name.startsWith('battery_')) return AlertPool.low;
   if (name.startsWith('charging_plugged')) return AlertPool.plugged;

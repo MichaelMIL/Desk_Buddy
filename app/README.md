@@ -17,10 +17,11 @@ What it does:
   the buddy reports it low, a bolt while it charges; nothing without a battery
   (or with older firmware).
   The device status sheet shows the voltage line.
-- **Battery and charging:** how often the buddy shows its low battery and
-  charging animations (it picks at random from a pool per state: low,
-  critical, plugged in, while charging, charged) and which animations are in
-  each pool, with a **Try** button per pool. Hidden on firmware without it.
+- **Alerts:** how often the buddy shows its low battery and charging
+  animations (it picks at random from a pool per state: low, critical,
+  plugged in, while charging, charged; and for Bluetooth: two remotes at
+  once, a device connecting) and which animations are in each pool, with a
+  **Try** button per pool. Hidden on firmware without it.
 - **Remote:** the round screen playing the same animation as the buddy (while
   it cycles, the app takes turns with the same faces, not in step with it),
   cycle / next / screen on-off, brightness, the faces (common ones plus the
