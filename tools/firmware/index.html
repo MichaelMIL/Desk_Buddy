@@ -51,12 +51,19 @@
       </div>
     </section>
   </div>
-  <section class="card logcard">
-    <div class="loghead"><h2>Output</h2><span class="status" id="status">idle</span><span class="sub" id="jobname"></span></div>
-    <pre id="log"></pre>
-    <div class="result" id="result"></div>
-  </section>
+  <div>
+    <section class="card">
+      <h2>Flash layout</h2>
+      <div id="layout"></div>
+    </section>
+    <section class="card logcard">
+      <div class="loghead"><h2>Output</h2><span class="status" id="status">idle</span><span class="sub" id="jobname"></span></div>
+      <pre id="log"></pre>
+      <div class="result" id="result"></div>
+    </section>
+  </div>
 </main>
+<script src="partmap.js"></script>
 <script>
 (() => {
   const $ = id => document.getElementById(id);
@@ -141,6 +148,16 @@
     }
   }
 
+  /* The flash map for the selected settings; the app's fill is the firmware size of this exact
+     build when it has been built (this session's result, or the .json in out/). */
+  let lib = null, lastJob = null;
+  function renderLayout() {
+    if (!cur || !cur.layout) return;
+    const r = lastJob && lastJob.name === cur.name && lastJob.result || {};
+    const appUsed = (r.flash && r.flash.used) || (cur.last_build && cur.last_build.app_bytes) || 0;
+    PartMap.render($('layout'), cur.layout, { appUsed, lib });
+  }
+
   function mode() { return document.querySelector('input[name=mode]:checked').value; }
   function upload() {
     const m = mode();
@@ -164,6 +181,7 @@
     $('p-out').textContent = cur.name ? doc.out_dir + '/' + cur.name + '.bin' : '–';
     $('p-cmd').textContent = cur.command ? (cur.flags.length ? 'PLATFORMIO_BUILD_FLAGS="' + cur.flags.join(' ') + '" ' : '') + cur.command : '';
     applyForced();
+    renderLayout();
     const msgs = $('p-msgs');
     msgs.textContent = '';
     for (const w of cur.warnings || []) msgs.append(el('div', { class: 'msg warn', text: w }));
@@ -241,7 +259,8 @@
       setStatus(j.status);
       $('jobname').textContent = j.name || '';
       renderResult(j);
-      if (j.status !== 'running') break;
+      lastJob = j;
+      if (j.status !== 'running') { renderLayout(); break; }
       await new Promise(r => setTimeout(r, 400));
     }
     polling = false;
@@ -290,6 +309,8 @@
     renderOptions();
     await changed();
     loadPorts();
+    lib = await api('/api/library').catch(() => null);
+    renderLayout();
     const j = await api('/api/job').catch(() => null);
     if (j && j.status !== 'idle') poll();
   })();

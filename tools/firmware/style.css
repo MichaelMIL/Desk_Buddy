@@ -186,3 +186,22 @@ pre#log:empty { background: var(--screen) url("data:image/svg+xml,%3Csvg xmlns='
 .progress { height: 10px; border-radius: 5px; background: var(--track); overflow: hidden; margin-top: 14px; }
 .progress div { height: 100%; width: 0; border-radius: 5px; background: var(--cyan); transition: width .2s; }
 .hidden { display: none !important; }
+/* flash map (partmap.js) */
+.pm-bar { display: flex; height: 46px; border-radius: 12px; overflow: hidden; border: 1px solid var(--line); background: var(--code); }
+.pm-seg { position: relative; flex: 1 1 0; min-width: 5px; display: flex; align-items: center; justify-content: center; color: #fff;
+  font-size: 12px; font-weight: 700; white-space: nowrap; overflow: hidden; border-right: 1px solid rgba(0, 0, 0, .3); }
+.pm-seg:last-child { border-right: 0; }
+.pm-seg span { position: relative; z-index: 1; padding: 0 6px; overflow: hidden; text-overflow: ellipsis; text-shadow: 0 1px 2px rgba(0, 0, 0, .45); }
+.pm-seg .pm-used { position: absolute; left: 0; top: 0; bottom: 0; background: rgba(0, 0, 0, .32); }
+.pm-seg.pm-over .pm-used { background: repeating-linear-gradient(135deg, rgba(0,0,0,.38) 0 6px, rgba(0,0,0,.2) 6px 12px); }
+.pm-unused { background: repeating-linear-gradient(135deg, var(--track) 0 5px, transparent 5px 10px) !important; color: var(--muted); }
+.pm-ticks { display: flex; justify-content: space-between; font-size: 11px; color: var(--muted); margin: 4px 2px 0; }
+.pm-est { display: flex; gap: 14px; align-items: center; margin-top: 14px; font-size: 14px; }
+.pm-big { font: 800 34px/1 var(--round, inherit); color: var(--accent); white-space: nowrap; }
+.pm-table { width: 100%; border-collapse: collapse; font-size: 13px; margin-top: 12px; }
+.pm-table th, .pm-table td { text-align: left; padding: 5px 8px; border-top: 1px solid var(--line); vertical-align: top; }
+.pm-table th { color: var(--muted); font-weight: 600; font-size: 11px; text-transform: uppercase; letter-spacing: .05em; border-top: 0; }
+.pm-sw { display: inline-block; width: 12px; height: 12px; border-radius: 4px; vertical-align: -1px; }
+.imgmap { margin-top: 10px; }
+#d-map:not(:empty) { margin-top: 10px; }
+.pm-legend { margin-top: 6px; font-size: 12px; }

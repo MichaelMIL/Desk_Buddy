@@ -48,8 +48,10 @@ OPTIONS_FILE = os.path.join(HERE, "options.json")
 OUT_DIR = os.path.join(HERE, "out")
 BUILD_DIR = os.path.join(HW, ".pio", "firmware_tool")
 PAGES = {"/": "index.html", "/index.html": "index.html", "/flash.html": "flash.html", "/wiring.html": "wiring.html",
-         "/style.css": "style.css"}
-CTYPES = {".html": "text/html; charset=utf-8", ".css": "text/css; charset=utf-8"}
+         "/style.css": "style.css", "/partmap.js": "partmap.js"}
+CTYPES = {".html": "text/html; charset=utf-8", ".css": "text/css; charset=utf-8", ".js": "text/javascript; charset=utf-8"}
+LIBRARY_DIR = os.environ.get("DESK_BUDDY_LIBRARY") or os.path.join(os.path.expanduser("~"), ".config", "desk-buddy", "library")
+FS_BLOCK = 4096                                  # LittleFS block size on the buddy
 HOST_RE = re.compile(r"^[A-Za-z0-9.\-]{1,253}(?::\d{1,5})?$")
 PORT_RE = re.compile(r"^[\w./\-:]{1,200}$")
 OUT_RE = re.compile(r"^deskbuddy_[a-z0-9_.\-]{1,120}\.bin$")
@@ -188,21 +190,131 @@ DEFINE_RE = re.compile(r"-D\s*([A-Za-z_]\w*)(?:=(\S+))?")
 HEADER_DEFAULT_RE = re.compile(r"#ifndef\s+(\w+)\s*\n\s*#define\s+\1\s+(-?(?:0x[0-9a-fA-F]+|\d+))\b")
 
 
-def ini_env_flags(env, path=os.path.join(HW, "platformio.ini")):
-    """An environment's build_flags from platformio.ini, following `extends` and ${env:X.build_flags}."""
+def read_ini(path=os.path.join(HW, "platformio.ini")):
     cp = configparser.ConfigParser(interpolation=None, strict=False, inline_comment_prefixes=(";",))
     cp.read(path)
+    return cp
+
+
+def ini_env_value(env, key, cp=None, seen=()):
+    """A setting of [env:<env>] in platformio.ini, following `extends`; None when unset."""
+    cp = cp or read_ini()
+    sec = "env:" + env
+    if sec not in cp or env in seen:
+        return None
+    s = cp[sec]
+    if key in s:
+        return s[key]
+    ext = s.get("extends", "").strip()
+    return ini_env_value(ext[4:] if ext.startswith("env:") else ext, key, cp, seen + (env,)) if ext else None
+
+
+def ini_env_flags(env, path=os.path.join(HW, "platformio.ini")):
+    """An environment's build_flags from platformio.ini, following `extends` and ${env:X.build_flags}."""
+    cp = read_ini(path)
 
     def flags_of(name, seen=()):
-        sec = "env:" + name
-        if sec not in cp or name in seen:
+        raw = ini_env_value(name, "build_flags", cp)
+        if raw is None or name in seen:
             return ""
-        s = cp[sec]
-        if "build_flags" not in s:
-            ext = s.get("extends", "").strip()
-            return flags_of(ext[4:] if ext.startswith("env:") else ext, seen + (name,)) if ext else ""
-        return re.sub(r"\$\{env:([\w\-]+)\.build_flags\}", lambda m: flags_of(m.group(1), seen + (name,)), s["build_flags"])
+        return re.sub(r"\$\{env:([\w\-]+)\.build_flags\}", lambda m: flags_of(m.group(1), seen + (name,)), raw)
     return flags_of(env)
+
+
+# ---- flash layout ----------------------------------------------------------------------
+
+PART_TYPES = {"app": 0, "data": 1}
+PART_SUBTYPES = {0: {"factory": 0x00, "test": 0x20, **{"ota_%d" % i: 0x10 + i for i in range(16)}},
+                 1: {"ota": 0x00, "phy": 0x01, "nvs": 0x02, "coredump": 0x03, "nvs_keys": 0x04, "efuse": 0x05,
+                     "undefined": 0x06, "fat": 0x81, "spiffs": 0x82, "littlefs": 0x83}}
+
+
+def parse_size(v):
+    """"0x10000", "65536", "64K", "1M" -> bytes; "" -> None."""
+    v = v.strip()
+    if not v:
+        return None
+    m = re.match(r"^(0x[0-9a-fA-F]+|\d+)\s*([KkMm]?)$", v)
+    if not m:
+        raise ValueError("bad size %r" % v)
+    return int(m.group(1), 0) * {"": 1, "K": 1024, "M": 1048576}[m.group(2).upper()]
+
+
+def parse_partitions(path):
+    """Rows of an ESP-IDF partition CSV, as {label, type, subtype, offset, size} with numeric type and
+    subtype (the same shape as a binary table read back from flash). Blank offsets are placed like
+    gen_esp32part.py does: after the previous partition, apps aligned to 64 KB, data to 4 KB."""
+    rows, nxt = [], 0x9000                       # after the bootloader (0x0) and the table (0x8000)
+    with open(path) as f:
+        for line in f:
+            line = line.split("#", 1)[0].strip()
+            if not line:
+                continue
+            cols = [c.strip() for c in line.split(",")]
+            name, typ, sub, off, size = (cols + [""] * 5)[:5]
+            t = PART_TYPES.get(typ, None)
+            t = int(typ, 0) if t is None else t
+            st = PART_SUBTYPES.get(t, {}).get(sub)
+            st = int(sub, 0) if st is None else st
+            align = 0x10000 if t == 0 else 0x1000
+            o = parse_size(off)
+            if o is None:
+                o = (nxt + align - 1) // align * align
+            sz = parse_size(size)
+            rows.append({"label": name, "type": t, "subtype": st, "offset": o, "size": sz})
+            nxt = o + sz
+    return rows
+
+
+def flash_size(env):
+    """The board's flash size in bytes (PlatformIO board manifest), 4 MB if unknown."""
+    board = (ini_env_value(env, "board") or "").strip()
+    override = ini_env_value(env, "board_upload.flash_size")
+    txt = override
+    if not txt and board:
+        for base in (os.path.join(os.path.expanduser("~"), ".platformio", "platforms", "espressif32", "boards"),):
+            try:
+                with open(os.path.join(base, board + ".json")) as f:
+                    txt = json.load(f).get("upload", {}).get("flash_size")
+            except (OSError, ValueError):
+                pass
+    try:
+        return parse_size((txt or "4MB").upper().replace("MB", "M").replace("KB", "K"))
+    except ValueError:
+        return 4 * 1048576
+
+
+def layout(env):
+    """The flash layout a build gets: {flash_size, partitions, csv}."""
+    csv = (ini_env_value(env, "board_build.partitions") or "").strip()
+    if not csv:
+        return None
+    return {"flash_size": flash_size(env), "partitions": parse_partitions(os.path.join(HW, csv)), "csv": "hardware/" + csv}
+
+
+def fs_margin(src=os.path.join(HW, "src", "store.cpp")):
+    """The headroom the firmware keeps free on LittleFS when accepting an upload (FS_MARGIN)."""
+    try:
+        with open(src) as f:
+            m = re.search(r"FS_MARGIN\s*=\s*(\d+)\s*\*\s*1024", f.read())
+        return int(m.group(1)) * 1024 if m else 16384
+    except OSError:
+        return 16384
+
+
+def library_stats(path=LIBRARY_DIR):
+    """Count, bytes and LittleFS blocks of the animations in the library (what the buddy stores)."""
+    sizes = []
+    try:
+        for n in os.listdir(path):
+            if n.endswith((".dbal", ".dbaz", ".dba")):
+                sizes.append(os.path.getsize(os.path.join(path, n)))
+    except OSError:
+        pass
+    # a LittleFS file takes whole blocks; each block after the first gives a few bytes to its skip-list
+    blocks = sum(-(-s // (FS_BLOCK - 8)) for s in sizes)
+    return {"dir": path, "count": len(sizes), "bytes": sum(sizes), "blocks": blocks, "block": FS_BLOCK,
+            "margin": fs_margin(), "median": sorted(sizes)[len(sizes) // 2] if sizes else None}
 
 
 def resolve_macros(p, src=os.path.join(HW, "src")):
@@ -495,6 +607,8 @@ class Handler(BaseHTTPRequestHandler):
                 o["supported"] = not o.get("requires") or macro_supported(o["requires"])
             return self._send(200, {"doc": doc, "version": fw_version(), "pio": State.pio,
                                     "out_dir": os.path.relpath(OUT_DIR, REPO)})
+        if path == "/api/library":
+            return self._send(200, library_stats())
         if path == "/api/builds":
             return self._send(200, {"builds": list_builds(), "out_dir": os.path.relpath(OUT_DIR, REPO)})
         if path == "/api/ports":
@@ -525,6 +639,15 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/plan":
             p = plan(load_options(), req.get("values") or {})
             p["command"] = shlex.join(command(p, req.get("upload"), "pio", os.path.relpath(HW, REPO)))
+            p["layout"] = layout(p["env"])
+            last = os.path.join(OUT_DIR, p["name"] + ".json")
+            if os.path.exists(last):
+                try:
+                    with open(last) as f:
+                        b = json.load(f)
+                    p["last_build"] = {"app_bytes": b.get("app_bytes"), "built": b.get("built")}
+                except (OSError, ValueError):
+                    pass
             return self._send(200, p)
         if path == "/api/wiring":
             p = plan(load_options(), req.get("values") or {})

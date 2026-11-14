@@ -53,6 +53,7 @@
         <dt>Board</dt><dd id="d-chip">not connected</dd>
         <dt>Layout</dt><dd id="d-layout">–</dd>
       </dl>
+      <div id="d-map"></div>
       <div id="d-msgs"></div>
       <div class="actions">
         <button id="connect" type="button">Connect</button>
@@ -72,6 +73,7 @@
     </div>
   </section>
 </main>
+<script src="partmap.js"></script>
 <script type="module">
 const ESPTOOL = 'https://unpkg.com/esptool-js@0.7.0/bundle.js';
 const ESPRESSIF_VID = 0x303a;
@@ -149,7 +151,7 @@ function segments(img, parts, keep) {
 }
 
 // ---- choosing the firmware ------------------------------------------------------------
-let image = null, imageName = '', imageParts = null, builds = [];
+let image = null, imageName = '', imageParts = null, builds = [], lib = null;
 
 function showImage() {
   const box = $('img-info');
@@ -161,6 +163,9 @@ function showImage() {
   else {
     imageParts = c.parts;
     box.append(el('div', { class: 'msg note' }, el('code', { text: imageName }), ' · ' + kb(image.length) + ' · ' + describe(c.parts)));
+    const map = el('div', { class: 'imgmap' });
+    box.append(map);
+    if (window.PartMap) PartMap.render(map, { flash_size: 4 * 1048576, partitions: c.parts }, { appUsed: image.length - c.app.offset, lib });
   }
   update();
 }
@@ -192,6 +197,7 @@ async function loadBuilds() {
     res = await r.json();
   } catch (e) { box.append(el('div', { class: 'sub', text: 'Could not list the builds (' + e.message + ').' })); return; }
   builds = res.builds;
+  try { const r = await fetch('/api/library', { headers: { 'X-Token': token } }); if (r.ok) lib = await r.json(); } catch (e) {}
   if (!builds.length) box.append(el('div', { class: 'sub' }, 'No builds yet: make one on the ', el('a', { href: 'index.html', text: 'Build' }), ' page.'));
   const want = q.get('build');
   builds.forEach((b, i) => {
@@ -261,6 +267,7 @@ async function connect() {
     $('d-chip').textContent = chip + (size ? ', ' + size + ' flash' : '') + (mac ? ', ' + mac : '');
     try { deviceParts = parseTable(await loader.readFlash(0x8000, 0xC00), 0); } catch (e) { deviceParts = null; log('could not read the partition table: ' + e.message); }
     $('d-layout').textContent = deviceParts ? (deviceParts.length ? describe(deviceParts) : 'empty') : 'unknown';
+    if (deviceParts && deviceParts.length && window.PartMap) PartMap.render($('d-map'), { flash_size: 4 * 1048576, partitions: deviceParts }, { compact: true });
     setStatus('connected', 'ok');
   } catch (e) {
     const m = String(e && e.message || e);
@@ -279,6 +286,7 @@ async function connect() {
 async function disconnect(quiet) {
   try { if (transport) await transport.disconnect(); } catch (e) {}
   transport = null; loader = null; deviceParts = null;
+  $('d-map').textContent = '';
   if (!quiet) { $('d-chip').textContent = 'not connected'; $('d-layout').textContent = '–'; setStatus('idle'); }
   update();
 }

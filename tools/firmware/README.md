@@ -16,7 +16,8 @@ building. The page has two tabs:
   RAM bars (the Wi-Fi build's app slot is 1 MB, so watch it when adding
   features). Afterwards it can flash over USB with PlatformIO, send the
   update to a running Wi-Fi build (`PUT /api/update`, as `hardware/ota.sh`
-  does), or hand the build to the Flash tab.
+  does), or hand the build to the Flash tab. A **Flash layout** card shows
+  the build's partition map and how many animations fit (below).
 - **Flash**: a web flasher. It writes a build to the buddy from the browser
   over USB (below).
 - **Wiring**: what to connect to what for the selected settings: a diagram,
@@ -85,8 +86,37 @@ BOOT, tap RESET, release BOOT, and connect again.
 
 esptool-js (Espressif, Apache-2.0) is loaded from
 `https://unpkg.com/esptool-js@0.7.0/bundle.js` when you click Connect. The
-page also works on its own: open `flash.html` (with `style.css` next to it)
-from any https or localhost address, choose a file, and flash.
+page also works on its own: open `flash.html` (with `style.css` and
+`partmap.js` next to it) from any https or localhost address, choose a file,
+and flash.
+
+## Flash layout and how many animations fit
+
+The Build tab draws the partition map of the selected settings' build (from
+its CSV, `hardware/partitions.csv` or `partitions_ble.csv`, as named by
+`board_build.partitions` in `platformio.ini`). It is a bar over the 4 MB
+flash: bootloader, partition table, settings (nvs), OTA state, the app slot
+or slots, the animation file system and the crash dump, with a table of
+offsets and sizes below. The app is shaded by the firmware's size once that
+exact build exists. The Flash tab shows the same map for the chosen image
+(read from its own partition table), and a small one for the board after
+Connect.
+
+The estimate counts what fits in the LittleFS partition:
+- **Files:** each animation file takes whole 4 KB blocks.
+- **Directories:** they take a few blocks.
+- **Upload margin:** the firmware refuses an upload that would leave less than
+  `FS_MARGIN` free (16 KB, `hardware/src/store.cpp`).
+
+The sizes come from your animation library (`~/.config/desk-buddy/library`
+or `$DESK_BUDDY_LIBRARY`, the `.dbal` files the buddy stores; fill it with
+`sim/test/library.sh`). Without a library it assumes a typical 12 KB per
+animation. With today's 166 animations (2.0 MB, 3.6 blocks each on average):
+about 127 fit in the Wi-Fi build's 1.88 MB, and all of them plus about 62 more
+(about 228) in the no-Wi-Fi build's 3.31 MB. The apps and the bridge re-upload
+a deleted animation from the library when it is played, so a smaller
+partition limits how many are on the buddy at once, not which ones play.
+`GET /api/library` returns the numbers behind it.
 
 ## Wiring tab
 

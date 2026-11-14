@@ -183,5 +183,52 @@ class Wiring(unittest.TestCase):
         self.assertIn("-DTFT_MOSI=", fb.ini_env_flags("ota"))           # extends, no build_flags of its own
 
 
+class Layout(unittest.TestCase):
+    def test_parse_size(self):
+        self.assertEqual(fb.parse_size("0x10000"), 0x10000)
+        self.assertEqual(fb.parse_size("64K"), 65536)
+        self.assertEqual(fb.parse_size("1M"), 1048576)
+        self.assertEqual(fb.parse_size("4096"), 4096)
+        self.assertIsNone(fb.parse_size(""))
+
+    def test_parse_partitions(self):
+        with tempfile.NamedTemporaryFile("w", suffix=".csv", delete=False) as f:
+            f.write("# comment\nnvs, data, nvs, , 0x5000,\nphy, data, phy, , 4K\napp, app, factory, , 1M,\nfs, data, littlefs, , 512K\n")
+        try:
+            rows = fb.parse_partitions(f.name)
+        finally:
+            os.unlink(f.name)
+        self.assertEqual([(r["label"], r["type"], r["subtype"], r["offset"], r["size"]) for r in rows], [
+            ("nvs", 1, 0x02, 0x9000, 0x5000), ("phy", 1, 0x01, 0xE000, 0x1000),
+            ("app", 0, 0x00, 0x10000, 0x100000), ("fs", 1, 0x83, 0x110000, 0x80000)])
+
+    def test_real_layouts(self):
+        wifi, ble = fb.layout("esp32s3_supermini"), fb.layout("esp32s3_supermini_ble")
+        self.assertEqual(wifi["flash_size"], 4 * 1048576)
+        for lay in (wifi, ble):
+            parts = sorted(lay["partitions"], key=lambda r: r["offset"])
+            self.assertTrue(any(p["type"] == 0 for p in parts))
+            self.assertTrue(any(p["type"] == 1 and p["subtype"] in (0x82, 0x83) for p in parts))
+            for a, b in zip(parts, parts[1:]):
+                self.assertLessEqual(a["offset"] + a["size"], b["offset"])     # no overlaps
+            self.assertLessEqual(parts[-1]["offset"] + parts[-1]["size"], lay["flash_size"])
+        self.assertEqual(sum(p["type"] == 0 for p in wifi["partitions"]), 2)    # OTA: two app slots
+        self.assertEqual(sum(p["type"] == 0 for p in ble["partitions"]), 1)
+        # the plan carries it
+        self.assertEqual(fb.layout(fb.plan(fb.load_options(), {"wifi": False})["env"])["csv"], ble["csv"])
+
+    def test_library_stats(self):
+        with tempfile.TemporaryDirectory() as d:
+            for name, n in (("a.dbal", 100), ("b.dbal", 4088), ("c.dbal", 4089), ("notes.json", 50000)):
+                with open(os.path.join(d, name), "wb") as f:
+                    f.write(b"x" * n)
+            st = fb.library_stats(d)
+        self.assertEqual(st["count"], 3)
+        self.assertEqual(st["bytes"], 100 + 4088 + 4089)
+        self.assertEqual(st["blocks"], 1 + 1 + 2)
+        self.assertEqual(fb.library_stats("/nonexistent/x")["count"], 0)
+        self.assertGreater(fb.fs_margin(), 0)                                 # read from store.cpp
+
+
 if __name__ == "__main__":
     unittest.main()
