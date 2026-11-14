@@ -38,6 +38,8 @@ class BuddyState {
     required this.count,
     this.battery,
     this.batteryLow = false,
+    this.charging = false,
+    this.charged = false,
   });
 
   /// Playing animation, or `cycle` while cycling.
@@ -62,6 +64,10 @@ class BuddyState {
   /// it is back at 20 %); it shows its low battery face then.
   final bool batteryLow;
 
+  /// On the charger and charging (`chg` "charging"), or done (`chg` "full").
+  /// Only with the charger's status pads wired (hardware/README.md).
+  final bool charging, charged;
+
   /// Parses the JSON, or returns null when it is cut off or malformed (a
   /// notification at a small MTU carries only MTU - 3 bytes).
   static BuddyState? tryParse(String json) {
@@ -77,6 +83,8 @@ class BuddyState {
         count: (m['count'] as num?)?.toInt() ?? 0,
         battery: (m['bat'] as num?)?.toInt(),
         batteryLow: m['batLow'] as bool? ?? false,
+        charging: m['chg'] == 'charging',
+        charged: m['chg'] == 'full',
       );
     } on FormatException {
       return null;
@@ -95,15 +103,18 @@ class BuddyState {
       other.theme == theme &&
       other.count == count &&
       other.battery == battery &&
-      other.batteryLow == batteryLow;
+      other.batteryLow == batteryLow &&
+      other.charging == charging &&
+      other.charged == charged;
 
   @override
-  int get hashCode => Object.hash(current, cycling, screen, brightness, theme, count, battery, batteryLow);
+  int get hashCode =>
+      Object.hash(current, cycling, screen, brightness, theme, count, battery, batteryLow, charging, charged);
 
   @override
   String toString() =>
       'BuddyState($current, cycling: $cycling, screen: $screen, brightness: $brightness, theme: "$theme", count: $count, '
-      'battery: ${battery ?? 'none'}${batteryLow ? ' (low)' : ''})';
+      'battery: ${battery ?? 'none'}${batteryLow ? ' (low)' : ''}${charging ? ' charging' : charged ? ' charged' : ''})';
 }
 
 /// Joins TX notifications into lines. Replies are split into notifications of

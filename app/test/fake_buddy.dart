@@ -68,6 +68,9 @@ class FakeBuddy implements BuddyTransport {
   int? battery;
   bool batteryLow = false;
 
+  /// The charger's state as sent in the state's `chg`: 'charging', 'full' or null.
+  String? charger;
+
   /// Leave `bat`/`batLow` out of the state, like firmware without the battery measurement.
   bool oldFirmware = false;
 
@@ -100,6 +103,7 @@ class FakeBuddy implements BuddyTransport {
         'count': names.length,
         if (!oldFirmware) 'bat': battery,
         if (!oldFirmware) 'batLow': batteryLow,
+        if (!oldFirmware && charger != null) 'chg': charger,
       });
 
   @override

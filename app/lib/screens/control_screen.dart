@@ -62,7 +62,12 @@ class _ControlScreenState extends State<ControlScreen> {
           ],
         ),
         actions: [
-          BatteryIndicator(percent: link.state?.battery, low: link.state?.batteryLow ?? false),
+          BatteryIndicator(
+            percent: link.state?.battery,
+            low: link.state?.batteryLow ?? false,
+            charging: link.state?.charging ?? false,
+            charged: link.state?.charged ?? false,
+          ),
           IconButton(
             tooltip: 'Device status',
             icon: const Icon(Icons.info_outline_rounded),

@@ -53,12 +53,27 @@ void main() {
     expect(find.byIcon(Icons.battery_alert_rounded), findsOneWidget);
     expect(find.byTooltip('Battery low (12 %): charge the buddy'), findsOneWidget);
 
-    b.battery = null;
-    b.batteryLow = false;
+    b.charger = 'charging';                             // plugged in: a bolt, no alert
     b.notifyState();
     await settle(tester);
-    expect(find.text('12%'), findsNothing);
+    expect(find.byIcon(Icons.battery_charging_full_rounded), findsOneWidget);
     expect(find.byIcon(Icons.battery_alert_rounded), findsNothing);
+    expect(find.byTooltip('Battery 12 %, charging'), findsOneWidget);
+
+    b.battery = 99;
+    b.batteryLow = false;
+    b.charger = 'full';
+    b.notifyState();
+    await settle(tester);
+    expect(find.byIcon(Icons.battery_full_rounded), findsOneWidget);
+    expect(find.byTooltip('Battery charged (99 %)'), findsOneWidget);
+
+    b.battery = null;
+    b.charger = null;
+    b.notifyState();
+    await settle(tester);
+    expect(find.text('99%'), findsNothing);
+    expect(find.byIcon(Icons.battery_full_rounded), findsNothing);
   });
 
   test('battery icon follows the charge', () {
@@ -68,6 +83,8 @@ void main() {
     expect(BatteryIndicator.iconFor(50, low: false), Icons.battery_3_bar_rounded);
     expect(BatteryIndicator.iconFor(3, low: false), Icons.battery_0_bar_rounded);
     expect(BatteryIndicator.iconFor(40, low: true), Icons.battery_alert_rounded);
+    expect(BatteryIndicator.iconFor(10, low: true, charging: true), Icons.battery_charging_full_rounded);
+    expect(BatteryIndicator.iconFor(97, low: false, charged: true), Icons.battery_full_rounded);
   });
 
   testWidgets('remote shows the common faces and the selected theme\'s only', (tester) async {

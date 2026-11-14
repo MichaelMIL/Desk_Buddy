@@ -40,8 +40,9 @@ PlatformIO firmware that plays what the simulator exports.
   `esp32s3_supermini_ble` (`BUDDY_WIFI=0`: Bluetooth + USB only, 3.3 MB
   LittleFS; switching builds erases stored animations). Battery level:
   `hardware/src/battery.h` (100k/100k divider on GPIO 1; `bat`/`batLow` in
-  the state JSON, which every client shows); `battery_*` animations are
-  alerts the firmware plays itself and never cycles. `BUDDY_BATTERY=0` (the
+  the state JSON, which every client shows; `chg` from the charger's pads on
+  GPIO 2/4); `battery_*` and `charging_*` animations are alerts the firmware
+  plays itself (`battery_alerts()` in `main.cpp`) and never cycles. `BUDDY_BATTERY=0` (the
   `*_nobat` envs) compiles it out; clients must treat missing `bat` as none. The DBA1 decoder's
   single source is `hardware/lib/dba_player/` (`lzma_dec.c` unpacks the DBAL
   container; `sim/lib/lzma.js` mirrors it). `sim/lib/dba.js` and

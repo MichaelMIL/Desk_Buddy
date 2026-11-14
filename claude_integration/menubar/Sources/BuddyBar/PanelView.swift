@@ -78,7 +78,7 @@ struct PanelView: View {
                         Image(systemName: bat.symbol)
                         Text("\(bat.pct)%").monospacedDigit()
                     }
-                    .foregroundStyle(bat.low ? Color.red : Color.secondary)
+                    .foregroundStyle(bat.alert ? Color.red : Color.secondary)
                     .help(bat.help)
                     .accessibilityElement(children: .ignore)
                     .accessibilityLabel(bat.help)

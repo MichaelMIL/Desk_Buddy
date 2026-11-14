@@ -28,18 +28,21 @@ static uint8_t percentOf(uint32_t mv) {
 
 BatteryInfo batteryGet() { return info; }
 
+static const char *chgJson() { return info.charging ? ",\"chg\":\"charging\"" : info.full ? ",\"chg\":\"full\"" : ""; }
+
 String batteryJson() {
-  if (!info.present) return "{\"present\":false}";
-  return "{\"present\":true,\"mv\":" + String(info.mv) + ",\"pct\":" + String(info.pct) + ",\"low\":" + (info.low ? "true" : "false") + "}";
+  if (!info.present) return String("{\"present\":false") + chgJson() + "}";
+  return "{\"present\":true,\"mv\":" + String(info.mv) + ",\"pct\":" + String(info.pct) + ",\"low\":" + (info.low ? "true" : "false") + chgJson() + "}";
 }
 
 String batteryStateJson() {
-  return String(",\"bat\":") + (info.present ? String(info.pct) : String("null")) + ",\"batLow\":" + (info.present && info.low ? "true" : "false");
+  return String(",\"bat\":") + (info.present ? String(info.pct) : String("null")) + ",\"batLow\":" + (info.present && info.low ? "true" : "false") + chgJson();
 }
 
 String batteryText() {
-  if (!info.present) return "none (nothing on GPIO " + String(BAT_PIN) + ")";
-  return String(info.critical ? "critical, " : info.low ? "low, " : "") + String(info.pct) + "% (" + String(info.mv) + " mV)";
+  String s = !info.present ? "none (nothing on GPIO " + String(BAT_PIN) + ")"
+    : String(info.critical ? "critical, " : info.low ? "low, " : "") + String(info.pct) + "% (" + String(info.mv) + " mV)";
+  return s + (info.charging ? ", charging" : info.full ? ", charged" : "");
 }
 
 static const uint32_t SAMPLE_MS = 2000;       // one reading (16 samples averaged) every 2 s
@@ -54,13 +57,17 @@ static esp_adc_cal_characteristics_t cal;
 static bool ready = false, wired = false, probing = false;
 static uint32_t probeAt = 0, lastProbe = 0, lastSample = 0, reportedAt = 0;
 static uint32_t filtered = 0;                 // cell mV x 16, before calibration (moving average)
+static uint8_t charger = 0;                   // 0 off the charger (or not wired), 1 charging, 2 full
+static const uint32_t CHARGER_POLL_MS = 100;
+static const uint32_t CHARGER_STABLE_MS = 2000;   // a TP4056 without a cell blinks CHRG: only steady changes count
 
 static uint32_t calibrated(uint32_t mv) { return mv * cfg.batCal / 10000; }
 
 /* The state other modules see. Small changes in the percentage are held back
  * (a 1 % wobble would notify every 2 s): 2 % or more, or 1 % that lasts a minute. */
 static void publish(BatteryInfo n) {
-  bool changed = n.present != info.present || n.low != info.low || n.critical != info.critical;
+  bool changed = n.present != info.present || n.low != info.low || n.critical != info.critical ||
+                 n.charging != info.charging || n.full != info.full;
   if (!changed && n.present) {
     int d = abs((int)n.pct - (int)info.pct);
     if (d >= 2 || (d == 1 && millis() - reportedAt >= 60000)) changed = true;
@@ -85,6 +92,8 @@ static void update() {
     n.low = info.low ? n.pct < BAT_OK_PCT : n.pct <= BAT_LOW_PCT;
     n.critical = n.pct <= BAT_CRITICAL_PCT;
   }
+  n.charging = charger == 1;
+  n.full = charger == 2;
   if (n.present != info.present) Serial.printf("battery: %s\n", n.present ? "connected" : "none");
   if (n.present && n.low && !info.low) Serial.printf("battery: low, %u%% (%u mV)\n", n.pct, n.mv);
   publish(n);
@@ -97,7 +106,25 @@ static void pulldown(bool on) {
   else { rtc_gpio_pulldown_dis(g); gpio_pulldown_dis(g); }
 }
 
+static bool padLow(int pin) { return pin >= 0 && digitalRead(pin) == LOW; }
+
+/* The charger's CHRG / STDBY pads (battery.h), polled every 100 ms. */
+static void pollCharger(uint32_t now) {
+  static uint32_t polled = 0, since = 0;
+  static uint8_t seen = 0;
+  if (now - polled < CHARGER_POLL_MS) return;
+  polled = now;
+  uint8_t s = padLow(BAT_CHRG_PIN) ? 1 : padLow(BAT_STDBY_PIN) ? 2 : 0;
+  if (s != seen) { seen = s; since = now; return; }
+  if (s == charger || now - since < CHARGER_STABLE_MS) return;
+  charger = s;
+  Serial.printf("battery: %s\n", s == 1 ? "charging" : s == 2 ? "charged" : "off the charger");
+  update();
+}
+
 void batteryBegin() {
+  if (BAT_CHRG_PIN >= 0) pinMode(BAT_CHRG_PIN, INPUT_PULLUP);
+  if (BAT_STDBY_PIN >= 0) pinMode(BAT_STDBY_PIN, INPUT_PULLUP);
   int c = digitalPinToAnalogChannel(BAT_PIN);
   if (c < 0 || c >= SOC_ADC_MAX_CHANNEL_NUM) { Serial.printf("battery: GPIO %d is not an ADC1 pin\n", BAT_PIN); return; }
   ch = (adc1_channel_t)c;
@@ -109,8 +136,9 @@ void batteryBegin() {
 }
 
 void batteryLoop() {
-  if (!ready) return;                                // batteryBegin() found no usable pin
   uint32_t now = millis();
+  pollCharger(now);
+  if (!ready) return;                                // batteryBegin() found no usable ADC pin
   if (probing) {
     if (now - probeAt < PROBE_SETTLE_MS) return;
     int raw = adc1_get_raw(ch);

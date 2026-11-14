@@ -32,6 +32,20 @@ void main() {
       expect(BuddyState.tryParse('{$base,"bat":12,"batLow":true}'), low);
       expect(low == none, isFalse);
       expect(BuddyState.tryParse('{$base,"bat":13,"batLow":true}') == low, isFalse);
+      expect(low.charging || low.charged, isFalse);
+    });
+
+    test('charger: charging, full, or off it (no "chg")', () {
+      const base = '"current":"cycle","cycling":true,"screen":true,"brightness":100,"theme":"","count":3,"bat":40,"batLow":false';
+      final charging = BuddyState.tryParse('{$base,"chg":"charging"}')!;
+      expect(charging.charging, isTrue);
+      expect(charging.charged, isFalse);
+      final full = BuddyState.tryParse('{$base,"chg":"full"}')!;
+      expect(full.charging, isFalse);
+      expect(full.charged, isTrue);
+      final off = BuddyState.tryParse('{$base}')!;
+      expect(off.charging || off.charged, isFalse);
+      expect(charging == full || charging == off, isFalse);
     });
 
     test('a JSON cut off by a small MTU is rejected, not half-read', () {

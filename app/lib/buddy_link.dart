@@ -664,6 +664,8 @@ class BuddyLink extends ChangeNotifier {
       count: s.count,
       battery: s.battery,
       batteryLow: s.batteryLow,
+      charging: s.charging,
+      charged: s.charged,
     );
     notifyListeners();
   }

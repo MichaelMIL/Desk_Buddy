@@ -109,7 +109,7 @@ final class BuddyBarCoreTests: XCTestCase {
                     "play.circle", "stop.circle", "doc.text.magnifyingglass", "power",   // PanelView
                     "repeat", "play.fill", "forward.end.fill", "sun.min", "display", "moon",
                     "square.grid.2x2", "slider.horizontal.3", "rectangle.stack", "arrow.down.circle"]           // BuddyControls
-        symbols += [100, 80, 50, 20, 5].map { BuddyBattery(pct: $0).symbol }
+        symbols += [100, 80, 50, 20, 5].map { BuddyBattery(pct: $0).symbol } + [BuddyBattery(pct: 40, charging: true).symbol]
         for s in Set(symbols) {
             XCTAssertNotNil(NSImage(systemSymbolName: s, accessibilityDescription: nil), s)
         }
@@ -177,6 +177,12 @@ final class BuddyBarCoreTests: XCTestCase {
         XCTAssertEqual(BuddyBattery(pct: 64).symbol, "battery.75")
         XCTAssertEqual(try snapshot(#"{"battery": {"pct": 80, "low": false}}"#).battery, BuddyBattery(pct: 80))
         XCTAssertNil(try snapshot().battery)                          // an older daemon
+        let chg = try snapshot(#"{"battery": {"pct": 12, "low": true, "charging": true}}"#).battery
+        XCTAssertEqual(chg, BuddyBattery(pct: 12, low: true, charging: true))
+        XCTAssertEqual(chg?.symbol, "battery.100.bolt")
+        XCTAssertEqual(chg?.alert, false)                            // low, but plugged in: not red
+        XCTAssertEqual(chg?.help, "Battery 12 %, charging")
+        XCTAssertEqual(BuddyBattery(pct: 99, charged: true).help, "Battery charged (99 %)")
     }
 
     func testModes() {

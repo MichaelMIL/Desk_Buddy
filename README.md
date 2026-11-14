@@ -166,8 +166,10 @@ Optional battery level: two 100 kΩ resistors in series from the LiPo's B+ to
 GND, their middle on GPIO 1 (wiring, charger and calibration in
 [hardware/README.md](hardware/README.md#battery-level-optional)). The charge
 shows in every app and the bridge, and at 15 % the buddy shows a low battery
-face every few minutes. Buddies without a battery can use the `*_nobat`
-builds, which leave the battery code out.
+face every few minutes. Two more wires from the charger's CHRG/STDBY pads to
+GPIO 2 and 4 (through diodes) let it react to being plugged in and charged.
+Buddies without a battery can use the `*_nobat` builds, which leave the
+battery code out.
 
 ## The body
 

@@ -18,6 +18,18 @@
  * GPIO 1-10; ADC2 does not work while Wi-Fi runs): -DBAT_PIN=<gpio>.
  * "battery cal <mV>" corrects resistor tolerance against a multimeter.
  *
+ * Charger status (optional, independent of the divider): the TP4056's CHRG and
+ * STDBY pads, which drive its two LEDs (open drain, low = LED on), each through
+ * a Schottky diode to a GPIO with the internal pull-up:
+ *
+ *   GPIO 2 (BAT_CHRG_PIN)  ──▶|── CHRG    low while charging
+ *   GPIO 4 (BAT_STDBY_PIN) ──▶|── STDBY   low once the cell is full
+ *            (diode band towards the charger: 1N5817, BAT54, BAT43)
+ *
+ * The diodes keep the charger's 5 V, which reaches the pads through its LEDs,
+ * off the 3.3 V pins. Unwired, the pull-ups read "not on the charger". Other
+ * pins: -DBAT_CHRG_PIN=<gpio> -DBAT_STDBY_PIN=<gpio>; -1 leaves one out.
+ *
  * Built with -DBUDDY_BATTERY=0 (config.h; the *_nobat environments) none of
  * this is compiled in: the functions below are stubs, the state, config and
  * /api/status carry no battery fields (clients then show none, as with older
@@ -35,6 +47,12 @@
 #ifndef BAT_R_BOTTOM
 #define BAT_R_BOTTOM 100     // kΩ, pin to GND
 #endif
+#ifndef BAT_CHRG_PIN
+#define BAT_CHRG_PIN 2       // charger's CHRG pad (through a diode), -1: none
+#endif
+#ifndef BAT_STDBY_PIN
+#define BAT_STDBY_PIN 4      // charger's STDBY pad (through a diode), -1: none
+#endif
 
 #define BAT_LOW_PCT 15       // low at or below this...
 #define BAT_OK_PCT 20        // ...until it is back at or above this
@@ -46,15 +64,18 @@ struct BatteryInfo {
   uint8_t pct;             // 0..100, from a LiPo discharge curve
   bool low;                // <= BAT_LOW_PCT, with hysteresis
   bool critical;           // <= BAT_CRITICAL_PCT
+  bool charging;           // on the charger and charging (CHRG low; works without the divider)
+  bool full;               // on the charger, done (STDBY low)
 };
 
 #if BUDDY_BATTERY
 void batteryBegin();
 void batteryLoop();        // Arduino loop (core 1): samples every 2 s, never blocks
 BatteryInfo batteryGet();
-String batteryJson();      // {"present":true,"mv":3912,"pct":64,"low":false} or {"present":false}
-String batteryStateJson(); // ,"bat":64,"batLow":false  (",bat":null when there is none), for app_state_json
-String batteryText();      // "64% (3912 mV)", "low, 12% (3650 mV)", "none (nothing on GPIO 1)"
+String batteryJson();      // {"present":true,"mv":3912,"pct":64,"low":false} or {"present":false}, plus "chg" below
+String batteryStateJson(); // ,"bat":64,"batLow":false  (",bat":null when there is none), for app_state_json;
+                           // plus ,"chg":"charging" or "full" while on the charger (absent otherwise)
+String batteryText();      // "64% (3912 mV)", "low, 12% (3650 mV), charging", "none (nothing on GPIO 1)"
 void batteryCommand(const String &arg, Print &out);   // "battery", "battery cal <mV>", "battery cal reset"
 #else
 inline void batteryBegin() {}

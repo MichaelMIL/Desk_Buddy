@@ -479,6 +479,11 @@ class Display(unittest.TestCase):
                          {'pct': 64, 'low': False, 'mv': 3912})                                      # Wi-Fi /api/status
         self.assertIsNone(bb.battery_of({'battery': {'present': False}}))
         self.assertIsNone(bb.battery_of(None))
+        # on the charger (the charger's status pads wired)
+        self.assertEqual(bb.battery_of({'bat': 12, 'batLow': True, 'chg': 'charging'}), {'pct': 12, 'low': True, 'charging': True})
+        self.assertEqual(bb.battery_of({'battery': {'present': True, 'mv': 4190, 'pct': 99, 'low': False, 'chg': 'full'}}),
+                         {'pct': 99, 'low': False, 'mv': 4190, 'charged': True})
+        self.assertIsNone(bb.battery_of({'battery': {'present': False, 'chg': 'charging'}}))      # no divider: no level
 
     def test_battery_for_the_menu_bar_app(self):
         self.assertIsNone(self.ctl.snapshot()['battery'])

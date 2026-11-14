@@ -1,16 +1,25 @@
 import 'package:flutter/material.dart';
 
 /// The buddy's battery in the app bar: an icon that empties with the charge
-/// and the percentage, in the error colour while the buddy reports it low.
+/// and the percentage, in the error colour while the buddy reports it low
+/// (unless it is on the charger), with a bolt while charging.
 /// Nothing at all when [percent] is null (no battery, or older firmware).
 class BatteryIndicator extends StatelessWidget {
-  const BatteryIndicator({super.key, required this.percent, required this.low});
+  const BatteryIndicator({
+    super.key,
+    required this.percent,
+    required this.low,
+    this.charging = false,
+    this.charged = false,
+  });
 
   final int? percent;
-  final bool low;
+  final bool low, charging, charged;
 
-  /// Material's battery glyphs: full, 6 to 0 bars, and an alert for low.
-  static IconData iconFor(int percent, {required bool low}) {
+  /// Material's battery glyphs: charging, full, 6 to 0 bars, and an alert for low.
+  static IconData iconFor(int percent, {required bool low, bool charging = false, bool charged = false}) {
+    if (charging) return Icons.battery_charging_full_rounded;
+    if (charged) return Icons.battery_full_rounded;
     if (low) return Icons.battery_alert_rounded;
     if (percent >= 95) return Icons.battery_full_rounded;
     const bars = [
@@ -30,24 +39,32 @@ class BatteryIndicator extends StatelessWidget {
     final p = percent;
     if (p == null) return const SizedBox.shrink();
     final cs = Theme.of(context).colorScheme;
-    final color = low ? cs.error : cs.onSurfaceVariant;
+    final alert = low && !charging && !charged;
+    final color = alert ? cs.error : cs.onSurfaceVariant;
+    final tip = charging
+        ? 'Battery $p %, charging'
+        : charged
+            ? 'Battery charged ($p %)'
+            : alert
+                ? 'Battery low ($p %): charge the buddy'
+                : 'Battery $p %';
     return Tooltip(
-      message: low ? 'Battery low ($p %): charge the buddy' : 'Battery $p %',
+      message: tip,
       child: Semantics(
-        label: low ? 'Battery low, $p percent' : 'Battery $p percent',
+        label: tip.replaceAll(' %', ' percent'),
         excludeSemantics: true,
         child: Padding(
           padding: const EdgeInsets.symmetric(horizontal: 4),
           child: Row(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Icon(iconFor(p, low: low), size: 20, color: color),
+              Icon(iconFor(p, low: low, charging: charging, charged: charged), size: 20, color: color),
               const SizedBox(width: 2),
               Text(
                 '$p%',
                 style: Theme.of(context).textTheme.labelMedium?.copyWith(
                       color: color,
-                      fontWeight: low ? FontWeight.w600 : null,
+                      fontWeight: alert ? FontWeight.w600 : null,
                     ),
               ),
             ],

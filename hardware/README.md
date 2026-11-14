@@ -54,7 +54,7 @@ cell + (B+) ──[ 100 kΩ ]──┬──[ 100 kΩ ]── GND
   pin under 3 V at 4.2 V).
 - **No battery?** The normal builds work without one (they report no
   battery), but the `*_nobat` builds leave the battery code out entirely,
-  ~11 KB less firmware (see [Two builds](#two-builds)).
+  ~12 KB less firmware (see [Two builds](#two-builds)).
 
 The buddy reads the pin every 2 s and turns the voltage into a percentage
 with a LiPo discharge curve (from the voltage alone, so expect ±5-10 %; it
@@ -76,6 +76,47 @@ The charge is in `battery`, `status`, `state` (`bat`, `batLow`), `config`,
 `GET /api/status`, MQTT and Home Assistant, the phone app, `sim/remote.html`
 and the Claude Code menu bar app.
 
+#### Charging (optional)
+
+To let the buddy know it is on the charger, wire the TP4056's two status
+pads, which drive its LEDs (open drain: low while that LED is on), to two
+GPIOs, each through a Schottky diode with its band towards the charger:
+
+```
+GPIO 2 ──▶|── CHRG     (red LED)    low while charging
+GPIO 4 ──▶|── STDBY    (green/blue) low once the cell is full
+          1N5817, BAT54 or BAT43
+```
+
+On most TP4056 modules these are pins 7 (CHRG) and 6 (STDBY) of the chip, or
+the LED side of the two LED resistors. The firmware turns on the GPIOs' own
+pull-ups. The diodes matter: through its LEDs the charger pulls the pads
+towards its 5 V, which the ESP32-S3's 3.3 V pins must not see (a Schottky
+keeps the "low" under 0.5 V; a 1N4148 can be too high to read as low).
+Without the wires the pull-ups read "not on the charger", so nothing changes.
+Other pins: `-DBAT_CHRG_PIN=<gpio> -DBAT_STDBY_PIN=<gpio>`, `-1` for none;
+GPIO 3 is a strapping pin, keep it free. A change counts once it holds for
+2 s (a TP4056 without a cell blinks CHRG).
+
+What the buddy does with it (each plays like a low battery alert, then
+playback resumes):
+
+- **Plugged in:** `charging_plugged_in` at once, then every 10 minutes while
+  charging the other `charging_*` animations in turn (`charging_full` not
+  among them). Without any, "Charging" as text when plugged in.
+- **Charged** (STDBY): `charging_full` once (or "Battery charged" as text).
+  A top-up after "full" is not a new plug-in.
+- **No low battery alerts** while on the charger.
+
+`charging_*` animations never join the cycle either. `state` and the battery
+JSON carry `"chg":"charging"` or `"chg":"full"` while on the charger (absent
+otherwise); the apps, `sim/remote.html` and the menu bar show a bolt or
+"charged". The voltage reads high while charging, so the percentage does too.
+One catch: the TP4056 ends a charge when the current falls to a tenth of its
+setting, and the buddy (~100 mA, powered from OUT+) draws through it too, so
+on a 1 A module "full" can come late or not at all; a module set to less
+current (a larger R_PROG) or a load-sharing charger avoids that.
+
 ## Two builds
 
 | | Wi-Fi build (default) | Build without Wi-Fi |
@@ -84,7 +125,7 @@ and the Claude Code menu bar app.
 | Control | Bluetooth, MQTT / Home Assistant, HTTP API, USB serial | Bluetooth, USB serial |
 | Animations in over | HTTP, Bluetooth, USB serial | Bluetooth, USB serial |
 | Firmware updates | over Wi-Fi (OTA) or USB | USB only |
-| Firmware | ~969 KB in one of two 1 MB slots (`partitions.csv`) | ~509 KB in one 640 KB slot (`partitions_ble.csv`) |
+| Firmware | ~970 KB in one of two 1 MB slots (`partitions.csv`) | ~512 KB in one 640 KB slot (`partitions_ble.csv`) |
 | Space for animations | 1.875 MB (all of the simulator's animations fit, ~13 KB each) | 3.3 MB (about twice that; up to 256 are listed) |
 
 The two use different partition tables, so switching between them (one USB
@@ -98,8 +139,8 @@ for buddies that always run on USB power:
 
 | | With battery level (default) | Without |
 |---|---|---|
-| Wi-Fi build | `esp32s3_supermini` (~969 KB) | `esp32s3_supermini_nobat` (~958 KB) |
-| Build without Wi-Fi | `esp32s3_supermini_ble` (~509 KB) | `esp32s3_supermini_ble_nobat` (~499 KB) |
+| Wi-Fi build | `esp32s3_supermini` (~970 KB) | `esp32s3_supermini_nobat` (~958 KB) |
+| Build without Wi-Fi | `esp32s3_supermini_ble` (~512 KB) | `esp32s3_supermini_ble_nobat` (~499 KB) |
 
 Without it there is no battery code, reading or low battery alert; the state,
 `config` and `/api/status` carry no battery fields, so the apps, the bridge
@@ -239,7 +280,7 @@ HTTP uses `PUT /api/anim` ([API.md](API.md)); USB and Bluetooth use the
 a second one is refused as busy (HTTP 409).
 
 Nothing is compiled in by default: the Wi-Fi firmware is kept small
-(~969 KB with Bluetooth) so the two OTA slots can be 1 MB each and the file
+(~970 KB with Bluetooth) so the two OTA slots can be 1 MB each and the file
 system gets 1.875 MB. With
 no animation stored the screen says "push one from the sim". Compiled-in
 animations are still possible (`src/animations/anim_<name>.h` + generated

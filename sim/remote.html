@@ -205,10 +205,13 @@ function render() {
   ts.value = st.theme;
   const bat = $('#bat');                                 // "bat": percent, null without a battery, absent on older firmware
   bat.hidden = st.bat == null;
-  if (st.bat != null) {
-    bat.className = 'bat' + (st.batLow ? ' low' : '');
-    bat.innerHTML = '<span class="cell"><i style="width:calc((100% - 3px) * ' + st.bat / 100 + ')"></i></span>' + (st.batLow ? 'low · ' : '') + st.bat + '%';
-    bat.title = 'Battery ' + st.bat + '%' + (st.batLow ? ', low: the buddy shows a low battery face every few minutes' : '');
+  if (st.bat != null) {                                  // "chg": "charging" / "full" while on the charger, else absent
+    const low = st.batLow && !st.chg;
+    bat.className = 'bat' + (low ? ' low' : '');
+    bat.innerHTML = '<span class="cell"><i style="width:calc((100% - 3px) * ' + st.bat / 100 + ')"></i></span>' +
+      (st.chg === 'charging' ? '⚡' : '') + (low ? 'low · ' : st.chg === 'full' ? 'charged · ' : '') + st.bat + '%';
+    bat.title = 'Battery ' + st.bat + '%' + (st.chg === 'charging' ? ', charging' : st.chg === 'full' ? ', charged' :
+      low ? ', low: the buddy shows a low battery face every few minutes' : '');
   }
   $('#st').textContent = 'Bluetooth LE · ' + dev.name + ' · paired · ' + (st.cycling ? 'cycling' : nice(st.current)) + ' · ' + st.count + ' animations';
   if (names.length !== st.count && !refreshing && !uploading) refreshAll();   // the list changed (upload/delete elsewhere)
@@ -257,7 +260,7 @@ function renderConfig() {
   if (idle('#dname')) $('#dname').value = cfg.name;
   const b = cfg.battery;                                 // absent on firmware older than the battery measurement
   $('#batSt').hidden = !b; $('#batCal').hidden = !(b && b.present);
-  if (b) $('#batSt').textContent = b.present ? 'Battery: ' + b.pct + '% · ' + (b.mv / 1000).toFixed(2) + ' V' + (b.low ? ' · low' : '')
+  if (b) $('#batSt').textContent = b.present ? 'Battery: ' + b.pct + '% · ' + (b.mv / 1000).toFixed(2) + ' V' + (b.low ? ' · low' : '') + (b.chg === 'charging' ? ' · charging' : b.chg === 'full' ? ' · charged' : '')
     : 'Battery: none connected (a 100k/100k divider from the cell to GPIO 1, see hardware/README.md)';
   $('#netCard').hidden = !cfg.wifiBuild; $('#bleOff').hidden = !cfg.wifiBuild;
   if (cfg.wifi) {

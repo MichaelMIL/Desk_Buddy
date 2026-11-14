@@ -176,7 +176,7 @@ static void draw_loading(bool full) {
 static bool in_cycle(size_t idx) {
   const String &n = storeEntry(idx).name;
   if (!storeInTheme(n, cfg.theme)) return false;          // other themes' animations stay hidden
-  if (cfg.cycleList.isEmpty()) return !n.startsWith("battery_");   // battery_* are alerts, played when the battery is low
+  if (cfg.cycleList.isEmpty()) return !n.startsWith("battery_") && !n.startsWith("charging_");   // alerts, played by battery_alerts()
   String list = "," + cfg.cycleList + ",";
   return list.indexOf("," + n + ",") >= 0;
 }
@@ -392,38 +392,65 @@ static bool show_alert(const char *name, const char *l1, const char *big, const 
   return true;
 }
 
-/* Which low battery animation plays: battery_critical when critical (if the buddy
- * has it), else the battery_* animations on the buddy take turns in name order
- * (battery_critical not among them); "" when there are none (text screen). */
-static String next_battery_alert(const String &last, bool critical) {
+/* The next animation on the buddy named <prefix>..., in name order after `last`
+ * (wrapping round), leaving out `skip1` and `skip2`; "" when there is none. */
+static String next_named(const char *prefix, const String &last, const char *skip1, const char *skip2 = "") {
   Lock l;
-  if (critical && storeFind("battery_critical") >= 0) return "battery_critical";
   String first, next;
   for (size_t i = 0; i < storeCount(); i++) {
     const String &n = storeEntry(i).name;
-    if (!n.startsWith("battery_") || n == "battery_critical") continue;
+    if (!n.startsWith(prefix) || n == skip1 || n == skip2) continue;
     if (first.isEmpty() || n < first) first = n;
     if (n > last && (next.isEmpty() || n < next)) next = n;
   }
   return next.length() ? next : first;
 }
 
-/* Low battery: an alert when it gets low, then every 5 minutes (every minute when critical). */
+static bool on_buddy(const char *name) { Lock l; return storeFind(name) >= 0; }
+
+/* Battery alerts between the faces; each plays twice (once if it does not loop), then
+ * playback resumes. A text screen stands in when the buddy has no such animation.
+ * - Low (15 %, off the charger): at once, then every 5 minutes, every minute when
+ *   critical (5 %). battery_critical when critical, else the other battery_* in turn.
+ * - Plugged in (the charger's CHRG pad): charging_plugged_in, then every 10 minutes
+ *   while charging the other charging_* in turn (no text screen for those).
+ * - Charged (STDBY): charging_full, once per time on the charger. */
 static void battery_alerts() {
-  static uint32_t last = 0, tried = 0;
-  static bool shown = false;
-  static String played;                          // the last battery_* shown, for taking turns
+  static uint32_t tried = 0, lowAt = 0, chgAt = 0;
+  static bool lowShown = false, chgShown = false, fullShown = false;
+  static String lowPlayed, chgPlayed;          // the last ones shown, for taking turns
   BatteryInfo b = batteryGet();
-  if (!b.present || !b.low) { shown = false; return; }
-  if (shown && millis() - last < (b.critical ? 60000UL : 300000UL)) return;
-  if (millis() - tried < 1000) return;           // screen off or busy: look again in a second
-  tried = millis();
-  char pct[8];
-  snprintf(pct, sizeof(pct), "%u%%", b.pct);
-  String name = next_battery_alert(played, b.critical);
-  if (show_alert(name.c_str(), "Battery low", pct, "connect USB-C to charge")) {
-    shown = true; last = millis();
-    if (name.length() && name != "battery_critical") played = name;
+  uint32_t now = millis();
+  bool charger = b.charging || b.full;
+  if (!charger) chgShown = fullShown = false;  // a TP4056 that tops up after "full" is not a new plug-in
+  bool low = b.present && b.low && !charger;
+  if (!low) lowShown = false;
+  enum { DUE_FULL, DUE_CHARGING, DUE_LOW } what;   // (LOW is an Arduino macro)
+  if (b.full && !fullShown) what = DUE_FULL;
+  else if (b.charging && (!chgShown || now - chgAt >= 600000UL)) what = DUE_CHARGING;
+  else if (low && (!lowShown || now - lowAt >= (b.critical ? 60000UL : 300000UL))) what = DUE_LOW;
+  else return;
+  if (now - tried < 1000) return;              // screen off or busy: look again in a second
+  tried = now;
+  char pct[8] = "";
+  if (b.present) snprintf(pct, sizeof(pct), "%u%%", b.pct);
+  if (what == DUE_FULL) {
+    if (show_alert("charging_full", "Battery charged", pct, "")) fullShown = true;
+  } else if (what == DUE_CHARGING) {
+    String name = !chgShown && on_buddy("charging_plugged_in") ? String("charging_plugged_in")
+                : next_named("charging_", chgPlayed, "charging_full", "charging_plugged_in");
+    if (name.isEmpty() && chgShown) { chgAt = now; return; }   // the text screen only when plugged in
+    if (show_alert(name.c_str(), "Charging", pct, "")) {
+      chgShown = true; chgAt = now;
+      if (name != "charging_plugged_in") chgPlayed = name;
+    }
+  } else {
+    String name = b.critical && on_buddy("battery_critical") ? String("battery_critical")
+                : next_named("battery_", lowPlayed, "battery_critical");
+    if (show_alert(name.c_str(), "Battery low", pct, "connect USB-C to charge")) {
+      lowShown = true; lowAt = now;
+      if (name != "battery_critical") lowPlayed = name;
+    }
   }
 }
 #endif

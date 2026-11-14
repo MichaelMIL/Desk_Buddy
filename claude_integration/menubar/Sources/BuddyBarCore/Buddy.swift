@@ -6,11 +6,31 @@ public struct BuddyBattery: Decodable, Equatable {
     public var pct: Int                 // 0...100
     public var low: Bool                // the firmware's own call (15 % and below until back at 20 %)
     public var mv: Int?                 // cell voltage, over Wi-Fi only
+    public var charging: Bool           // on the charger and charging (the charger's status pads wired)
+    public var charged: Bool            // on the charger, done
 
-    public init(pct: Int, low: Bool = false, mv: Int? = nil) { self.pct = pct; self.low = low; self.mv = mv }
+    enum CodingKeys: String, CodingKey { case pct, low, mv, charging, charged }
 
-    /// SF Symbol by charge: battery.100 / .75 / .50 / .25 / .0
+    public init(pct: Int, low: Bool = false, mv: Int? = nil, charging: Bool = false, charged: Bool = false) {
+        self.pct = pct; self.low = low; self.mv = mv; self.charging = charging; self.charged = charged
+    }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        pct = try c.decode(Int.self, forKey: .pct)
+        low = try c.decodeIfPresent(Bool.self, forKey: .low) ?? false
+        mv = try c.decodeIfPresent(Int.self, forKey: .mv)
+        charging = try c.decodeIfPresent(Bool.self, forKey: .charging) ?? false
+        charged = try c.decodeIfPresent(Bool.self, forKey: .charged) ?? false
+    }
+
+    /// Low and not on the charger: shown in red.
+    public var alert: Bool { low && !charging && !charged }
+
+    /// SF Symbol by charge: battery.100.bolt while charging, else battery.100 / .75 / .50 / .25 / .0
     public var symbol: String {
+        if charging { return "battery.100.bolt" }
+        if charged { return "battery.100" }
         switch pct {
         case 88...: return "battery.100"
         case 63..<88: return "battery.75"
@@ -22,6 +42,8 @@ public struct BuddyBattery: Decodable, Equatable {
 
     public var help: String {
         let v = mv.map { String(format: ", %.2f V", Double($0) / 1000) } ?? ""
+        if charging { return "Battery \(pct) %\(v), charging" }
+        if charged { return "Battery charged (\(pct) %\(v))" }
         return low ? "Battery low (\(pct) %\(v)): charge the buddy" : "Battery \(pct) %\(v)"
     }
 }

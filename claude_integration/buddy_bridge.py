@@ -819,9 +819,10 @@ def anim_names(status):
 
 
 def battery_of(status):
-    """The buddy's battery as {'pct': 0-100, 'low': bool} (plus 'mv' over Wi-Fi), or None without a
-    battery or on firmware older than the battery measurement. Bluetooth's state carries "bat" and
-    "batLow"; Wi-Fi's /api/status a "battery" object (hardware/API.md)."""
+    """The buddy's battery as {'pct': 0-100, 'low': bool} (plus 'mv' over Wi-Fi, and 'charging': True
+    or 'charged': True while on the charger), or None without a battery or on firmware older than the
+    battery measurement. Bluetooth's state carries "bat", "batLow" and "chg"; Wi-Fi's /api/status a
+    "battery" object (hardware/API.md)."""
     st = status or {}
     b = st.get('battery')
     if isinstance(b, dict):
@@ -830,10 +831,16 @@ def battery_of(status):
         out = {'pct': b['pct'], 'low': bool(b.get('low'))}
         if isinstance(b.get('mv'), int):
             out['mv'] = b['mv']
-        return out
-    if isinstance(st.get('bat'), int):
-        return {'pct': st['bat'], 'low': bool(st.get('batLow'))}
-    return None
+        chg = b.get('chg')
+    elif isinstance(st.get('bat'), int):
+        out, chg = {'pct': st['bat'], 'low': bool(st.get('batLow'))}, st.get('chg')
+    else:
+        return None
+    if chg == 'charging':
+        out['charging'] = True
+    elif chg == 'full':
+        out['charged'] = True
+    return out
 
 
 # ---------------------------------------------------------------------------- the daemon's state
@@ -1693,7 +1700,8 @@ def _report_board(cfg):
     bat = battery_of(st)
     print('buddy:  %s is playing %s, %d animations stored%s' % (
         desc, st.get('current'), len(names),
-        ', battery %d%%%s' % (bat['pct'], ' (low: charge it)' if bat['low'] else '') if bat else ''))
+        ', battery %d%%%s' % (bat['pct'], ' (charging)' if bat.get('charging') else ' (charged)' if bat.get('charged')
+                              else ' (low: charge it)' if bat['low'] else '') if bat else ''))
     ctl = Controller(cfg, None)
     ctl.names = names
     first = lambda act: (ctl.candidates(act) or ['-'])[0]
