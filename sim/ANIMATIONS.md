@@ -85,10 +85,21 @@ the accessory (headphones, ears, crown, horn, hard hat, hood, goggles) plus a ma
 Common (theme-less) groups besides the `Face:` ones: `Eat:` (`eat.js`),
 `Attention:` (`attention.js`), `Notify:` (`notify.js`, meant to be played on
 an event), `Break:` (`break.js`, taking a break from work) and `Silly:`
-(`silly.js`). `Battery:` (`battery.js`) animations are alerts: the firmware
-plays `battery_low` by itself when the battery runs low and never puts a
-`battery_*` animation in the cycle, so keep them short (a few seconds; it
-plays twice) and small.
+(`silly.js`). `Battery:` (`battery.js`: low, plug me, please, sos, hungry, faint,
+critical) animations are alerts: while the battery is low the firmware plays
+one every few minutes by itself, taking turns through every `battery_*`
+animation on the board in name order (at 5% and below only
+`battery_critical`, when the board has it). It never puts them in the cycle,
+so a new `Battery:` animation joins the rotation just by being on the board;
+keep them short (a few seconds; each plays twice) and small. `Charging:`
+animations (also in `battery.js`: plugged in, power up, sip, relax, zap, full;
+stored as `charging_*`, so the low rotation never picks them) are for while
+the buddy charges, and never cycled either. With the charger's status pins
+wired (`hardware/README.md`, "Charging (optional)") the firmware plays
+`charging_plugged_in` when charging starts, then every 10 minutes the next of
+the others in name order (`charging_full` and `charging_plugged_in` excluded),
+and `charging_full` once when charged. `plugged in` and `full` tell a story
+once (`loop: false`); the others loop and play twice.
 
 ## Drawing API (`g`)
 

@@ -124,7 +124,8 @@ occasion ones (halloween, xmas, space, ocean, birthday, valentine, summer), clau
 rude (`rude.js`: the finger, a fart and so on, out of the normal cycle). Common groups
 besides the faces: eating, wanting attention, notifications, work breaks and silly
 faces (`eat.js`, `attention.js`, `notify.js`, `break.js`, `silly.js`), and the low
-battery alert (`battery.js`, played by the firmware, never cycled).
+battery alerts and charging faces (`battery.js`; the firmware plays them itself, when
+the battery is low or while it charges, and never cycles them).
 `template_*.js` hold the generic demos (eyes, bouncing ball, spinner, clock,
 confetti) in the `template` theme, for the bare template build, so they stay
 out of the other themes' cycles.
