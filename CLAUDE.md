@@ -9,7 +9,8 @@ PlatformIO firmware that plays what the simulator exports.
   and add them to `sim/animations/index.js`.
 - Verify: `sim/test/run_tests.sh` (format round trips across JS, Python, C)
   and `sim/test/smoke.sh` (headless Chrome renders and exports every
-  animation; needs Google Chrome). `sim/test/sheet.html?anim=<name>` shows a
+  animation, about a minute for ~150; needs Google Chrome and Node 22+; passes
+  only when the report ends in `SMOKE OK`). `sim/test/sheet.html?anim=<name>` shows a
   contact sheet of one animation.
 - Animation editor: `sim/editor.html` (visual keyframes via
   `sim/animations/face_rig.js`, or code). Editor-made files hold a `SPEC`;

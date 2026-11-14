@@ -217,7 +217,7 @@ The full description is at the top of `lib/dba.js`.
 
 ```sh
 sim/test/run_tests.sh   # JS encoder == Python encoder byte-for-byte, Python and C decoders round-trip, PNG round-trip
-sim/test/smoke.sh       # headless Chrome: loads the UI, renders and exports every animation
+sim/test/smoke.sh       # headless Chrome: loads the UI, renders and exports every animation (Node 22+, ~1 min)
 sim/test/sheet.html     # contact sheet of one animation: ?anim=Face:%20happy&n=12
 sim/test/push_all.sh <address>  # uploads every animation to a running board (address, usb or ble) (drives Chrome via test/headless.mjs)
 sim/test/export_all.sh  # compiles every animation into hardware/src/animations/ (built-in fallback)
