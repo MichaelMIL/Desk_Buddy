@@ -1,0 +1,78 @@
+{
+  "about": "Settings for fw_builder.py. Each option picks the PlatformIO base environment ('env'), adds -D flags ('flags'), can force other options ('forces'), and names the output file ('slug'). Format: README.md.",
+  "base_env": "esp32s3_supermini",
+  "options": [
+    {
+      "id": "wifi",
+      "label": "Wi-Fi",
+      "type": "bool",
+      "default": true,
+      "help": "Wi-Fi, MQTT / Home Assistant, the HTTP API and firmware updates over Wi-Fi. Off: Bluetooth and USB only, and 3.3 MB instead of 1.9 MB for animations.",
+      "upload_note": "Switching between a Wi-Fi and a no-Wi-Fi build changes the partition table: the animations stored on the buddy are erased (push them again afterwards).",
+      "on": {
+        "slug": "wifi"
+      },
+      "off": {
+        "env": "esp32s3_supermini_ble",
+        "slug": "nowifi"
+      }
+    },
+    {
+      "id": "ble",
+      "label": "Bluetooth",
+      "type": "bool",
+      "default": true,
+      "requires": "BUDDY_BLE",
+      "help": "Bluetooth LE control: the phone app, the menu bar app and the Claude Code bridge over Bluetooth (pairing code on the screen).",
+      "on": {
+        "slug": "ble"
+      },
+      "off": {
+        "flags": [
+          "-DBUDDY_BLE=0"
+        ],
+        "slug": "noble"
+      }
+    },
+    {
+      "id": "serial",
+      "label": "USB serial only",
+      "type": "bool",
+      "default": false,
+      "requires": "BUDDY_BLE",
+      "help": "Neither Wi-Fi nor Bluetooth: the buddy is controlled, updated and given animations over its USB cable only (sim/test/push_all.sh usb). The smallest firmware (about 300 KB), with 3.3 MB for animations.",
+      "on": {
+        "forces": {
+          "wifi": false,
+          "ble": false
+        },
+        "slug": "serial"
+      }
+    },
+    {
+      "id": "battery",
+      "label": "Battery level",
+      "type": "bool",
+      "default": true,
+      "help": "Measures a LiPo through a divider on GPIO 1, shows the level in every app and plays the battery and charging animations. Off: for buddies that always run on USB power (about 11 KB less firmware).",
+      "on": {
+        "slug": "bat"
+      },
+      "off": {
+        "flags": [
+          "-DBUDDY_BATTERY=0"
+        ],
+        "slug": "nobat"
+      }
+    }
+  ],
+  "warnings": [
+    {
+      "when": {
+        "wifi": false,
+        "ble": false
+      },
+      "text": "USB serial only: control, animations and firmware updates go over the USB cable."
+    }
+  ]
+}

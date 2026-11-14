@@ -1,0 +1,365 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Firmware builder</title>
+<!-- Served by fw_builder.py (python3 tools/fw_builder/fw_builder.py); the settings come from options.json. -->
+<style>
+  :root {
+    --bg: #f5f6f8; --card: #ffffff; --ink: #1d2127; --muted: #66707c; --line: #dfe3e8;
+    --accent: #2a6cff; --accent-ink: #ffffff; --ok: #1e9e52; --warn: #b26a00; --warn-bg: #fff4de;
+    --err: #c62f2f; --err-bg: #fde8e8; --code: #f0f2f5; --log: #111418; --log-ink: #d5dbe2;
+    --track: #e6e9ee;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #121417; --card: #1b1f24; --ink: #e6e9ed; --muted: #98a2ae; --line: #2c323a;
+      --accent: #5b8dff; --accent-ink: #0c1220; --ok: #3ccf7a; --warn: #f0b24a; --warn-bg: #2e2412;
+      --err: #ff6b6b; --err-bg: #331919; --code: #23282f; --log: #0b0d10; --log-ink: #cdd4dc;
+      --track: #2a3038;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink); font: 15px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+  header { padding: 18px 24px 6px; display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; }
+  h1 { font-size: 20px; margin: 0; }
+  .sub { color: var(--muted); font-size: 13px; }
+  main { display: grid; grid-template-columns: minmax(300px, 420px) 1fr; gap: 16px; padding: 12px 24px 24px; align-items: start; }
+  @media (max-width: 860px) { main { grid-template-columns: 1fr; padding: 12px 16px 16px; } header { padding: 16px 16px 4px; } }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 14px 16px; }
+  .card + .card { margin-top: 16px; }
+  h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin: 0 0 10px; }
+  .opt { display: grid; grid-template-columns: 1fr auto; gap: 2px 12px; padding: 10px 0; border-top: 1px solid var(--line); }
+  .opt:first-of-type { border-top: 0; padding-top: 2px; }
+  .opt label.name { font-weight: 600; }
+  .opt .help { grid-column: 1 / -1; color: var(--muted); font-size: 13px; }
+  .badge { display: inline-block; font-size: 11px; font-weight: 600; padding: 1px 7px; border-radius: 9px; background: var(--warn-bg); color: var(--warn); margin-left: 6px; vertical-align: 1px; }
+  .switch { position: relative; width: 44px; height: 26px; }
+  .switch input { opacity: 0; width: 100%; height: 100%; margin: 0; position: absolute; cursor: pointer; z-index: 1; }
+  .switch span { position: absolute; inset: 0; border-radius: 13px; background: var(--track); transition: background .15s; }
+  .switch span::after { content: ""; position: absolute; top: 3px; left: 3px; width: 20px; height: 20px; border-radius: 50%; background: #fff; box-shadow: 0 1px 2px rgba(0,0,0,.3); transition: transform .15s; }
+  .switch input:checked + span { background: var(--accent); }
+  .switch input:checked + span::after { transform: translateX(18px); }
+  .switch input:disabled { cursor: not-allowed; }
+  .switch input:disabled + span { opacity: .45; }
+  .switch input:focus-visible + span { outline: 2px solid var(--accent); outline-offset: 2px; }
+  select, input[type=text], input[type=password], input[type=number] { font: inherit; color: var(--ink); background: var(--card); border: 1px solid var(--line); border-radius: 6px; padding: 5px 8px; min-width: 0; }
+  dl { display: grid; grid-template-columns: auto 1fr; gap: 4px 12px; margin: 0; font-size: 14px; }
+  dt { color: var(--muted); }
+  dd { margin: 0; overflow-wrap: anywhere; }
+  code, .mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12.5px; }
+  .cmd { background: var(--code); border-radius: 6px; padding: 8px 10px; margin-top: 10px; white-space: pre-wrap; overflow-wrap: anywhere; }
+  .msg { border-radius: 6px; padding: 7px 10px; margin-top: 8px; font-size: 13.5px; }
+  .msg.warn { background: var(--warn-bg); color: var(--warn); }
+  .msg.err { background: var(--err-bg); color: var(--err); }
+  .msg.note { background: var(--code); color: var(--muted); }
+  .modes { display: grid; gap: 8px; }
+  .mode { display: grid; grid-template-columns: auto 1fr; gap: 4px 8px; align-items: center; }
+  .mode .extra { grid-column: 2; display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+  .mode .extra select { flex: 1 1 200px; }
+  .mode .extra input { flex: 1 1 140px; }
+  .mode.disabled { opacity: .5; }
+  .actions { display: flex; gap: 8px; margin-top: 14px; flex-wrap: wrap; align-items: center; }
+  button { font: inherit; font-weight: 600; border-radius: 7px; padding: 7px 16px; border: 1px solid var(--line); background: var(--card); color: var(--ink); cursor: pointer; }
+  button.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+  button:disabled { opacity: .5; cursor: not-allowed; }
+  button.small { padding: 4px 10px; font-weight: 500; font-size: 13px; }
+  .status { font-size: 13px; font-weight: 600; padding: 2px 9px; border-radius: 10px; background: var(--code); color: var(--muted); }
+  .status.running { color: var(--accent); }
+  .status.ok { color: var(--ok); }
+  .status.failed, .status.stopped { color: var(--err); }
+  .logcard { display: flex; flex-direction: column; min-height: 420px; }
+  .loghead { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; flex-wrap: wrap; }
+  .loghead h2 { margin: 0; }
+  pre#log { flex: 1; margin: 0; background: var(--log); color: var(--log-ink); border-radius: 8px; padding: 10px 12px; font: 12px/1.45 ui-monospace, SFMono-Regular, Menlo, monospace; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; min-height: 320px; max-height: 62vh; }
+  .result { display: grid; gap: 8px; margin-top: 12px; }
+  .bar { display: grid; grid-template-columns: 52px 1fr auto; gap: 10px; align-items: center; font-size: 13px; }
+  .bar .track { height: 10px; border-radius: 5px; background: var(--track); overflow: hidden; }
+  .bar .fill { height: 100%; border-radius: 5px; background: var(--ok); }
+  .bar .fill.amber { background: var(--warn); }
+  .bar .fill.red { background: var(--err); }
+  .hidden { display: none !important; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Desk Buddy firmware builder</h1>
+  <span class="sub" id="sub">loading…</span>
+</header>
+<main>
+  <div>
+    <section class="card">
+      <h2>Settings</h2>
+      <div id="opts"></div>
+    </section>
+    <section class="card">
+      <h2>Build</h2>
+      <dl>
+        <dt>Base</dt><dd class="mono" id="p-env">–</dd>
+        <dt>Flags</dt><dd class="mono" id="p-flags">–</dd>
+        <dt>Output</dt><dd class="mono" id="p-out">–</dd>
+      </dl>
+      <div class="cmd mono" id="p-cmd"></div>
+      <div id="p-msgs"></div>
+    </section>
+    <section class="card">
+      <h2>After the build</h2>
+      <div class="modes">
+        <div class="mode">
+          <input type="radio" name="mode" value="none" id="m-none" checked><label for="m-none">Only build: the file goes to <code id="outdir">out/</code></label>
+        </div>
+        <div class="mode" id="mode-usb">
+          <input type="radio" name="mode" value="usb" id="m-usb"><label for="m-usb">Flash over USB</label>
+          <div class="extra"><select id="port" aria-label="USB port"><option value="">any port (auto)</option></select><button class="small" id="refresh" type="button">Refresh</button></div>
+        </div>
+        <div class="mode" id="mode-ota">
+          <input type="radio" name="mode" value="ota" id="m-ota"><label for="m-ota">Update over Wi-Fi</label>
+          <div class="extra"><input type="text" id="host" placeholder="address, e.g. desk-buddy.local" aria-label="Buddy address"><input type="password" id="otapw" placeholder="update password (if set)" aria-label="Update password"></div>
+        </div>
+      </div>
+      <div id="u-notes"></div>
+      <div class="actions">
+        <button class="primary" id="go" type="button" disabled>Build</button>
+        <button id="stop" type="button" class="hidden">Stop</button>
+      </div>
+    </section>
+  </div>
+  <section class="card logcard">
+    <div class="loghead"><h2>Output</h2><span class="status" id="status">idle</span><span class="sub" id="jobname"></span></div>
+    <pre id="log"></pre>
+    <div class="result" id="result"></div>
+  </section>
+</main>
+<script>
+(() => {
+  const $ = id => document.getElementById(id);
+  const q = new URLSearchParams(location.search);
+  let token = q.get('t') || '';
+  try { if (token) sessionStorage.setItem('fwb-token', token); else token = sessionStorage.getItem('fwb-token') || ''; } catch (e) {}
+  if (q.get('t')) history.replaceState(null, '', location.pathname);
+
+  const store = {
+    get(k, d) { try { const v = localStorage.getItem('fwb-' + k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } },
+    set(k, v) { try { localStorage.setItem('fwb-' + k, JSON.stringify(v)); } catch (e) {} },
+  };
+
+  async function api(path, body) {
+    const r = await fetch(path, {
+      method: body === undefined ? 'GET' : 'POST',
+      headers: { 'X-Token': token, ...(body === undefined ? {} : { 'Content-Type': 'application/json' }) },
+      body: body === undefined ? undefined : JSON.stringify(body),
+    });
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(j.error || ('HTTP ' + r.status));
+    return j;
+  }
+
+  let doc = null, values = {}, cur = null, polling = false, since = 0;
+  const ctls = {};   // option id -> { o, input, note }
+
+  function el(tag, attrs = {}, ...kids) {
+    const e = document.createElement(tag);
+    for (const [k, v] of Object.entries(attrs)) {
+      if (k === 'class') e.className = v; else if (k === 'text') e.textContent = v;
+      else if (k.startsWith('on')) e.addEventListener(k.slice(2), v); else e.setAttribute(k, v);
+    }
+    for (const k of kids) if (k) e.append(k);
+    return e;
+  }
+
+  function renderOptions() {
+    const box = $('opts');
+    box.textContent = '';
+    for (const o of doc.options) {
+      const id = 'o-' + o.id;
+      let ctl;
+      if (o.type === 'bool') {
+        const inp = el('input', { type: 'checkbox', id, role: 'switch' });
+        inp.checked = !!values[o.id];
+        inp.disabled = !o.supported;
+        inp.addEventListener('change', () => { values[o.id] = inp.checked; changed(); });
+        ctl = el('span', { class: 'switch' }, inp, el('span'));
+        ctl.input = inp;
+      } else if (o.type === 'choice') {
+        ctl = el('select', { id });
+        for (const c of o.choices) ctl.append(el('option', { value: String(c.value), text: c.label || String(c.value) }));
+        ctl.value = String(values[o.id]);
+        ctl.disabled = !o.supported;
+        ctl.addEventListener('change', () => { values[o.id] = o.choices.find(c => String(c.value) === ctl.value).value; changed(); });
+      } else if (o.type === 'number') {
+        ctl = el('input', { type: 'number', id, ...(o.min != null ? { min: o.min } : {}), ...(o.max != null ? { max: o.max } : {}) });
+        ctl.value = values[o.id];
+        ctl.disabled = !o.supported;
+        ctl.addEventListener('change', () => { values[o.id] = Number(ctl.value); changed(); });
+      }
+      const name = el('label', { class: 'name', for: id, text: o.label });
+      if (!o.supported) name.append(el('span', { class: 'badge', text: 'needs firmware support' }));
+      const note = el('span', { class: 'badge hidden' });
+      name.append(note);
+      ctls[o.id] = { o, input: ctl.input || ctl, note };
+      box.append(el('div', { class: 'opt' }, name, ctl, o.help ? el('div', { class: 'help', text: o.help }) : null));
+    }
+  }
+
+  /* Options another one forces (e.g. "USB serial only" turns Wi-Fi and Bluetooth off):
+     show the forced value, greyed out; the user's own choice comes back when it is released. */
+  function applyForced() {
+    const forced = (cur && cur.forced) || {};
+    for (const [id, { o, input, note }] of Object.entries(ctls)) {
+      const by = forced[id], v = by ? cur.values[id] : values[id];
+      if (o.type === 'bool') input.checked = !!v; else input.value = String(v);
+      input.disabled = !o.supported || !!by;
+      note.textContent = by ? 'set by ' + by : '';
+      note.classList.toggle('hidden', !by);
+    }
+  }
+
+  function mode() { return document.querySelector('input[name=mode]:checked').value; }
+  function upload() {
+    const m = mode();
+    if (m === 'usb') return { type: 'usb', port: $('port').value || null };
+    if (m === 'ota') return { type: 'ota', host: $('host').value.trim(), password: $('otapw').value };
+    return null;
+  }
+
+  async function changed() {
+    store.set('values', values);
+    store.set('mode', mode());
+    store.set('host', $('host').value.trim());
+    try { cur = await api('/api/plan', { values, upload: upload() }); } catch (e) { cur = { errors: [e.message], warnings: [], flags: [] }; }
+    $('p-env').textContent = cur.env || '–';
+    $('p-flags').textContent = (cur.flags || []).join(' ') || '(none)';
+    $('p-out').textContent = cur.name ? doc.out_dir + '/' + cur.name + '.bin' : '–';
+    $('p-cmd').textContent = cur.command ? (cur.flags.length ? 'PLATFORMIO_BUILD_FLAGS="' + cur.flags.join(' ') + '" ' : '') + cur.command : '';
+    applyForced();
+    const msgs = $('p-msgs');
+    msgs.textContent = '';
+    for (const w of cur.warnings || []) msgs.append(el('div', { class: 'msg warn', text: w }));
+    for (const e of cur.errors || []) msgs.append(el('div', { class: 'msg err', text: e }));
+    // Wi-Fi updates only for Wi-Fi builds
+    const ota = !!cur.wifi_build;
+    $('mode-ota').classList.toggle('disabled', !ota);
+    $('m-ota').disabled = !ota;
+    if (!ota && mode() === 'ota') { document.querySelector('input[name=mode][value=none]').checked = true; }
+    const notes = $('u-notes');
+    notes.textContent = '';
+    if (mode() !== 'none') for (const n of cur.upload_notes || []) notes.append(el('div', { class: 'msg note', text: n }));
+    updateButtons();
+  }
+
+  function updateButtons(running = polling) {
+    const m = mode();
+    $('go').textContent = m === 'usb' ? 'Build and flash' : m === 'ota' ? 'Build and update' : 'Build';
+    const bad = !cur || (cur.errors || []).length > 0 || !doc.pio || (m === 'ota' && !$('host').value.trim());
+    $('go').disabled = running || bad;
+    $('stop').classList.toggle('hidden', !running);
+  }
+
+  async function loadPorts() {
+    const sel = $('port'), keep = sel.value || store.get('port', '');
+    $('refresh').disabled = true;
+    try {
+      const { ports } = await api('/api/ports');
+      sel.textContent = '';
+      sel.append(el('option', { value: '', text: 'any port (auto)' }));
+      for (const p of ports) sel.append(el('option', { value: p.port, text: p.port + (p.description && p.description !== 'n/a' ? '  ' + p.description : '') }));
+      if ([...sel.options].some(o => o.value === keep)) sel.value = keep;
+      else if (ports.length) sel.value = ports[0].port;
+    } catch (e) { /* keep the list */ }
+    $('refresh').disabled = false;
+  }
+
+  function setStatus(s) { const st = $('status'); st.textContent = s; st.className = 'status ' + s; }
+
+  function kb(n) { return (n / 1024).toFixed(n < 10240 ? 1 : 0) + ' KB'; }
+  function bar(label, r) {
+    const fill = el('div', { class: 'fill' + (r.pct >= 97 ? ' red' : r.pct >= 90 ? ' amber' : '') });
+    fill.style.width = Math.min(100, r.pct) + '%';
+    return el('div', { class: 'bar' }, el('span', { text: label }), el('div', { class: 'track' }, fill),
+      el('span', { class: 'mono', text: r.pct.toFixed(1) + '%  ' + kb(r.used) + ' / ' + kb(r.total) }));
+  }
+  function renderResult(j) {
+    const box = $('result');
+    box.textContent = '';
+    const r = j.result || {};
+    if (r.flash) box.append(bar('Flash', r.flash));
+    if (r.ram) box.append(bar('RAM', r.ram));
+    if (r.bin) box.append(el('div', { class: 'msg note' }, 'Firmware: ', el('code', { text: r.bin }), ' (' + kb(r.bytes) + ')'));
+    if (r.uploaded === 'usb') box.append(el('div', { class: 'msg note', text: 'Flashed over USB. The buddy restarts; give it a few seconds.' }));
+    if (r.uploaded === 'ota') box.append(el('div', { class: 'msg note', text: 'Sent over Wi-Fi. The buddy installs it and restarts.' }));
+  }
+
+  async function poll() {
+    if (polling) return;
+    polling = true;
+    updateButtons(true);
+    const log = $('log');
+    while (true) {
+      let j;
+      try { j = await api('/api/job?since=' + since); } catch (e) { await new Promise(r => setTimeout(r, 1000)); continue; }
+      if (j.lines.length) {
+        const atEnd = log.scrollTop + log.clientHeight >= log.scrollHeight - 30;
+        log.append(j.lines.join('\n') + '\n');
+        if (atEnd) log.scrollTop = log.scrollHeight;
+      }
+      since = j.next;
+      setStatus(j.status);
+      $('jobname').textContent = j.name || '';
+      renderResult(j);
+      if (j.status !== 'running') break;
+      await new Promise(r => setTimeout(r, 400));
+    }
+    polling = false;
+    updateButtons(false);
+  }
+
+  $('go').addEventListener('click', async () => {
+    if (!cur || cur.errors.length) return;
+    $('log').textContent = '';
+    $('result').textContent = '';
+    since = 0;
+    try {
+      await api('/api/build', { values, upload: upload() });
+      if (mode() === 'usb') store.set('port', $('port').value);
+      poll();
+    } catch (e) {
+      setStatus('failed');
+      $('log').textContent = 'error: ' + e.message + '\n';
+    }
+  });
+  $('stop').addEventListener('click', () => api('/api/stop', {}).catch(() => {}));
+  $('refresh').addEventListener('click', loadPorts);
+  for (const r of document.querySelectorAll('input[name=mode]')) r.addEventListener('change', changed);
+  $('host').addEventListener('input', () => { store.set('host', $('host').value.trim()); updateButtons(); });
+  $('host').addEventListener('change', changed);
+
+  (async () => {
+    if (!token) { $('sub').textContent = 'Open this page from the address fw_builder.py prints (it carries the access token).'; return; }
+    let info;
+    try { info = await api('/api/options'); } catch (e) { $('sub').textContent = 'Cannot reach fw_builder.py: ' + e.message; return; }
+    doc = { ...info.doc, out_dir: info.out_dir, pio: info.pio };
+    $('outdir').textContent = info.out_dir + '/';
+    $('sub').textContent = 'firmware ' + info.version + (info.pio ? '' : ' · PlatformIO (pio) not found: install it to build');
+    const saved = store.get('values', {});
+    for (const o of doc.options) {
+      const v = saved[o.id];
+      const ok = o.supported && (o.type === 'bool' ? typeof v === 'boolean'
+        : o.type === 'choice' ? o.choices.some(c => c.value === v)
+        : typeof v === 'number' && (o.min == null || v >= o.min) && (o.max == null || v <= o.max));
+      values[o.id] = ok ? v : o.default;
+    }
+    $('host').value = store.get('host', '');
+    const m = store.get('mode', 'none');
+    const r = document.querySelector('input[name=mode][value="' + m + '"]');
+    if (r) r.checked = true;
+    renderOptions();
+    await changed();
+    loadPorts();
+    const j = await api('/api/job').catch(() => null);
+    if (j && j.status !== 'idle') poll();
+  })();
+})();
+</script>
+</body>
+</html>
