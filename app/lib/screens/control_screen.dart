@@ -4,13 +4,18 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../buddy_link.dart';
+import '../buddy_theme.dart';
+import '../previews.dart';
 import '../protocol.dart';
 import '../widgets/battery_indicator.dart';
 import '../widgets/buddy_face.dart';
+import '../widgets/face_tile.dart';
+import 'gallery_tab.dart';
+import 'preview_sheet.dart';
 import 'settings_screen.dart';
 
-/// Connected: the remote (faces, screen, brightness, theme, playback) and a
-/// console for any command.
+/// Connected: the remote (faces, screen, brightness, theme, playback), the
+/// gallery of every animation, and a console for any command.
 class ControlScreen extends StatefulWidget {
   const ControlScreen({super.key, required this.link, required this.onForget});
 
@@ -96,8 +101,10 @@ class _ControlScreenState extends State<ControlScreen> {
             child: IndexedStack(
               index: _tab,
               children: [
-                _RemoteTab(link: link),
-                _ConsoleTab(link: link),
+                // hidden tabs stop their animations (TickerMode)
+                TickerMode(enabled: _tab == 0, child: _RemoteTab(link: link)),
+                TickerMode(enabled: _tab == 1, child: GalleryTab(link: link)),
+                TickerMode(enabled: _tab == 2, child: _ConsoleTab(link: link)),
               ],
             ),
           ),
@@ -108,6 +115,7 @@ class _ControlScreenState extends State<ControlScreen> {
         onDestinationSelected: (i) => setState(() => _tab = i),
         destinations: const [
           NavigationDestination(icon: Icon(Icons.tune_rounded), label: 'Remote'),
+          NavigationDestination(icon: Icon(Icons.grid_view_rounded), label: 'Gallery'),
           NavigationDestination(icon: Icon(Icons.terminal_rounded), label: 'Console'),
         ],
       ),
@@ -183,7 +191,7 @@ class _RemoteTab extends StatelessWidget {
             _NowPlaying(link: link, st: st),
             const SizedBox(height: 12),
             _BrightnessCard(link: link, value: st.brightness),
-            const _Section('Faces'),
+            const _Section('Faces', hint: 'Tap to preview · hold to play'),
             if (link.names.isEmpty && st.count > 0)
               const Padding(
                 padding: EdgeInsets.all(16),
@@ -192,19 +200,19 @@ class _RemoteTab extends StatelessWidget {
             else
               _FaceWrap(
                 names: ['cycle', ...faces.common],
+                browse: [...faces.common, ...faces.themed],
                 st: st,
+                link: link,
                 onBuddy: onBuddy,
-                onTap: (n) => n == 'cycle' ? link.cycle() : link.play(n),
-                onLongPress: (n) => _faceActions(context, link, n, onBuddy.contains(n)),
               ),
             if (faces.themed.isNotEmpty) ...[
-              _Section('${_cap(st.theme)} theme'),
+              _Section('${themeLabel(st.theme)} theme', emoji: emojiFor(st.theme), color: themeColor(st.theme)),
               _FaceWrap(
                 names: faces.themed,
+                browse: [...faces.common, ...faces.themed],
                 st: st,
+                link: link,
                 onBuddy: onBuddy,
-                onTap: link.play,
-                onLongPress: (n) => _faceActions(context, link, n, onBuddy.contains(n)),
               ),
             ],
             if (themes.isNotEmpty) ...[
@@ -216,8 +224,10 @@ class _RemoteTab extends StatelessWidget {
                   for (final t in ['', ...themes])
                     ChoiceChip(
                       avatar: t.isEmpty ? null : Text(emojiFor(t)),
-                      label: Text(t.isEmpty ? 'None' : _cap(t)),
+                      label: Text(t.isEmpty ? 'None' : themeLabel(t)),
                       selected: st.theme == t,
+                      selectedColor: themeColor(t).withValues(alpha: 0.3),
+                      side: BorderSide(color: themeColor(t).withValues(alpha: st.theme == t ? 0.9 : 0.3)),
                       onSelected: (_) {
                         HapticFeedback.selectionClick();
                         link.setTheme(t);
@@ -273,78 +283,41 @@ class _UploadBanner extends StatelessWidget {
   }
 }
 
-/// Long press on a face: play it, or delete it from the buddy. One that is
-/// only in the library can only be played (it is uploaded first).
-void _faceActions(BuildContext context, BuddyLink link, String name, bool onBuddy) {
-  if (name == 'cycle') return;
-  HapticFeedback.mediumImpact();
-  showModalBottomSheet<void>(
-    context: context,
-    showDragHandle: true,
-    builder: (sheet) => SafeArea(
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          ListTile(
-            leading: Text(emojiFor(name), style: const TextStyle(fontSize: 28)),
-            title: Text(niceName(name)),
-            subtitle: Text(onBuddy ? name : '$name · not on the buddy, uploads when played'),
-          ),
-          const Divider(),
-          ListTile(
-            leading: const Icon(Icons.play_arrow_rounded),
-            title: const Text('Play'),
-            onTap: () {
-              Navigator.pop(sheet);
-              link.play(name);
-            },
-          ),
-          if (onBuddy)
-            ListTile(
-              leading: Icon(Icons.delete_outline_rounded, color: Theme.of(sheet).colorScheme.error),
-              title: const Text('Delete from the buddy'),
-              onTap: () async {
-                Navigator.pop(sheet);
-                final ok = await showDialog<bool>(
-                  context: context,
-                  builder: (d) => AlertDialog(
-                    title: Text('Delete "${niceName(name)}"?'),
-                    content: const Text(
-                      'It is removed from the buddy\'s storage. Built-in animations stay. '
-                      'Push it again from the simulator to get it back.',
-                    ),
-                    actions: [
-                      TextButton(onPressed: () => Navigator.pop(d, false), child: const Text('Cancel')),
-                      FilledButton(onPressed: () => Navigator.pop(d, true), child: const Text('Delete')),
-                    ],
-                  ),
-                );
-                if (ok ?? false) link.deleteAnimation(name);
-              },
-            ),
-        ],
-      ),
-    ),
-  );
-}
-
-/// `xmas` → `Xmas`; short names are initials: `dj` → `DJ`.
-String _cap(String s) => s.length <= 2 ? s.toUpperCase() : s[0].toUpperCase() + s.substring(1);
-
 class _Section extends StatelessWidget {
-  const _Section(this.title);
+  const _Section(this.title, {this.hint, this.emoji, this.color});
   final String title;
+  final String? hint, emoji;
+  final Color? color;
 
   @override
-  Widget build(BuildContext context) => Padding(
-    padding: const EdgeInsets.fromLTRB(4, 22, 4, 10),
-    child: Text(
-      title.toUpperCase(),
-      style: Theme.of(
-        context,
-      ).textTheme.labelMedium?.copyWith(letterSpacing: 1.1, color: Theme.of(context).colorScheme.onSurfaceVariant),
-    ),
-  );
+  Widget build(BuildContext context) {
+    final text = Theme.of(context).textTheme;
+    final cs = Theme.of(context).colorScheme;
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(4, 22, 4, 10),
+      child: Row(
+        children: [
+          if (emoji != null) ...[Text(emoji!, style: const TextStyle(fontSize: 15)), const SizedBox(width: 6)],
+          Text(
+            title.toUpperCase(),
+            style: text.labelMedium?.copyWith(letterSpacing: 1.1, color: color ?? cs.onSurfaceVariant),
+          ),
+          if (hint != null) ...[
+            const SizedBox(width: 12),
+            Expanded(
+              child: Text(
+                hint!,
+                textAlign: TextAlign.end,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: text.labelSmall?.copyWith(color: cs.onSurfaceVariant.withValues(alpha: 0.8)),
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
 }
 
 class _NowPlaying extends StatelessWidget {
@@ -352,24 +325,75 @@ class _NowPlaying extends StatelessWidget {
   final BuddyLink link;
   final BuddyState st;
 
+  /// What the buddy takes turns with while cycling: the cycle list, or the
+  /// faces it shows with its theme (not the battery and charging alerts).
+  List<String> _cycleFaces() {
+    final listed = link.settings.cycleNames.where(link.names.contains).toList();
+    if (listed.isNotEmpty) return listed;
+    final f = facesFor(link.names, st.theme);
+    return [...f.common, ...f.themed].where((n) => !n.startsWith('battery_') && !n.startsWith('charging_')).toList();
+  }
+
   @override
   Widget build(BuildContext context) {
+    final text = Theme.of(context).textTheme;
+    final cs = Theme.of(context).colorScheme;
+    final speed = link.settings.speed ?? 100;
+    const size = 196.0;
+    final cycleFaces = st.cycling ? _cycleFaces() : const <String>[];
+    final screen = st.cycling
+        ? _CycleShow(
+            faces: cycleFaces.where(PreviewScope.of(context).has).toList(),
+            size: size,
+            speed: speed,
+            loops: link.settings.loops ?? 1,
+            screenOn: st.screen,
+            brightness: st.brightness,
+            glow: themeColor(st.theme),
+          )
+        : BuddyFace(
+            size: size,
+            animation: st.current,
+            emoji: emojiFor(st.current),
+            caption: niceName(st.current),
+            speed: speed,
+            screenOn: st.screen,
+            brightness: st.brightness,
+            glow: themeColor(themeOf(st.current).isEmpty ? st.theme : themeOf(st.current)),
+          );
     return Card(
       child: Padding(
         padding: const EdgeInsets.fromLTRB(16, 22, 16, 16),
         child: Column(
           children: [
-            GestureDetector(
-              onTap: () => link.setScreen(!st.screen),
-              child: BuddyFace(
-                size: 172,
-                emoji: emojiFor(st.cycling ? 'cycle' : st.current),
-                caption: st.cycling ? 'cycling' : niceName(st.current),
-                screenOn: st.screen,
-                brightness: st.brightness,
+            Semantics(
+              label: st.screen ? 'The buddy\'s screen' : 'The buddy\'s screen, off',
+              hint: st.screen ? 'Turns the screen off' : 'Turns the screen on',
+              button: true,
+              child: GestureDetector(
+                onTap: () {
+                  HapticFeedback.selectionClick();
+                  link.setScreen(!st.screen);
+                },
+                child: screen,
               ),
             ),
-            const SizedBox(height: 18),
+            const SizedBox(height: 14),
+            Text(
+              st.cycling ? 'Cycling' : niceName(st.current),
+              style: text.titleLarge?.copyWith(fontWeight: FontWeight.w600),
+            ),
+            Text(
+              !st.screen
+                  ? 'The screen is off'
+                  : st.cycling
+                  ? '${cycleFaces.length} faces take turns${st.theme.isEmpty ? '' : ' · ${themeLabel(st.theme)} theme'}'
+                  : themeOf(st.current).isEmpty
+                  ? 'On the buddy now'
+                  : '${themeLabel(themeOf(st.current))} theme · on the buddy now',
+              style: text.bodySmall?.copyWith(color: cs.onSurfaceVariant),
+            ),
+            const SizedBox(height: 14),
             Row(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
@@ -386,6 +410,90 @@ class _NowPlaying extends StatelessWidget {
           ],
         ),
       ),
+    );
+  }
+}
+
+/// While the buddy cycles it does not say which face is showing, so this
+/// takes turns with the same faces at the same pace (not in step with it).
+class _CycleShow extends StatefulWidget {
+  const _CycleShow({
+    required this.faces,
+    required this.size,
+    required this.speed,
+    required this.loops,
+    required this.screenOn,
+    required this.brightness,
+    required this.glow,
+  });
+  final List<String> faces;
+  final double size;
+  final int speed, loops, brightness;
+  final bool screenOn;
+  final Color glow;
+
+  @override
+  State<_CycleShow> createState() => _CycleShowState();
+}
+
+class _CycleShowState extends State<_CycleShow> {
+  int _i = 0;
+  Timer? _t;
+  Previews? _previews;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final p = PreviewScope.of(context);
+    if (p != _previews) {
+      _previews = p;
+      _arm();
+    }
+  }
+
+  @override
+  void didUpdateWidget(_CycleShow old) {
+    super.didUpdateWidget(old);
+    if (old.faces.length != widget.faces.length) _arm();
+  }
+
+  Future<void> _arm() async {
+    _t?.cancel();
+    if (widget.faces.isEmpty) return;
+    final name = widget.faces[_i % widget.faces.length];
+    final a = await _previews!.animation(name);
+    if (!mounted) return;
+    final ms = ((a?.durationMs ?? 3000) * widget.loops.clamp(1, 10) * 100 / widget.speed.clamp(10, 1000)).clamp(
+      2500,
+      10000,
+    );
+    _t?.cancel();
+    _t = Timer(Duration(milliseconds: ms.round()), () {
+      if (!mounted) return;
+      setState(() => _i++);
+      _arm();
+    });
+  }
+
+  @override
+  void dispose() {
+    _t?.cancel();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final faces = widget.faces;
+    final name = faces.isEmpty ? null : faces[_i % faces.length];
+    return BuddyFace(
+      size: widget.size,
+      animation: name,
+      emoji: '🔁',
+      caption: 'cycling',
+      speed: widget.speed,
+      screenOn: widget.screenOn,
+      brightness: widget.brightness,
+      glow: widget.glow,
     );
   }
 }
@@ -435,71 +543,45 @@ class _Action extends StatelessWidget {
 }
 
 class _FaceWrap extends StatelessWidget {
-  const _FaceWrap({required this.names, required this.st, required this.onTap, this.onLongPress, this.onBuddy});
+  const _FaceWrap({required this.names, required this.browse, required this.st, required this.link, this.onBuddy});
   final List<String> names;
+
+  /// What the preview swipes through.
+  final List<String> browse;
   final BuddyState st;
+  final BuddyLink link;
 
   /// Names stored on the buddy; the others are only in the library.
   final Set<String>? onBuddy;
-  final void Function(String name) onTap;
-  final void Function(String name)? onLongPress;
 
   @override
   Widget build(BuildContext context) {
-    final cs = Theme.of(context).colorScheme;
-    return Wrap(
-      spacing: 8,
-      runSpacing: 8,
-      children: [
-        for (final n in names)
-          Builder(
-            builder: (context) {
-              final on = n == 'cycle' ? st.cycling : (!st.cycling && n == st.current);
-              final stored = n == 'cycle' || onBuddy == null || onBuddy!.contains(n);
-              return Material(
-                color: on ? cs.primary : cs.surfaceContainerHigh,
-                borderRadius: BorderRadius.circular(14),
-                child: InkWell(
-                  borderRadius: BorderRadius.circular(14),
-                  onTap: () {
+    return LayoutBuilder(
+      builder: (context, box) {
+        // as many columns as fit at ~84 pt, filling the width
+        final cols = (box.maxWidth / 84).floor().clamp(3, 8);
+        final w = box.maxWidth / cols;
+        return Wrap(
+          children: [
+            for (final n in names)
+              FaceTile(
+                name: n,
+                width: w,
+                playing: n == 'cycle' ? st.cycling : (!st.cycling && n == st.current),
+                onBuddy: n == 'cycle' || onBuddy == null || onBuddy!.contains(n),
+                onTap: () {
+                  if (n == 'cycle') {
                     HapticFeedback.selectionClick();
-                    onTap(n);
-                  },
-                  onLongPress: onLongPress == null ? null : () => onLongPress!(n),
-                  child: Padding(
-                    padding: const EdgeInsets.fromLTRB(12, 10, 14, 10),
-                    child: Opacity(
-                      opacity: stored ? 1 : 0.55,
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Text(emojiFor(n), style: const TextStyle(fontSize: 18)),
-                          const SizedBox(width: 8),
-                          Text(
-                            niceName(n),
-                            style: TextStyle(
-                              color: on ? cs.onPrimary : cs.onSurface,
-                              fontWeight: on ? FontWeight.w600 : FontWeight.w400,
-                            ),
-                          ),
-                          if (!stored) ...[
-                            const SizedBox(width: 6),
-                            Icon(
-                              Icons.download_rounded,
-                              size: 15,
-                              color: cs.onSurfaceVariant,
-                              semanticLabel: 'not on the buddy, uploads when played',
-                            ),
-                          ],
-                        ],
-                      ),
-                    ),
-                  ),
-                ),
-              );
-            },
-          ),
-      ],
+                    link.cycle();
+                  } else {
+                    showPreview(context, link, browse, browse.indexOf(n));
+                  }
+                },
+                onLongPress: n == 'cycle' ? null : () => link.play(n),
+              ),
+          ],
+        );
+      },
     );
   }
 }

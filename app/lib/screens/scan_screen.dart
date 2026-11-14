@@ -58,7 +58,7 @@ class _ScanScreenState extends State<ScanScreen> {
             child: ListView(
               padding: const EdgeInsets.fromLTRB(16, 8, 16, 120),
               children: [
-                const Center(child: BuddyFace(size: 120, emoji: '👋')),
+                const Center(child: BuddyFace(size: 132, emoji: '👋', animation: 'attention_hey')),
                 const SizedBox(height: 16),
                 if (widget.link.error != null)
                   _Notice(

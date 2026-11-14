@@ -1,7 +1,10 @@
 import 'package:desk_buddy/buddy_link.dart';
 import 'package:desk_buddy/library.dart';
+import 'package:desk_buddy/buddy_theme.dart';
 import 'package:desk_buddy/main.dart';
+import 'package:desk_buddy/previews.dart';
 import 'package:desk_buddy/widgets/battery_indicator.dart';
+import 'package:desk_buddy/widgets/face_tile.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -141,12 +144,74 @@ void main() {
     expect(find.text('santa'), findsNothing); // xmas theme, not selected
   });
 
-  testWidgets('tapping a face plays it and the screen follows the state', (tester) async {
+  testWidgets('tapping a face previews it; Play on the buddy plays it', (tester) async {
     final (b, _) = await connected(tester);
     await tester.tap(find.text('sleepy'));
     await settle(tester);
+    expect(find.text('Play on the buddy'), findsOneWidget); // the preview sheet
+    expect(find.text('On your buddy'), findsOneWidget);
+    expect(b.commands.where((c) => c.startsWith('play')), isEmpty); // nothing sent yet
+    await tester.tap(find.text('Play on the buddy'));
+    await settle(tester);
     expect(b.commands.last, 'play face_sleepy');
+    expect(find.text('Playing now'), findsOneWidget);
+    expect(find.text('Play again'), findsOneWidget);
     expect(find.text('sleepy · 7 animations'), findsOneWidget);
+  });
+
+  testWidgets('the preview swipes to the next face', (tester) async {
+    final (b, _) = await connected(tester);
+    await tester.tap(find.text('sleepy'));
+    await settle(tester);
+    expect(find.text('3 of 5'), findsOneWidget); // clock, happy, sleepy, then the robot theme's two
+    await tester.tap(find.byTooltip('Next'));
+    await settle(tester);
+    expect(find.text('4 of 5'), findsOneWidget);
+    expect(find.text('Robot theme'), findsOneWidget);
+    await tester.tap(find.text('Play on the buddy'));
+    await settle(tester);
+    expect(b.commands.last, 'play robot__boot');
+  });
+
+  testWidgets('holding a face plays it right away', (tester) async {
+    final (b, _) = await connected(tester);
+    await tester.longPress(find.text('sleepy'));
+    await settle(tester);
+    expect(b.commands.last, 'play face_sleepy');
+    expect(find.text('Play on the buddy'), findsNothing); // no sheet
+    expect(find.text('sleepy · 7 animations'), findsOneWidget);
+  });
+
+  testWidgets('the gallery has every theme; "Use theme" switches the buddy to it', (tester) async {
+    final (b, _) = await connected(tester);
+    await tester.tap(find.text('Gallery'));
+    await settle(tester);
+    expect(find.text('santa'), findsOneWidget); // xmas: not the buddy's theme, still in the gallery
+    expect(find.text('Xmas theme'), findsOneWidget);
+    expect(find.text('Robot theme'), findsOneWidget);
+    await tester.tap(find.widgetWithText(FilledButton, 'Use theme').last); // the last header: xmas
+    await settle(tester);
+    expect(b.commands.last, 'theme xmas');
+    await tester.tap(find.text('santa'));
+    await settle(tester);
+    expect(find.text('Play on the buddy'), findsOneWidget);
+  });
+
+  testWidgets('the app takes on the color of the buddy\'s theme', (tester) async {
+    final (_, link) = await connected(tester);
+    Color primary() => Theme.of(tester.element(find.text('Desk Buddy'))).colorScheme.primary;
+    final robot = primary();
+    await tester.tap(find.text('Xmas'));
+    await settle(tester);
+    expect(link.state!.theme, 'xmas');
+    await tester.pumpAndSettle(const Duration(seconds: 1)); // the theme animates
+    expect(primary(), isNot(robot));
+    await tester.tap(find.text('None'));
+    await settle(tester);
+    await tester.pumpAndSettle(const Duration(seconds: 1));
+    final none = primary();
+    expect(none, isNot(robot));
+    expect(themeColor(''), buddyBlue);
   });
 
   testWidgets('choosing a theme switches the themed faces', (tester) async {
@@ -187,9 +252,9 @@ void main() {
     expect(find.text('speed 200%'), findsOneWidget);
   });
 
-  testWidgets('long-press a face to delete it, after a confirmation', (tester) async {
+  testWidgets('delete a face from its preview, after a confirmation', (tester) async {
     final (b, link) = await connected(tester);
-    await tester.longPress(find.text('sleepy'));
+    await tester.tap(find.text('sleepy'));
     await settle(tester);
     await tester.tap(find.text('Delete from the buddy'));
     await settle(tester);
@@ -239,7 +304,7 @@ void main() {
     expect(b.commands.where((c) => c.startsWith('wifi')), isEmpty);
   });
 
-  testWidgets('a face only in the library is marked, and tapping it uploads then plays it', (tester) async {
+  testWidgets('a face only in the library is marked, previewed, then uploaded and played', (tester) async {
     tester.view.physicalSize = const Size(1290, 7200);
     tester.view.devicePixelRatio = 3;
     addTearDown(tester.view.reset);
@@ -250,15 +315,20 @@ void main() {
       await link.connect('id', name: 'Desk Buddy');
       await Future<void>.delayed(const Duration(milliseconds: 30));
     });
-    await tester.pumpWidget(DeskBuddyApp(link: link));
+    await tester.pumpWidget(DeskBuddyApp(link: link, previews: Previews(() => link.library, inline: true)));
     await tester.pumpAndSettle();
 
-    final wink = find.ancestor(of: find.text('wink'), matching: find.byType(Row));
+    final wink = find.ancestor(of: find.text('wink'), matching: find.byType(FaceTile));
     expect(find.descendant(of: wink, matching: find.byIcon(Icons.download_rounded)), findsOneWidget);
-    expect(find.descendant(of: find.ancestor(of: find.text('happy'), matching: find.byType(Row)),
+    expect(find.descendant(of: find.ancestor(of: find.text('happy'), matching: find.byType(FaceTile)),
         matching: find.byIcon(Icons.download_rounded)), findsNothing);
 
     await tester.tap(find.text('wink'));
+    await settle(tester);
+    expect(find.text('Not on the buddy'), findsOneWidget);
+    expect(find.textContaining('uploads 3 KB over Bluetooth'), findsOneWidget);
+    expect(b.commands.where((c) => c.startsWith('upload')), isEmpty); // only previewed so far
+    await tester.tap(find.text('Send to the buddy and play'));
     for (var i = 0; i < 4; i++) {
       await settle(tester); // the upload's steps alternate between the real event loop and the test's clock
     }

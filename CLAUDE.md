@@ -60,6 +60,9 @@ PlatformIO firmware that plays what the simulator exports.
   (a fake buddy in `test/fake_buddy.dart`, no hardware); the real board is
   exercised by `flutter test integration_test/device_test.dart -d macos`.
   It uses universal_ble, not flutter_blue_plus 2.x (license and build ping).
+  Its previews decode animations with `app/lib/dba.dart` (a Dart port of
+  `hardware/lib/dba_player/`), so a DBA1/DBAL format change needs it too;
+  `test/dba_test.dart` compares it with `sim/tools/dba.py`.
 - 3D model: `3d/round_bot.scad`, STLs in `3d/stl/`. The assembly guide PDF is
   built from `3d/guide/assembly_guide.html` with `node 3d/guide/build_pdf.mjs`
   (headless Chrome); when you add a body, band or side piece, add it to the

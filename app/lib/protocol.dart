@@ -438,8 +438,15 @@ const _emoji = <String, String>{
   'gamer': '🎮', 'halloween': '🎃', 'king': '👑', 'ocean': '🌊', 'robot': '🤖',
   'skeleton': '💀', 'space': '🚀', 'summer': '☀️', 'unicorn': '🦄',
   'valentine': '💘', 'xmas': '🎄', 'stpatricks': '🍀', 'template': '🧩',
-  'builder': '👷', 'hacker': '🧑‍💻',
+  'builder': '👷', 'hacker': '🧑‍💻', 'scientist': '🔬', 'spicy': '🌶️', 'rude': '😜',
 };
+
+/// `xmas` → `Xmas`; short names are initials: `dj` → `DJ`; none → `Faces`.
+String themeLabel(String theme) => theme.isEmpty
+    ? 'Faces'
+    : theme.length <= 2
+    ? theme.toUpperCase()
+    : theme[0].toUpperCase() + theme.substring(1);
 
 /// A decorative emoji for an animation or theme name; the longest matching
 /// word wins, then the theme's emoji, then a sparkle.

@@ -21,11 +21,22 @@ What it does:
   charging animations (it picks at random from a pool per state: low,
   critical, plugged in, while charging, charged) and which animations are in
   each pool, with a **Try** button per pool. Hidden on firmware without it.
-- **Remote:** a picture of the round screen with the playing face, cycle /
-  next / screen on-off, brightness, the faces (common ones plus the selected
-  theme's, as on the device), theme picker, speed, loops per face, rotation,
-  and which faces cycle.
-- **Long-press a face** to play or delete it.
+- **Remote:** the round screen playing the same animation as the buddy (while
+  it cycles, the app takes turns with the same faces, not in step with it),
+  cycle / next / screen on-off, brightness, the faces (common ones plus the
+  selected theme's, as on the device), theme picker, speed, loops per face,
+  rotation, and which faces cycle.
+- **Previews:** tap a face to see it play before it goes to the buddy, at the
+  buddy's speed, with its theme, length, size and whether it is on the buddy;
+  swipe for the next one. Then **Play on the buddy** (or **Send to the buddy
+  and play**, which uploads it first), switch to its theme, or delete it.
+  Press and hold a face to play it right away.
+- **Gallery:** every animation, on the buddy or only in the app, as little
+  round screens grouped by theme, filtered by where it is or by theme; **Use
+  theme** switches the buddy to one.
+- **Themed:** the app takes on the color of the buddy's theme (the hacker
+  theme turns it green, Claude orange), and each theme's faces are framed in
+  their color. Reduced motion shows still pictures instead of animations.
 - **Animations deleted from the buddy come back:** the app carries the
   animation library, shows faces the buddy no longer has (dimmed, with a
   download mark), and uploads one when you play it. When the buddy is full it
@@ -74,8 +85,9 @@ otherwise it adds nothing to the build. It needs Google Chrome; without it the
 app keeps the animations it had. `DESK_BUDDY_SKIP_LIBRARY=1` skips it, and
 `tool/sync_library.sh --force` exports now.
 
-The buddy accepts one connection at a time. Close the simulator's remote page
-or any other app connected to it first.
+The buddy accepts two connections at a time (apps on one computer share one).
+If it does not show up, two other devices are connected: close the simulator's
+remote page or another app first.
 
 ## Code
 
@@ -87,9 +99,13 @@ or any other app connected to it first.
 | `lib/scanner.dart` | Scanning by service UUID, Bluetooth on/allowed state |
 | `lib/saved_device.dart` | The remembered buddy (shared_preferences) |
 | `lib/library.dart` | The bundled animation library and when each animation last played |
+| `lib/dba.dart` | Decodes animations for previews: DBAL/DBAZ containers, LZMA, DBA1 frames into RGBA (a port of `hardware/lib/dba_player/`; `test/dba_test.dart` checks it against `sim/tools/dba.py`) |
+| `lib/previews.dart` | Decoded animations and their still pictures, on a background isolate, cached |
+| `lib/buddy_theme.dart` | A color per theme; the app's accent follows the buddy's theme |
 | `tool/sync_library.sh` | Run by every build: exports the simulator's animations into `assets/library` when they changed |
-| `lib/screens/` | Scan, connecting/pairing, remote and console, buddy settings |
-| `lib/widgets/buddy_face.dart` | The round-screen picture |
+| `lib/screens/` | Scan, connecting/pairing, remote, gallery, preview sheet, console, buddy settings |
+| `lib/widgets/buddy_face.dart` | The round screen in its bezel, playing an animation (or an emoji when the library lacks it) |
+| `lib/widgets/animation_view.dart` | The player (pauses off screen, in the background and with reduced motion) and still pictures |
 
 Protocol rules from `hardware/BLE.md` that the code follows:
 
@@ -110,7 +126,7 @@ paid license for use by for-profit organizations and it sends a build-time
 ## Tests
 
 ```sh
-flutter test                                          # protocol, controller, screens (no hardware)
+flutter test                                          # protocol, controller, screens, decoder (no hardware)
 flutter test integration_test/device_test.dart -d macos   # against a real buddy nearby
 flutter test integration_test/library_test.dart -d macos  # upload from the library, play, delete again
 ```

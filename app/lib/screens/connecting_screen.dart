@@ -21,7 +21,12 @@ class ConnectingScreen extends StatelessWidget {
             child: ConstrainedBox(
               constraints: const BoxConstraints(maxWidth: 440),
               child: Column(mainAxisSize: MainAxisSize.min, children: [
-                BuddyFace(size: 150, emoji: pairing ? '🔐' : '📡', pulse: true),
+                BuddyFace(
+                  size: 150,
+                  emoji: pairing ? '🔐' : '📡',
+                  animation: pairing ? null : 'template__eyes',
+                  pulse: true,
+                ),
                 const SizedBox(height: 20),
                 Text(
                   pairing ? 'Pair with ${link.deviceName}' : 'Connecting to ${link.deviceName}…',
