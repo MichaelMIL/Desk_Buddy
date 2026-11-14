@@ -3,7 +3,8 @@
  * round GC9A01 display. Faces are chosen over Bluetooth LE (ble.cpp), MQTT,
  * the HTTP API (net.cpp, hardware/API.md) or the serial console; new faces
  * arrive over the HTTP API, Bluetooth or USB serial (upload.cpp).
- * Built with -DBUDDY_WIFI=0 there is no Wi-Fi, MQTT or HTTP API (see config.h).
+ * Built with -DBUDDY_WIFI=0 there is no Wi-Fi, MQTT or HTTP API, with -DBUDDY_BLE=0
+ * no Bluetooth (see config.h).
  *
  * Tasks: a render task pinned to core 0 draws frames; the Arduino loop
  * (core 1) runs Wi-Fi, the API server, uploads, OTA, MQTT, Bluetooth commands
@@ -567,7 +568,7 @@ String app_state_json() {
 /* Settings and status as one line of JSON, for clients ("config" command). */
 static String app_config_json() {
   Lock l;
-  String s = "{\"name\":" + jsonStr(cfg.name) + ",\"version\":\"" FW_VERSION "\",\"wifiBuild\":" + (BUDDY_WIFI ? "true" : "false");
+  String s = "{\"name\":" + jsonStr(cfg.name) + ",\"version\":\"" FW_VERSION "\",\"wifiBuild\":" + (BUDDY_WIFI ? "true" : "false") + ",\"bleBuild\":" + (BUDDY_BLE ? "true" : "false");
   s += ",\"speed\":" + String(cfg.speed) + ",\"loops\":" + String(cfg.loops) + ",\"rotation\":" + String(cfg.rotation);
   s += ",\"cycleList\":" + jsonStr(cfg.cycleList) + ",\"start\":" + jsonStr(cfg.anim);
   s += ",\"count\":" + String(storeCount()) + ",\"freeKb\":" + String(storeFreeBytes() / 1024) + ",\"totalKb\":" + String(storeTotalBytes() / 1024);
@@ -647,6 +648,8 @@ void app_command(const String &line, Print &out) {
 #else
     out.println("alerts: not in this build (BUDDY_BATTERY=0)");
 #endif
+  } else if (cmd == "ble" && !BUDDY_BLE) {
+    out.println("bluetooth: not in this build (BUDDY_BLE=0)");
   } else if (cmd == "ble" && arg == "forget") {
     bleForgetAll(); out.println("forgot all paired Bluetooth devices (remove the buddy on those devices too)");
   } else if (cmd == "ble") {

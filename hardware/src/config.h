@@ -8,6 +8,11 @@
 #ifndef BUDDY_WIFI
 #define BUDDY_WIFI 1
 #endif
+/* -DBUDDY_BLE=0 leaves out Bluetooth LE (NimBLE): no remote control, pairing or
+ * uploads over Bluetooth (ble.h has stubs). With BUDDY_WIFI=0 too, only USB serial is left. */
+#ifndef BUDDY_BLE
+#define BUDDY_BLE 1
+#endif
 /* -DBUDDY_BATTERY=0 (the *_nobat environments) leaves out the battery
  * measurement and the low battery alert (battery.h): for buddies on USB power. */
 #ifndef BUDDY_BATTERY

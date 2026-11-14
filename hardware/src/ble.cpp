@@ -1,4 +1,5 @@
 #include "ble.h"
+#if BUDDY_BLE                     // else ble.h has stubs and this file is empty
 #include "app.h"
 #include "config.h"
 #include "upload.h"
@@ -212,3 +213,5 @@ void bleLoop() {
     }
   }
 }
+
+#endif  // BUDDY_BLE

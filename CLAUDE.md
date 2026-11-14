@@ -40,7 +40,8 @@ PlatformIO firmware that plays what the simulator exports.
   code on the screen, every console command, the upload protocol) in
   `hardware/BLE.md`. Two builds: `esp32s3_supermini` (Wi-Fi) and
   `esp32s3_supermini_ble` (`BUDDY_WIFI=0`: Bluetooth + USB only, 3.3 MB
-  LittleFS; switching builds erases stored animations). Battery level:
+  LittleFS; switching builds erases stored animations). `-DBUDDY_BLE=0`
+  leaves Bluetooth out (`ble.h` stubs), for either build. Battery level:
   `hardware/src/battery.h` (100k/100k divider on GPIO 1; `bat`/`batLow` in
   the state JSON, which every client shows; `chg` from the charger's pads on
   GPIO 2/4); `battery_*` and `charging_*` animations are alerts the firmware
@@ -84,3 +85,10 @@ PlatformIO firmware that plays what the simulator exports.
   menu bar app `claude_integration/menubar/` (Swift; `swift test`,
   `build.sh --install`) reads the daemon's `GET /status`, so keep that
   snapshot's keys in step with `menubar/Sources/BuddyBarCore/Snapshot.swift`.
+- Firmware builder: `tools/fw_builder/fw_builder.py` (browser GUI, or
+  `--list` / `--plan` / `--build k=v [--upload usb|ota:<host>]`) builds
+  `hardware/` from settings in `tools/fw_builder/options.json` (base env +
+  `-D` flags via `PLATFORMIO_BUILD_FLAGS`, build dir `hardware/.pio/fw_builder`,
+  output in `tools/fw_builder/out/`). A new compile-time firmware option
+  (`BUDDY_*` in `config.h`) gets an entry there; tests
+  `python3 tools/fw_builder/test_fw_builder.py`.

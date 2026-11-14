@@ -12,7 +12,8 @@ it with `ble on` / `ble off` (serial or Bluetooth) or `ble=1|0` in
 Wi-Fi (`pio run -e esp32s3_supermini_ble`) it is always on: it is the only
 wireless link. `status` and `GET /api/status` show `off`,
 `advertising as 'Desk Buddy', 1 paired`, `connected, not paired` or
-`connected, paired`.
+`connected, paired`. Firmware built with `-DBUDDY_BLE=0` has no Bluetooth at
+all (`not in this build`; [README](README.md#two-builds)).
 
 ## How the connection works
 

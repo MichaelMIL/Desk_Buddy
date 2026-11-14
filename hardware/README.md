@@ -164,6 +164,15 @@ flash) erases the stored animations; push them again afterwards
 In code the switch is `BUDDY_WIFI` (`src/config.h`): with 0, `net.cpp` and
 `mqtt.cpp` compile to nothing and their headers become empty stubs.
 
+Bluetooth can be left out too, with the build flag `-DBUDDY_BLE=0` (no
+environment of its own; e.g. `PLATFORMIO_BUILD_FLAGS=-DBUDDY_BLE=0 pio run`):
+no NimBLE, so no remote control, pairing or uploads over Bluetooth, and
+`status` says "bluetooth: not in this build" (`config` has `"bleBuild":false`,
+`bonds` -1). The Wi-Fi build is then ~805 KB; with `BUDDY_WIFI=0` as well
+(`-e esp32s3_supermini_ble`) only USB serial is left, ~307 KB. In code:
+`BUDDY_BLE` (`src/config.h`); `ble.cpp` compiles to nothing and `ble.h` has
+stubs.
+
 Each build also comes without the [battery level](#battery-level-optional),
 for buddies that always run on USB power:
 

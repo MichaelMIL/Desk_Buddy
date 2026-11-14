@@ -26,10 +26,20 @@
  * Arduino loop (core 1), like serial and web requests. */
 #pragma once
 #include <Arduino.h>
+#include "config.h"
 
+#if BUDDY_BLE
 void bleBegin();          // starts advertising if cfg.ble is on
 void bleLoop();           // runs received commands, sends replies and state
 void bleStateChanged();   // from any task: refresh + notify the state characteristic
 String bleStatus();       // "off" | "advertising as '<name>', <n> paired" | "connected, paired" | "connected, not paired"
 int bleBondCount();       // paired (bonded) devices, -1 when Bluetooth is off
 void bleForgetAll();      // delete every bond (also works with Bluetooth off)
+#else                     // built with -DBUDDY_BLE=0: no Bluetooth at all
+inline void bleBegin() {}
+inline void bleLoop() {}
+inline void bleStateChanged() {}
+inline String bleStatus() { return "not in this build"; }
+inline int bleBondCount() { return -1; }
+inline void bleForgetAll() {}
+#endif
